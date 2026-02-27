@@ -1,0 +1,63 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                 Int           @id @default(autoincrement())
+  telegramId         BigInt        @unique
+  firstName          String
+  username           String?
+  logFrequency       String        // "daily" | "bi-daily" | "every-3-days" | "weekly"
+  reminderTime       String        // "HH:MM" in 24hr format
+  timezone           String        @default("Africa/Lagos")
+  isPro              Boolean       @default(false)
+  freeAiRefinements  Int           @default(3)
+  onboardingDone     Boolean       @default(false)
+  createdAt          DateTime      @default(now())
+  logs               Log[]
+  subscription       Subscription?
+}
+
+model Log {
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  user            User     @relation(fields: [userId], references: [id])
+  content         String
+  refinedContent  String?
+  logDate         DateTime
+  isVoice         Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Subscription {
+  id           Int      @id @default(autoincrement())
+  userId       Int      @unique
+  user         User     @relation(fields: [userId], references: [id])
+  paystackRef  String   @unique
+  status       String   // "active" | "cancelled" | "expired"
+  startDate    DateTime
+  endDate      DateTime
+  createdAt    DateTime @default(now())
+}
+
+model ReminderJob {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  telegramId   BigInt
+  scheduledFor DateTime
+  status       String   // "pending" | "sent" | "snoozed" | "skipped"
+  snoozeCount  Int      @default(0)
+  createdAt    DateTime @default(now())
+}
