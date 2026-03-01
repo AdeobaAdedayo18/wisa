@@ -3,6 +3,7 @@ import fs from "fs";
 import axios from "axios";
 import { InlineKeyboard } from "grammy";
 import { prisma } from "../lib/prisma";
+import { sendScene } from "../utils/constants";
 import { refineLog, transcribeVoice } from "../services/openai";
 import type { BotContext } from "./types";
 
@@ -261,7 +262,7 @@ export async function handleVoiceSave(ctx: BotContext): Promise<void> {
   if (!dbUser) return;
 
   try {
-    await prisma.log.create({
+    const savedLog = await prisma.log.create({
       data: {
         userId: dbUser.id,
         content: transcription,
@@ -272,11 +273,21 @@ export async function handleVoiceSave(ctx: BotContext): Promise<void> {
 
     ctx.session.pendingVoiceTranscription = undefined;
 
-    await ctx.editMessageText("Log saved! 🎉 Your voice log is in the books 📖", {
+    await ctx.editMessageText("Saving your voice log\u2026 🎙️").catch(() => {});
+
+    await sendScene(
+      ctx,
+      "scene8",
+      `Log saved! 📖✨\n\nGreat work documenting your day. Keep it up — your future self will thank you 🙌`,
+    );
+
+    await ctx.reply("What would you like to do next?", {
       reply_markup: new InlineKeyboard()
-        .text("📅 View calendar", "nav_calendar")
+        .text("✨ Refine with AI", `ai_refine_${savedLog.id}`)
+        .row()
+        .text("📖 View logs", "nav_calendar")
         .text("🏠 Menu", "nav_menu"),
-    }).catch(() => {});
+    });
   } catch (err) {
     console.error("Error saving voice log:", err);
     await ctx.reply("Couldn't save the log. Please try again. 😢");

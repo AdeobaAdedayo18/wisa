@@ -2,6 +2,7 @@ import cron from "node-cron";
 import { Bot } from "grammy";
 import { prisma } from "../lib/prisma";
 import { getReminderMessage, scheduleNextJob } from "../bot/reminders";
+import { sendSceneViaApi } from "../utils/constants";
 import type { BotContext } from "../bot/types";
 
 export function startScheduler(bot: Bot<BotContext>): void {
@@ -31,16 +32,19 @@ export function startScheduler(bot: Bot<BotContext>): void {
           continue;
         }
 
-        await bot.api.sendMessage(Number(job.telegramId), getReminderMessage(), {
-          parse_mode: "Markdown",
-          reply_markup: {
+        await sendSceneViaApi(
+          bot.api,
+          Number(job.telegramId),
+          "scene5",
+          getReminderMessage(),
+          {
             inline_keyboard: [
               [{ text: "✍️ Write my log", callback_data: "write_log" }],
               [{ text: "⏳ Remind me in 30 mins", callback_data: `snooze_${job.id}` }],
               [{ text: "🙈 Skip today", callback_data: `skip_${job.id}` }],
             ],
           },
-        });
+        );
 
         await prisma.reminderJob.update({
           where: { id: job.id },
@@ -78,17 +82,16 @@ export function startScheduler(bot: Bot<BotContext>): void {
         });
 
         if (newSnoozeCount >= 3) {
-          // Final auto-nudge — send Scene 6 message directly
-          await bot.api.sendMessage(
+          // Final auto-nudge — Scene 6
+          await sendSceneViaApi(
+            bot.api,
             Number(job.telegramId),
+            "scene6",
             `Okay okay, last reminder for today! 😅\n\nYou've been quiet a while — just write *something*, even one sentence. Your logbook needs you! 🙏`,
             {
-              parse_mode: "Markdown",
-              reply_markup: {
-                inline_keyboard: [
-                  [{ text: "✍️ Write my log", callback_data: "write_log" }],
-                ],
-              },
+              inline_keyboard: [
+                [{ text: "✍️ Write my log", callback_data: "write_log" }],
+              ],
             },
           );
         } else {

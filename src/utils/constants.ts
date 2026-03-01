@@ -49,6 +49,29 @@ export async function sendScene(ctx: Context, sceneKey: string, caption: string)
   }
 }
 
+/**
+ * Send a Ghibli scene image directly via bot.api (no Context available).
+ * Used by the scheduler where we only have a chat_id, not a ctx.
+ */
+export async function sendSceneViaApi(
+  api: { sendPhoto: Function },
+  chatId: number,
+  sceneKey: string,
+  caption: string,
+  replyMarkup?: object,
+): Promise<void> {
+  const fileId = SCENE_FILE_IDS[sceneKey];
+  const extra: Record<string, unknown> = { caption, parse_mode: "Markdown" };
+  if (replyMarkup) extra.reply_markup = replyMarkup;
+
+  if (fileId) {
+    await api.sendPhoto(chatId, fileId, extra);
+  } else {
+    const res = await api.sendPhoto(chatId, new InputFile(sceneFilePath(sceneKey)), extra);
+    SCENE_FILE_IDS[sceneKey] = res.photo.at(-1)!.file_id;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Pro plan price (in kobo — ₦5,000)
 // ---------------------------------------------------------------------------
