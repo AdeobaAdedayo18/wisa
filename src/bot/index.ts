@@ -65,12 +65,13 @@ bot.use(createConversation(onboardingConversation, "onboarding"));
 bot.command("start", handleStart);
 
 // ── Reply keyboard — main menu ─────────────────────────────────────────────
-bot.hears("✍️ Write today's log", (ctx) => startLogging(ctx));
-bot.hears("� See my logs", (ctx) => showViewCalendar(ctx));
-bot.hears("💬 Leave feedback", handleFeedback);
-bot.hears("✨ AI Refine", (ctx) => showViewCalendar(ctx));
-bot.hears("👑 Go Pro", handleGoPro);
-bot.hears("⚙️ Settings", handleSettings);
+// Use regex so emoji encoding changes from formatters don't break matching
+bot.hears(/Write today.s log/i, (ctx) => startLogging(ctx));
+bot.hears(/See my logs/i, (ctx) => showViewCalendar(ctx));
+bot.hears(/Leave feedback/i, handleFeedback);
+bot.hears(/AI Refine/i, (ctx) => showViewCalendar(ctx));
+bot.hears(/Go Pro/i, handleGoPro);
+bot.hears(/Settings/i, handleSettings);
 
 // ── Callback query handlers ────────────────────────────────────────────────
 bot.callbackQuery("start_onboarding", handleLetsGo);
@@ -142,6 +143,10 @@ bot.callbackQuery("nav_calendar", async (ctx) => {
   await ctx.answerCallbackQuery();
   return showViewCalendar(ctx);
 });
+bot.callbackQuery("nav_logs", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  return showViewCalendar(ctx);
+});
 bot.callbackQuery("nav_menu", async (ctx) => {
   await ctx.answerCallbackQuery();
   await ctx.reply("Main menu 👇", { reply_markup: MAIN_MENU_KEYBOARD });
@@ -151,8 +156,10 @@ bot.callbackQuery("nav_menu", async (ctx) => {
 bot.on("message:voice", handleVoiceLog);
 
 // ── Text message handler — session-aware routing ──────────────────────────
-bot.on("message:text", async (ctx) => {  // Feedback capture takes highest priority
-  if (await handleFeedbackText(ctx)) return;  // Edit mode takes priority over log accumulation
+bot.on("message:text", async (ctx) => {
+  // Feedback capture takes highest priority
+  if (await handleFeedbackText(ctx)) return;
+  // Edit mode takes priority over log accumulation
   if (await handleEditText(ctx)) return;
   if (await handleLogText(ctx)) return;
   // Fall through — other text messages not handled here

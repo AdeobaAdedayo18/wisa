@@ -16,12 +16,19 @@ type OnboardingConversation = Conversation<BotContext, BotContext>;
 
 export const MAIN_MENU_KEYBOARD = new Keyboard()
   .text("✍️ Write today's log").row()
-  .text("📖 See my logs").text("� Leave feedback").row()
+  .text("📖 See my logs").text("💬 Leave feedback").row()
   .text("✨ AI Refine").text("⚙️ Settings")
   .resized()
   .persistent();
 
-/** Generate the first 4 ReminderJob entries for a newly onboarded user. */
+/**
+ * Generate the next 4 ReminderJob entries for a user.
+ *
+ * Key behaviour: if the reminder time has NOT yet passed today, the FIRST job
+ * is scheduled for today (so the user gets a reminder the same day they set it).
+ * If the time has already passed, the first job is scheduled for the next
+ * interval day.
+ */
 export async function createInitialReminderJobs(
   userId: number,
   telegramId: bigint,
@@ -32,13 +39,26 @@ export async function createInitialReminderJobs(
   const intervalDays =
     ({ daily: 1, "bi-daily": 2, "every-3-days": 3, weekly: 7 } as Record<string, number>)[frequency] ?? 1;
 
+  // If the reminder time hasn't passed today, start from today (offset 0).
+  // Otherwise start from the next interval day.
+  const now = new Date();
+  const todayAtReminder = new Date();
+  todayAtReminder.setHours(hour, minute, 0, 0);
+
+  const startOffset = todayAtReminder > now ? 0 : intervalDays;
+
   const jobs = [];
   for (let i = 0; i < 4; i++) {
     const date = new Date();
-    date.setDate(date.getDate() + intervalDays * (i + 1));
+    date.setDate(date.getDate() + startOffset + intervalDays * i);
     date.setHours(hour, minute, 0, 0);
     jobs.push({ userId, telegramId, scheduledFor: date, status: "pending" });
   }
+
+  console.log(
+    `[reminders] Created ${jobs.length} jobs for user ${userId} — first at ${jobs[0].scheduledFor.toISOString()}`,
+  );
+
   await prisma.reminderJob.createMany({ data: jobs });
 }
 
