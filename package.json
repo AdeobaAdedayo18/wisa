@@ -12,7 +12,7 @@
     "db:studio": "prisma studio"
   },
   "engines": {
-    "node": ">=24.0"
+    "node": "^20.19 || ^22.12 || >=24.0"
   },
   "keywords": [],
   "author": "",
