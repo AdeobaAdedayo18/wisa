@@ -84,6 +84,7 @@ export const UserScalarFieldEnum = {
   timezone: 'timezone',
   isPro: 'isPro',
   freeAiRefinements: 'freeAiRefinements',
+  freeVoiceLogs: 'freeVoiceLogs',
   onboardingDone: 'onboardingDone',
   createdAt: 'createdAt'
 } as const

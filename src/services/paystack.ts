@@ -15,3 +15,17 @@ export async function initializeTransaction(telegramId: bigint) {
   );
   return res.data.data as { authorization_url: string; reference: string };
 }
+
+export async function verifyTransaction(reference: string) {
+  const res = await axios.get(
+    `${PAYSTACK_BASE}/transaction/verify/${encodeURIComponent(reference)}`,
+    { headers }
+  );
+  return res.data.data as {
+    status: string;              // "success" | "failed" | "abandoned"
+    reference: string;
+    amount: number;
+    metadata: { telegramId?: string };
+    customer: { email: string };
+  };
+}

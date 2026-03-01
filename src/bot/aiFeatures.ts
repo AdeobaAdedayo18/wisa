@@ -47,6 +47,8 @@ export async function handleAiRefine(ctx: BotContext): Promise<void> {
     return;
   }
 
+  console.log(`[ai-refine] User ${dbUser.id} refining log #${logId}`);
+
   // ── Loading message ─────────────────────────────────────────────────────
   const loadingMsg = await ctx.reply("Let me cook 🍳✨ _(this may take a few seconds…)_", {
     parse_mode: "Markdown",
@@ -157,11 +159,11 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
   const dbUser = await prisma.user.findUnique({ where: { telegramId } });
   if (!dbUser) return;
 
-  // ── Pro gate ────────────────────────────────────────────────────────────
-  if (!dbUser.isPro) {
+  // ── Free voice quota check ───────────────────────────────────────────────
+  if (!dbUser.isPro && dbUser.freeVoiceLogs <= 0) {
     await ctx.reply(
-      `🎤 Voice logs are a *Pro* feature!\n\n` +
-        `Upgrade to Pro to transcribe your voice into polished log entries with AI ✨`,
+      `🎤 You've used all 3 of your free voice logs!\n\n` +
+        `Voice logging is *so* much faster than typing — upgrade to *Pro* for unlimited voice-to-log transcription ✨`,
       {
         parse_mode: "Markdown",
         reply_markup: new InlineKeyboard().text("Go Pro 👑", "go_pro"),
@@ -193,14 +195,28 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
     // 3. Transcribe with Whisper
     const transcription = await transcribeVoice(localPath);
 
+    // 3b. Decrement free quota for non-Pro users
+    if (!dbUser.isPro) {
+      await prisma.user.update({ where: { id: dbUser.id }, data: { freeVoiceLogs: { decrement: 1 } } });
+      const remaining = dbUser.freeVoiceLogs - 1;
+      console.log(`[voice] User ${dbUser.id} used voice log — ${remaining} free use${remaining !== 1 ? "s" : ""} remaining`);
+    }
+
     // 4. Store in session for save/edit callbacks
     ctx.session.pendingVoiceTranscription = transcription;
+
+    const remainingNote =
+      !dbUser.isPro && dbUser.freeVoiceLogs > 1
+        ? `\n\n_${dbUser.freeVoiceLogs - 1} free voice log${dbUser.freeVoiceLogs - 1 !== 1 ? "s" : ""} remaining — upgrade to Pro for unlimited 🚀_`
+        : !dbUser.isPro && dbUser.freeVoiceLogs === 1
+        ? `\n\n_This was your last free voice log! Upgrade to Pro for unlimited 🚀_`
+        : "";
 
     // 5. Show result with action buttons
     await ctx.api.editMessageText(
       ctx.chat!.id,
       processingMsg.message_id,
-      `🎤 *Here's what I heard:*\n\n${transcription}`,
+      `🎤 *Here's what I heard:*\n\n${transcription}${remainingNote}`,
       {
         parse_mode: "Markdown",
         reply_markup: new InlineKeyboard()

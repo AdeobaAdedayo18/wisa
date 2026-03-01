@@ -113,7 +113,7 @@ export async function handleDoneLogging(ctx: BotContext): Promise<void> {
     ? parseISO(ctx.session.pendingLogDate)
     : new Date();
 
-  await prisma.log.create({
+  const savedLog = await prisma.log.create({
     data: {
       userId: dbUser.id,
       content: fullText,
@@ -121,6 +121,8 @@ export async function handleDoneLogging(ctx: BotContext): Promise<void> {
       isVoice: false,
     },
   });
+
+  console.log(`[log] User ${dbUser.id} saved log #${savedLog.id} — ${fullText.split(/\s+/).filter(Boolean).length} words`);
 
   // Reset session
   ctx.session.awaitingLog = false;
@@ -133,11 +135,19 @@ export async function handleDoneLogging(ctx: BotContext): Promise<void> {
     `Log saved! 📖✨\n\nGreat work documenting your day. Keep it up — your future self will thank you 🙌`,
   );
 
-  await ctx.reply("What would you like to do next?", {
+  // Voice hint for free users who still have tries left
+  const remainingVoice = dbUser.freeVoiceLogs ?? 3;
+  const voiceHint =
+    !dbUser.isPro && remainingVoice > 0
+      ? `\n\n💡 *Tip:* Did you know you can send a *voice message* instead of typing? Just hit the mic button and talk — Wisa transcribes it automatically! You have *${remainingVoice} free voice log${remainingVoice === 1 ? "" : "s"}* left 🎤`
+      : "";
+
+  await ctx.reply(`What would you like to do next?${voiceHint}`, {
+    parse_mode: "Markdown",
     reply_markup: new InlineKeyboard()
-      .text("✨ Refine with AI", `ai_refine_latest`)
+      .text("✨ Refine with AI", `ai_refine_${savedLog.id}`)
       .row()
-      .text("📅 View calendar", "nav_calendar")
+      .text("📖 View logs", "nav_calendar")
       .text("🏠 Menu", "nav_menu"),
   });
 }

@@ -44,6 +44,7 @@ import {
   handleCancelSubConfirm,
   handleSettingsHow,
 } from "./settings";
+import { handleFeedback, handleFeedbackText, handleFeedbackCancel } from "./feedback";
 import { type SessionData, type BotContext } from "./types";
 
 export type { SessionData, BotContext };
@@ -65,8 +66,9 @@ bot.command("start", handleStart);
 
 // ── Reply keyboard — main menu ─────────────────────────────────────────────
 bot.hears("✍️ Write today's log", (ctx) => startLogging(ctx));
-bot.hears("📅 Calendar", (ctx) => showViewCalendar(ctx));
-bot.hears("🕰️ Past log", (ctx) => showPastLogCalendar(ctx));
+bot.hears("� See my logs", (ctx) => showViewCalendar(ctx));
+bot.hears("💬 Leave feedback", handleFeedback);
+bot.hears("✨ AI Refine", (ctx) => showViewCalendar(ctx));
 bot.hears("👑 Go Pro", handleGoPro);
 bot.hears("⚙️ Settings", handleSettings);
 
@@ -104,7 +106,8 @@ bot.callbackQuery("voice_save", handleVoiceSave);
 bot.callbackQuery("voice_edit", handleVoiceEdit);
 bot.callbackQuery("voice_rerecord", handleVoiceRerecord);
 
-// Payments flow (9.2)
+// Payments / Pro upgrade flow (9.2)
+bot.callbackQuery("go_pro", handleGoPro);
 bot.callbackQuery("pay_paystack", handlePayPaystack);
 bot.callbackQuery("check_payment", handleCheckPayment);
 
@@ -118,6 +121,9 @@ bot.callbackQuery("settings_sub", handleSettingsSub);
 bot.callbackQuery("settings_cancel_sub", handleCancelSubPrompt);
 bot.callbackQuery("settings_cancel_sub_confirm", handleCancelSubConfirm);
 bot.callbackQuery("settings_how", handleSettingsHow);
+
+// Feedback flow
+bot.callbackQuery("feedback_cancel", handleFeedbackCancel);
 
 // Keep-active (10)
 bot.callbackQuery("keepalive", async (ctx) => {
@@ -145,8 +151,8 @@ bot.callbackQuery("nav_menu", async (ctx) => {
 bot.on("message:voice", handleVoiceLog);
 
 // ── Text message handler — session-aware routing ──────────────────────────
-bot.on("message:text", async (ctx) => {
-  // Edit mode takes priority over log accumulation
+bot.on("message:text", async (ctx) => {  // Feedback capture takes highest priority
+  if (await handleFeedbackText(ctx)) return;  // Edit mode takes priority over log accumulation
   if (await handleEditText(ctx)) return;
   if (await handleLogText(ctx)) return;
   // Fall through — other text messages not handled here

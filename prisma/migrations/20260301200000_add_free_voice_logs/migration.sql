@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "User" ADD COLUMN "freeVoiceLogs" INTEGER NOT NULL DEFAULT 3;

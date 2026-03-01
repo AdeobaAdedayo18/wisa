@@ -35,6 +35,10 @@ export interface SessionData {
    * it as a log entry.
    */
   pendingVoiceTranscription?: string;
+  /** True while the bot is waiting for a feedback message from the user. */
+  awaitingFeedback?: boolean;
+  /** Paystack payment reference generated for the current payment attempt. */
+  pendingPaystackRef?: string;
 }
 
 export type BotContext = ConversationFlavor<Context & SessionFlavor<SessionData>>;

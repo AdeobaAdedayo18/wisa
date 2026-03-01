@@ -30,12 +30,14 @@ export type UserAvgAggregateOutputType = {
   id: number | null
   telegramId: number | null
   freeAiRefinements: number | null
+  freeVoiceLogs: number | null
 }
 
 export type UserSumAggregateOutputType = {
   id: number | null
   telegramId: bigint | null
   freeAiRefinements: number | null
+  freeVoiceLogs: number | null
 }
 
 export type UserMinAggregateOutputType = {
@@ -48,6 +50,7 @@ export type UserMinAggregateOutputType = {
   timezone: string | null
   isPro: boolean | null
   freeAiRefinements: number | null
+  freeVoiceLogs: number | null
   onboardingDone: boolean | null
   createdAt: Date | null
 }
@@ -62,6 +65,7 @@ export type UserMaxAggregateOutputType = {
   timezone: string | null
   isPro: boolean | null
   freeAiRefinements: number | null
+  freeVoiceLogs: number | null
   onboardingDone: boolean | null
   createdAt: Date | null
 }
@@ -76,6 +80,7 @@ export type UserCountAggregateOutputType = {
   timezone: number
   isPro: number
   freeAiRefinements: number
+  freeVoiceLogs: number
   onboardingDone: number
   createdAt: number
   _all: number
@@ -86,12 +91,14 @@ export type UserAvgAggregateInputType = {
   id?: true
   telegramId?: true
   freeAiRefinements?: true
+  freeVoiceLogs?: true
 }
 
 export type UserSumAggregateInputType = {
   id?: true
   telegramId?: true
   freeAiRefinements?: true
+  freeVoiceLogs?: true
 }
 
 export type UserMinAggregateInputType = {
@@ -104,6 +111,7 @@ export type UserMinAggregateInputType = {
   timezone?: true
   isPro?: true
   freeAiRefinements?: true
+  freeVoiceLogs?: true
   onboardingDone?: true
   createdAt?: true
 }
@@ -118,6 +126,7 @@ export type UserMaxAggregateInputType = {
   timezone?: true
   isPro?: true
   freeAiRefinements?: true
+  freeVoiceLogs?: true
   onboardingDone?: true
   createdAt?: true
 }
@@ -132,6 +141,7 @@ export type UserCountAggregateInputType = {
   timezone?: true
   isPro?: true
   freeAiRefinements?: true
+  freeVoiceLogs?: true
   onboardingDone?: true
   createdAt?: true
   _all?: true
@@ -233,6 +243,7 @@ export type UserGroupByOutputType = {
   timezone: string
   isPro: boolean
   freeAiRefinements: number
+  freeVoiceLogs: number
   onboardingDone: boolean
   createdAt: Date
   _count: UserCountAggregateOutputType | null
@@ -270,6 +281,7 @@ export type UserWhereInput = {
   timezone?: Prisma.StringFilter<"User"> | string
   isPro?: Prisma.BoolFilter<"User"> | boolean
   freeAiRefinements?: Prisma.IntFilter<"User"> | number
+  freeVoiceLogs?: Prisma.IntFilter<"User"> | number
   onboardingDone?: Prisma.BoolFilter<"User"> | boolean
   createdAt?: Prisma.DateTimeFilter<"User"> | Date | string
   logs?: Prisma.LogListRelationFilter
@@ -286,6 +298,7 @@ export type UserOrderByWithRelationInput = {
   timezone?: Prisma.SortOrder
   isPro?: Prisma.SortOrder
   freeAiRefinements?: Prisma.SortOrder
+  freeVoiceLogs?: Prisma.SortOrder
   onboardingDone?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   logs?: Prisma.LogOrderByRelationAggregateInput
@@ -305,6 +318,7 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   timezone?: Prisma.StringFilter<"User"> | string
   isPro?: Prisma.BoolFilter<"User"> | boolean
   freeAiRefinements?: Prisma.IntFilter<"User"> | number
+  freeVoiceLogs?: Prisma.IntFilter<"User"> | number
   onboardingDone?: Prisma.BoolFilter<"User"> | boolean
   createdAt?: Prisma.DateTimeFilter<"User"> | Date | string
   logs?: Prisma.LogListRelationFilter
@@ -321,6 +335,7 @@ export type UserOrderByWithAggregationInput = {
   timezone?: Prisma.SortOrder
   isPro?: Prisma.SortOrder
   freeAiRefinements?: Prisma.SortOrder
+  freeVoiceLogs?: Prisma.SortOrder
   onboardingDone?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   _count?: Prisma.UserCountOrderByAggregateInput
@@ -343,6 +358,7 @@ export type UserScalarWhereWithAggregatesInput = {
   timezone?: Prisma.StringWithAggregatesFilter<"User"> | string
   isPro?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
   freeAiRefinements?: Prisma.IntWithAggregatesFilter<"User"> | number
+  freeVoiceLogs?: Prisma.IntWithAggregatesFilter<"User"> | number
   onboardingDone?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"User"> | Date | string
 }
@@ -356,6 +372,7 @@ export type UserCreateInput = {
   timezone?: string
   isPro?: boolean
   freeAiRefinements?: number
+  freeVoiceLogs?: number
   onboardingDone?: boolean
   createdAt?: Date | string
   logs?: Prisma.LogCreateNestedManyWithoutUserInput
@@ -372,6 +389,7 @@ export type UserUncheckedCreateInput = {
   timezone?: string
   isPro?: boolean
   freeAiRefinements?: number
+  freeVoiceLogs?: number
   onboardingDone?: boolean
   createdAt?: Date | string
   logs?: Prisma.LogUncheckedCreateNestedManyWithoutUserInput
@@ -387,6 +405,7 @@ export type UserUpdateInput = {
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
   isPro?: Prisma.BoolFieldUpdateOperationsInput | boolean
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
+  freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUpdateManyWithoutUserNestedInput
@@ -403,6 +422,7 @@ export type UserUncheckedUpdateInput = {
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
   isPro?: Prisma.BoolFieldUpdateOperationsInput | boolean
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
+  freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUncheckedUpdateManyWithoutUserNestedInput
@@ -419,6 +439,7 @@ export type UserCreateManyInput = {
   timezone?: string
   isPro?: boolean
   freeAiRefinements?: number
+  freeVoiceLogs?: number
   onboardingDone?: boolean
   createdAt?: Date | string
 }
@@ -432,6 +453,7 @@ export type UserUpdateManyMutationInput = {
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
   isPro?: Prisma.BoolFieldUpdateOperationsInput | boolean
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
+  freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -446,6 +468,7 @@ export type UserUncheckedUpdateManyInput = {
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
   isPro?: Prisma.BoolFieldUpdateOperationsInput | boolean
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
+  freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -460,6 +483,7 @@ export type UserCountOrderByAggregateInput = {
   timezone?: Prisma.SortOrder
   isPro?: Prisma.SortOrder
   freeAiRefinements?: Prisma.SortOrder
+  freeVoiceLogs?: Prisma.SortOrder
   onboardingDone?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
@@ -468,6 +492,7 @@ export type UserAvgOrderByAggregateInput = {
   id?: Prisma.SortOrder
   telegramId?: Prisma.SortOrder
   freeAiRefinements?: Prisma.SortOrder
+  freeVoiceLogs?: Prisma.SortOrder
 }
 
 export type UserMaxOrderByAggregateInput = {
@@ -480,6 +505,7 @@ export type UserMaxOrderByAggregateInput = {
   timezone?: Prisma.SortOrder
   isPro?: Prisma.SortOrder
   freeAiRefinements?: Prisma.SortOrder
+  freeVoiceLogs?: Prisma.SortOrder
   onboardingDone?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
@@ -494,6 +520,7 @@ export type UserMinOrderByAggregateInput = {
   timezone?: Prisma.SortOrder
   isPro?: Prisma.SortOrder
   freeAiRefinements?: Prisma.SortOrder
+  freeVoiceLogs?: Prisma.SortOrder
   onboardingDone?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
@@ -502,6 +529,7 @@ export type UserSumOrderByAggregateInput = {
   id?: Prisma.SortOrder
   telegramId?: Prisma.SortOrder
   freeAiRefinements?: Prisma.SortOrder
+  freeVoiceLogs?: Prisma.SortOrder
 }
 
 export type UserScalarRelationFilter = {
@@ -578,6 +606,7 @@ export type UserCreateWithoutLogsInput = {
   timezone?: string
   isPro?: boolean
   freeAiRefinements?: number
+  freeVoiceLogs?: number
   onboardingDone?: boolean
   createdAt?: Date | string
   subscription?: Prisma.SubscriptionCreateNestedOneWithoutUserInput
@@ -593,6 +622,7 @@ export type UserUncheckedCreateWithoutLogsInput = {
   timezone?: string
   isPro?: boolean
   freeAiRefinements?: number
+  freeVoiceLogs?: number
   onboardingDone?: boolean
   createdAt?: Date | string
   subscription?: Prisma.SubscriptionUncheckedCreateNestedOneWithoutUserInput
@@ -623,6 +653,7 @@ export type UserUpdateWithoutLogsInput = {
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
   isPro?: Prisma.BoolFieldUpdateOperationsInput | boolean
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
+  freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   subscription?: Prisma.SubscriptionUpdateOneWithoutUserNestedInput
@@ -638,6 +669,7 @@ export type UserUncheckedUpdateWithoutLogsInput = {
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
   isPro?: Prisma.BoolFieldUpdateOperationsInput | boolean
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
+  freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   subscription?: Prisma.SubscriptionUncheckedUpdateOneWithoutUserNestedInput
@@ -652,6 +684,7 @@ export type UserCreateWithoutSubscriptionInput = {
   timezone?: string
   isPro?: boolean
   freeAiRefinements?: number
+  freeVoiceLogs?: number
   onboardingDone?: boolean
   createdAt?: Date | string
   logs?: Prisma.LogCreateNestedManyWithoutUserInput
@@ -667,6 +700,7 @@ export type UserUncheckedCreateWithoutSubscriptionInput = {
   timezone?: string
   isPro?: boolean
   freeAiRefinements?: number
+  freeVoiceLogs?: number
   onboardingDone?: boolean
   createdAt?: Date | string
   logs?: Prisma.LogUncheckedCreateNestedManyWithoutUserInput
@@ -697,6 +731,7 @@ export type UserUpdateWithoutSubscriptionInput = {
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
   isPro?: Prisma.BoolFieldUpdateOperationsInput | boolean
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
+  freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUpdateManyWithoutUserNestedInput
@@ -712,6 +747,7 @@ export type UserUncheckedUpdateWithoutSubscriptionInput = {
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
   isPro?: Prisma.BoolFieldUpdateOperationsInput | boolean
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
+  freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUncheckedUpdateManyWithoutUserNestedInput
@@ -758,6 +794,7 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   timezone?: boolean
   isPro?: boolean
   freeAiRefinements?: boolean
+  freeVoiceLogs?: boolean
   onboardingDone?: boolean
   createdAt?: boolean
   logs?: boolean | Prisma.User$logsArgs<ExtArgs>
@@ -775,6 +812,7 @@ export type UserSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   timezone?: boolean
   isPro?: boolean
   freeAiRefinements?: boolean
+  freeVoiceLogs?: boolean
   onboardingDone?: boolean
   createdAt?: boolean
 }, ExtArgs["result"]["user"]>
@@ -789,6 +827,7 @@ export type UserSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   timezone?: boolean
   isPro?: boolean
   freeAiRefinements?: boolean
+  freeVoiceLogs?: boolean
   onboardingDone?: boolean
   createdAt?: boolean
 }, ExtArgs["result"]["user"]>
@@ -803,11 +842,12 @@ export type UserSelectScalar = {
   timezone?: boolean
   isPro?: boolean
   freeAiRefinements?: boolean
+  freeVoiceLogs?: boolean
   onboardingDone?: boolean
   createdAt?: boolean
 }
 
-export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "telegramId" | "firstName" | "username" | "logFrequency" | "reminderTime" | "timezone" | "isPro" | "freeAiRefinements" | "onboardingDone" | "createdAt", ExtArgs["result"]["user"]>
+export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "telegramId" | "firstName" | "username" | "logFrequency" | "reminderTime" | "timezone" | "isPro" | "freeAiRefinements" | "freeVoiceLogs" | "onboardingDone" | "createdAt", ExtArgs["result"]["user"]>
 export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   logs?: boolean | Prisma.User$logsArgs<ExtArgs>
   subscription?: boolean | Prisma.User$subscriptionArgs<ExtArgs>
@@ -832,6 +872,7 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     timezone: string
     isPro: boolean
     freeAiRefinements: number
+    freeVoiceLogs: number
     onboardingDone: boolean
     createdAt: Date
   }, ExtArgs["result"]["user"]>
@@ -1268,6 +1309,7 @@ export interface UserFieldRefs {
   readonly timezone: Prisma.FieldRef<"User", 'String'>
   readonly isPro: Prisma.FieldRef<"User", 'Boolean'>
   readonly freeAiRefinements: Prisma.FieldRef<"User", 'Int'>
+  readonly freeVoiceLogs: Prisma.FieldRef<"User", 'Int'>
   readonly onboardingDone: Prisma.FieldRef<"User", 'Boolean'>
   readonly createdAt: Prisma.FieldRef<"User", 'DateTime'>
 }

@@ -16,7 +16,7 @@ type OnboardingConversation = Conversation<BotContext, BotContext>;
 
 export const MAIN_MENU_KEYBOARD = new Keyboard()
   .text("✍️ Write today's log").row()
-  .text("📖 See my logs").text("📅 Calendar").text("🕰️ Past log").row()
+  .text("📖 See my logs").text("� Leave feedback").row()
   .text("✨ AI Refine").text("⚙️ Settings")
   .resized()
   .persistent();
@@ -89,7 +89,7 @@ export async function onboardingConversation(conversation: OnboardingConversatio
   const frequency = freqCtx.callbackQuery.data.replace("freq_", "");
 
   // ── Step 3 — Time picker ──────────────────────────────────────────────────
-  await sendScene(ctx, "scene3", "What time should I nudge you? ⏰");
+  await sendScene(ctx, "scene3", "What time should I remind you to write your log? ⏰");
   await ctx.reply("Pick your daily reminder time:", { reply_markup: buildTimeKeyboard() });
 
   const timeCtx = await conversation.waitForCallbackQuery(/^time_/);

@@ -23,6 +23,7 @@ model User {
   timezone           String        @default("Africa/Lagos")
   isPro              Boolean       @default(false)
   freeAiRefinements  Int           @default(3)
+  freeVoiceLogs      Int           @default(3)
   onboardingDone     Boolean       @default(false)
   createdAt          DateTime      @default(now())
   logs               Log[]
