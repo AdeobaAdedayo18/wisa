@@ -48,8 +48,7 @@ export async function handleFeedbackText(ctx: BotContext): Promise<boolean> {
     try {
       await ctx.api.sendMessage(
         CREATOR_ID,
-        `📩 *New feedback from ${senderName}* (${senderUsername} · \`${senderId}\`)\n\n${text}`,
-        { parse_mode: "Markdown" },
+        `📩 New feedback from ${senderName} (${senderUsername} · ${senderId})\n\n${text}`,
       );
       console.log(`[feedback] Forwarded from user ${senderId} (${senderUsername}): ${text}`);
     } catch (err) {
