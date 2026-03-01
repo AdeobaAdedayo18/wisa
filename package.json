@@ -11,6 +11,9 @@
     "db:generate": "prisma generate",
     "db:studio": "prisma studio"
   },
+  "engines": {
+    "node": ">=20.19"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
