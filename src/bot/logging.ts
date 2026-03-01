@@ -21,9 +21,47 @@ const MAX_CHARS = 10_000;
  * Call with an optional ISO date string to pre-set a past-log date.
  */
 export async function startLogging(ctx: BotContext, isoDate?: string): Promise<void> {
+  const todayStr = isoDate ?? format(new Date(), "yyyy-MM-dd");
+  const isToday = todayStr === format(new Date(), "yyyy-MM-dd");
+  const telegramId = BigInt(ctx.from!.id);
+  const dbUser = await prisma.user.findUnique({ where: { telegramId } });
+
+  // ── Check for existing log on this date ────────────────────────────────
+  if (dbUser) {
+    const dateStart = parseISO(todayStr);
+    const dateEnd = new Date(dateStart);
+    dateEnd.setDate(dateEnd.getDate() + 1);
+
+    const existingLog = await prisma.log.findFirst({
+      where: { userId: dbUser.id, logDate: { gte: dateStart, lt: dateEnd } },
+      orderBy: { logDate: "desc" },
+    });
+
+    if (existingLog) {
+      const dateLabel = isToday ? "today" : format(dateStart, "EEEE, MMM d");
+      const preview =
+        existingLog.content.length > 200
+          ? existingLog.content.slice(0, 200) + "…"
+          : existingLog.content;
+
+      await ctx.reply(
+        `📝 *You already logged ${dateLabel}!*\n\n${preview}\n\nWant to add more or start fresh?`,
+        {
+          parse_mode: "Markdown",
+          reply_markup: new InlineKeyboard()
+            .text("➕ Add to this log", `edit_log_${existingLog.id}`)
+            .row()
+            .text("📱 View in calendar", "nav_calendar")
+            .text("🏠 Menu", "nav_menu"),
+        },
+      );
+      return;
+    }
+  }
+
   ctx.session.awaitingLog = true;
   ctx.session.pendingLogParts = [];
-  ctx.session.pendingLogDate = isoDate ?? format(new Date(), "yyyy-MM-dd");
+  ctx.session.pendingLogDate = todayStr;
   ctx.session.editingLogId = undefined;
   ctx.session.awaitingEditText = false;
 

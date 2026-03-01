@@ -13,6 +13,24 @@ export function startScheduler(bot: Bot<BotContext>): void {
 
     for (const job of dueJobs) {
       try {
+        // ── Skip if user already wrote a log today ───────────────────────
+        const todayStart = new Date();
+        todayStart.setUTCHours(0, 0, 0, 0);
+        const tomorrowStart = new Date(todayStart);
+        tomorrowStart.setUTCDate(tomorrowStart.getUTCDate() + 1);
+
+        const todayLog = await prisma.log.findFirst({
+          where: { userId: job.userId, logDate: { gte: todayStart, lt: tomorrowStart } },
+        });
+
+        if (todayLog) {
+          // Already logged — silently retire this job and queue the next
+          await prisma.reminderJob.update({ where: { id: job.id }, data: { status: "sent" } });
+          await scheduleNextJob(job.userId, job.telegramId);
+          console.log(`[scheduler] Skipped reminder for user ${job.userId} — already logged today`);
+          continue;
+        }
+
         await bot.api.sendMessage(Number(job.telegramId), getReminderMessage(), {
           parse_mode: "Markdown",
           reply_markup: {
