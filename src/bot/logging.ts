@@ -35,7 +35,7 @@ export async function startLogging(ctx: BotContext, isoDate?: string): Promise<v
   await sendScene(
     ctx,
     "scene7",
-    `I'm listening 👂\n\nTell me what you worked on${dateLabel}. Send as many messages as you like — I'll put it all together.\n\nTap *Done ✅* when you're finished\n.
+    `I'm listening 👂\n\nTell me what you worked on${dateLabel}. Send as many messages as you like — I'll put it all together.\n\nTap *Done ✅* when you're finished.\n
     You can also send a voice message instead of typing! Just hit the mic button and talk — Wisa transcribes it automatically 🎤,
     `,
   );

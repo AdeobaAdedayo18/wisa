@@ -2,6 +2,7 @@ import { InlineKeyboard, Keyboard } from "grammy";
 import { type Conversation } from "@grammyjs/conversations";
 import { prisma } from "../lib/prisma";
 import { sendScene } from "../utils/constants";
+import { localTimeToUtc, hasLocalTimePassed } from "../utils/dateHelpers";
 import type { BotContext } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -24,39 +25,31 @@ export const MAIN_MENU_KEYBOARD = new Keyboard()
 /**
  * Generate the next 4 ReminderJob entries for a user.
  *
- * Key behaviour: if the reminder time has NOT yet passed today, the FIRST job
- * is scheduled for today (so the user gets a reminder the same day they set it).
- * If the time has already passed, the first job is scheduled for the next
- * interval day.
+ * Key behaviour: if the reminder time has NOT yet passed today (in the user's
+ * timezone), the FIRST job is scheduled for today. Otherwise it starts from
+ * the next interval day. All stored dates are in UTC.
  */
 export async function createInitialReminderJobs(
   userId: number,
   telegramId: bigint,
   frequency: string,
   reminderTime: string,
+  timezone = "Africa/Lagos",
 ) {
-  const [hour, minute] = reminderTime.split(":").map(Number);
   const intervalDays =
     ({ daily: 1, "bi-daily": 2, "every-3-days": 3, weekly: 7 } as Record<string, number>)[frequency] ?? 1;
 
-  // If the reminder time hasn't passed today, start from today (offset 0).
-  // Otherwise start from the next interval day.
-  const now = new Date();
-  const todayAtReminder = new Date();
-  todayAtReminder.setHours(hour, minute, 0, 0);
-
-  const startOffset = todayAtReminder > now ? 0 : intervalDays;
+  // If the reminder time hasn't passed today in the user's TZ, start from today.
+  const startOffset = hasLocalTimePassed(reminderTime, timezone) ? intervalDays : 0;
 
   const jobs = [];
   for (let i = 0; i < 4; i++) {
-    const date = new Date();
-    date.setDate(date.getDate() + startOffset + intervalDays * i);
-    date.setHours(hour, minute, 0, 0);
-    jobs.push({ userId, telegramId, scheduledFor: date, status: "pending" });
+    const scheduledFor = localTimeToUtc(reminderTime, timezone, startOffset + intervalDays * i);
+    jobs.push({ userId, telegramId, scheduledFor, status: "pending" });
   }
 
   console.log(
-    `[reminders] Created ${jobs.length} jobs for user ${userId} — first at ${jobs[0].scheduledFor.toISOString()}`,
+    `[reminders] Created ${jobs.length} jobs for user ${userId} (tz=${timezone}) — first at ${jobs[0].scheduledFor.toISOString()}`,
   );
 
   await prisma.reminderJob.createMany({ data: jobs });
@@ -130,7 +123,7 @@ export async function onboardingConversation(conversation: OnboardingConversatio
   );
 
   await conversation.external(() =>
-    createInitialReminderJobs(dbUser.id, telegramId, frequency, reminderTime),
+    createInitialReminderJobs(dbUser.id, telegramId, frequency, reminderTime, dbUser.timezone),
   );
 
   await sendScene(

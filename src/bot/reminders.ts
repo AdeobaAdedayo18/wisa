@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma";
+import { localTimeToUtc } from "../utils/dateHelpers";
 import { sendScene } from "../utils/constants";
 import type { BotContext } from "./types";
 
@@ -35,13 +36,10 @@ export async function scheduleNextJob(userId: number, telegramId: bigint): Promi
       } as Record<string, number>
     )[user.logFrequency] ?? 1;
 
-  const [hour, minute] = user.reminderTime.split(":").map(Number);
-  const next = new Date();
-  next.setDate(next.getDate() + intervalDays);
-  next.setHours(hour, minute, 0, 0);
+  const scheduledFor = localTimeToUtc(user.reminderTime, user.timezone, intervalDays);
 
   await prisma.reminderJob.create({
-    data: { userId, telegramId, scheduledFor: next, status: "pending" },
+    data: { userId, telegramId, scheduledFor, status: "pending" },
   });
 }
 
