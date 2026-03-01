@@ -2,6 +2,7 @@ import "dotenv/config";
 import crypto from "crypto";
 import { bot } from "./bot/index";
 import { startScheduler } from "./services/scheduler";
+import { startUserActivity } from "./services/userActivity";
 import express from "express";
 import { prisma } from "./lib/prisma";
 
@@ -53,6 +54,7 @@ app.post("/webhook/paystack", async (req, res) => {
 async function main() {
   await prisma.$connect();
   startScheduler(bot);
+  startUserActivity(bot);
   bot.start();
   app.listen(process.env.PORT || 3000, () =>
     console.log(`Server running on port ${process.env.PORT || 3000}`)

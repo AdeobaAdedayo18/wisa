@@ -119,6 +119,14 @@ bot.callbackQuery("settings_cancel_sub", handleCancelSubPrompt);
 bot.callbackQuery("settings_cancel_sub_confirm", handleCancelSubConfirm);
 bot.callbackQuery("settings_how", handleSettingsHow);
 
+// Keep-active (10)
+bot.callbackQuery("keepalive", async (ctx) => {
+  await ctx.answerCallbackQuery("Thanks for checking in! 👋");
+  await ctx.reply("Great to see you! 😊 Keep those logs coming 📝", {
+    reply_markup: MAIN_MENU_KEYBOARD,
+  });
+});
+
 // Navigation shortcuts
 bot.callbackQuery("nav_write", async (ctx) => {
   await ctx.answerCallbackQuery();
