@@ -39,6 +39,7 @@ import {
   handleManualSent,
   handleAdminApprove,
   handleAdminReject,
+  handlePaymentSenderNameText,
 } from "./payments";
 import {
   handleSettings,
@@ -171,6 +172,8 @@ bot.on("message:voice", handleVoiceLog);
 bot.on("message:text", async (ctx) => {
   // Feedback capture takes highest priority
   if (await handleFeedbackText(ctx)) return;
+  // Payment sender name capture
+  if (await handlePaymentSenderNameText(ctx)) return;
   // Edit mode takes priority over log accumulation
   if (await handleEditText(ctx)) return;
   if (await handleLogText(ctx)) return;

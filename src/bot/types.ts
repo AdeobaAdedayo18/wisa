@@ -39,6 +39,10 @@ export interface SessionData {
   awaitingFeedback?: boolean;
   /** Paystack payment reference generated for the current payment attempt. */
   pendingPaystackRef?: string;
+  /** True while the bot is waiting for the user's bank account sender name for manual payment. */
+  awaitingPaymentSenderName?: boolean;
+  /** ManualPayment DB id waiting for admin review. */
+  pendingManualPaymentId?: number;
 }
 
 export type BotContext = ConversationFlavor<Context & SessionFlavor<SessionData>>;

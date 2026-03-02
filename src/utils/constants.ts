@@ -84,6 +84,3 @@ export const BANK_NAME = "Guaranty Trust Bank";
 export const BANK_ACCOUNT_NUMBER = "0865852964";
 export const BANK_ACCOUNT_NAME = "ADEOBA ADEDAYO JAMES";
 export const BANK_TRANSFER_AMOUNT = "₦5,000";
-
-// Admin Telegram ID — set ADMIN_TELEGRAM_ID in your environment variables
-export const ADMIN_TELEGRAM_ID = BigInt(process.env.ADMIN_TELEGRAM_ID ?? "0");

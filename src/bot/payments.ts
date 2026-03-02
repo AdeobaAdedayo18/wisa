@@ -7,8 +7,9 @@ import {
   BANK_ACCOUNT_NUMBER,
   BANK_ACCOUNT_NAME,
   BANK_TRANSFER_AMOUNT,
-  ADMIN_TELEGRAM_ID,
 } from "../utils/constants";
+
+const ADMIN_ID = process.env.ADMIN_TELEGRAM_ID ?? "";
 
 // ── "Go Pro 👑" reply keyboard handler ─────────────────────────────────────
 export async function handleGoPro(ctx: BotContext) {
@@ -116,7 +117,7 @@ export async function handlePayManual(ctx: BotContext) {
   );
 }
 
-// ── "I've sent it!" callback — records pending payment, notifies admin ───────
+// ── "I've sent it!" callback — asks for sender account name before notifying admin ───
 export async function handleManualSent(ctx: BotContext) {
   await ctx.answerCallbackQuery();
 
@@ -145,45 +146,83 @@ export async function handleManualSent(ctx: BotContext) {
     return;
   }
 
-  // Create pending record
+  // Create pending record now so we have an ID ready
   const payment = await prisma.manualPayment.create({
     data: { userId: user.id, status: "pending" },
   });
 
+  // Store in session and ask for sender name
+  ctx.session.pendingManualPaymentId = payment.id;
+  ctx.session.awaitingPaymentSenderName = true;
+
+  await ctx.reply(
+    `✅ *Transfer recorded!*\n\n` +
+      `One quick thing — what is the *account name* on the account you sent the money from?\n\n` +
+      `_(e.g. "John Doe")_`,
+    { parse_mode: "Markdown" }
+  );
+}
+
+// ── Text handler — captures sender account name, then notifies admin ────────
+// Returns true if the message was consumed by this flow.
+export async function handlePaymentSenderNameText(ctx: BotContext): Promise<boolean> {
+  if (!ctx.session.awaitingPaymentSenderName) return false;
+
+  ctx.session.awaitingPaymentSenderName = false;
+  const paymentId = ctx.session.pendingManualPaymentId;
+  ctx.session.pendingManualPaymentId = undefined;
+
+  const senderName = ctx.message?.text?.trim() ?? "(not provided)";
+  const telegramId = BigInt(ctx.from!.id);
+  const user = await prisma.user.findUnique({ where: { telegramId } });
+
+  if (!user || !paymentId) {
+    await ctx.reply("Something went wrong. Please try again 🙏");
+    return true;
+  }
+
   // Confirm to user
   await ctx.reply(
-    `✅ *Got it!* Your payment has been submitted for review.\n\n` +
-      `We'll verify it and activate your Pro account shortly. ` +
-      `You'll get a message here as soon as it's approved 🙏`,
+    `🙏 *We've got your details!*\n\n` +
+      `Your payment is now being reviewed. ` +
+      `You'll get a message here as soon as it's approved ✅`,
     { parse_mode: "Markdown" }
   );
 
   // Notify admin
-  if (ADMIN_TELEGRAM_ID === 0n) {
+  if (!ADMIN_ID) {
     console.warn("[payments] ADMIN_TELEGRAM_ID is not set – skipping admin notification");
-    return;
+    return true;
   }
 
   const userName = user.username ? `@${user.username}` : user.firstName;
-  await ctx.api.sendMessage(
-    Number(ADMIN_TELEGRAM_ID),
-    `💰 *New Manual Payment Request*\n\n` +
-      `👤 *User:* ${userName} (ID: \`${user.telegramId}\`)\n` +
-      `💳 *Amount:* ${BANK_TRANSFER_AMOUNT}\n` +
-      `🆔 *Payment ID:* \`${payment.id}\`\n\n` +
-      `Did you receive the transfer?`,
-    {
-      parse_mode: "Markdown",
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: "✅ Approve", callback_data: `mpay_approve_${payment.id}` },
-            { text: "❌ Reject", callback_data: `mpay_reject_${payment.id}` },
+  try {
+    await ctx.api.sendMessage(
+      ADMIN_ID,
+      `💰 *New Manual Payment Request*\n\n` +
+        `👤 *User:* ${userName} (ID: \`${user.telegramId}\`)\n` +
+        `🏦 *Sent from account:* ${senderName}\n` +
+        `💳 *Amount:* ${BANK_TRANSFER_AMOUNT}\n` +
+        `🆔 *Payment ID:* \`${paymentId}\`\n\n` +
+        `Did you receive this transfer?`,
+      {
+        parse_mode: "Markdown",
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: "✅ Approve", callback_data: `mpay_approve_${paymentId}` },
+              { text: "❌ Reject", callback_data: `mpay_reject_${paymentId}` },
+            ],
           ],
-        ],
-      },
-    }
-  );
+        },
+      }
+    );
+    console.log(`[payments] Admin notified for payment ${paymentId} from user ${user.id}`);
+  } catch (err) {
+    console.error("[payments] Failed to notify admin:", err);
+  }
+
+  return true;
 }
 
 // ── Admin: Approve manual payment ────────────────────────────────────────────
