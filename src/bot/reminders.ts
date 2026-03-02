@@ -58,6 +58,22 @@ export async function handleSnooze(ctx: BotContext): Promise<void> {
     return;
   }
 
+  // Check if the user already logged today before sending any nudge
+  const todayStart = new Date();
+  todayStart.setUTCHours(0, 0, 0, 0);
+  const tomorrowStart = new Date(todayStart);
+  tomorrowStart.setUTCDate(tomorrowStart.getUTCDate() + 1);
+
+  const todayLog = await prisma.log.findFirst({
+    where: { userId: job.userId, logDate: { gte: todayStart, lt: tomorrowStart } },
+  });
+
+  if (todayLog) {
+    await prisma.reminderJob.update({ where: { id: jobId }, data: { status: "sent" } });
+    await ctx.reply("You've already logged today — great work! 🎉");
+    return;
+  }
+
   const newSnoozeCount = job.snoozeCount + 1;
 
   if (newSnoozeCount >= 3) {

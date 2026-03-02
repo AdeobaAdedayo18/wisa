@@ -14,20 +14,21 @@ datasource db {
 }
 
 model User {
-  id                 Int           @id @default(autoincrement())
-  telegramId         BigInt        @unique
+  id                 Int             @id @default(autoincrement())
+  telegramId         BigInt          @unique
   firstName          String
   username           String?
-  logFrequency       String        // "daily" | "bi-daily" | "every-3-days" | "weekly"
-  reminderTime       String        // "HH:MM" in 24hr format
-  timezone           String        @default("Africa/Lagos")
-  isPro              Boolean       @default(false)
-  freeAiRefinements  Int           @default(3)
-  freeVoiceLogs      Int           @default(3)
-  onboardingDone     Boolean       @default(false)
-  createdAt          DateTime      @default(now())
+  logFrequency       String          // "daily" | "bi-daily" | "every-3-days" | "weekly"
+  reminderTime       String          // "HH:MM" in 24hr format
+  timezone           String          @default("Africa/Lagos")
+  isPro              Boolean         @default(false)
+  freeAiRefinements  Int             @default(3)
+  freeVoiceLogs      Int             @default(3)
+  onboardingDone     Boolean         @default(false)
+  createdAt          DateTime        @default(now())
   logs               Log[]
   subscription       Subscription?
+  manualPayments     ManualPayment[]
 }
 
 model Log {
@@ -67,4 +68,13 @@ model Session {
   id    Int    @id @default(autoincrement())
   key   String @unique
   value String
+}
+
+model ManualPayment {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  status    String   @default("pending") // "pending" | "approved" | "rejected"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

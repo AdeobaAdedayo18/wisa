@@ -388,7 +388,8 @@ export const ModelName = {
   Log: 'Log',
   Subscription: 'Subscription',
   ReminderJob: 'ReminderJob',
-  Session: 'Session'
+  Session: 'Session',
+  ManualPayment: 'ManualPayment'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -404,7 +405,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "log" | "subscription" | "reminderJob" | "session"
+    modelProps: "user" | "log" | "subscription" | "reminderJob" | "session" | "manualPayment"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -778,6 +779,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    ManualPayment: {
+      payload: Prisma.$ManualPaymentPayload<ExtArgs>
+      fields: Prisma.ManualPaymentFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.ManualPaymentFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ManualPaymentPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.ManualPaymentFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ManualPaymentPayload>
+        }
+        findFirst: {
+          args: Prisma.ManualPaymentFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ManualPaymentPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.ManualPaymentFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ManualPaymentPayload>
+        }
+        findMany: {
+          args: Prisma.ManualPaymentFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ManualPaymentPayload>[]
+        }
+        create: {
+          args: Prisma.ManualPaymentCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ManualPaymentPayload>
+        }
+        createMany: {
+          args: Prisma.ManualPaymentCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.ManualPaymentCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ManualPaymentPayload>[]
+        }
+        delete: {
+          args: Prisma.ManualPaymentDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ManualPaymentPayload>
+        }
+        update: {
+          args: Prisma.ManualPaymentUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ManualPaymentPayload>
+        }
+        deleteMany: {
+          args: Prisma.ManualPaymentDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.ManualPaymentUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.ManualPaymentUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ManualPaymentPayload>[]
+        }
+        upsert: {
+          args: Prisma.ManualPaymentUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ManualPaymentPayload>
+        }
+        aggregate: {
+          args: Prisma.ManualPaymentAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateManualPayment>
+        }
+        groupBy: {
+          args: Prisma.ManualPaymentGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ManualPaymentGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.ManualPaymentCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ManualPaymentCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -882,6 +957,17 @@ export const SessionScalarFieldEnum = {
 } as const
 
 export type SessionScalarFieldEnum = (typeof SessionScalarFieldEnum)[keyof typeof SessionScalarFieldEnum]
+
+
+export const ManualPaymentScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  status: 'status',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type ManualPaymentScalarFieldEnum = (typeof ManualPaymentScalarFieldEnum)[keyof typeof ManualPaymentScalarFieldEnum]
 
 
 export const SortOrder = {
@@ -1090,6 +1176,7 @@ export type GlobalOmitConfig = {
   subscription?: Prisma.SubscriptionOmit
   reminderJob?: Prisma.ReminderJobOmit
   session?: Prisma.SessionOmit
+  manualPayment?: Prisma.ManualPaymentOmit
 }
 
 /* Types for Logging */

@@ -55,7 +55,8 @@ export const ModelName = {
   Log: 'Log',
   Subscription: 'Subscription',
   ReminderJob: 'ReminderJob',
-  Session: 'Session'
+  Session: 'Session',
+  ManualPayment: 'ManualPayment'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -139,6 +140,17 @@ export const SessionScalarFieldEnum = {
 } as const
 
 export type SessionScalarFieldEnum = (typeof SessionScalarFieldEnum)[keyof typeof SessionScalarFieldEnum]
+
+
+export const ManualPaymentScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  status: 'status',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type ManualPaymentScalarFieldEnum = (typeof ManualPaymentScalarFieldEnum)[keyof typeof ManualPaymentScalarFieldEnum]
 
 
 export const SortOrder = {

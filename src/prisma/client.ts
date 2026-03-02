@@ -62,3 +62,8 @@ export type ReminderJob = Prisma.ReminderJobModel
  * 
  */
 export type Session = Prisma.SessionModel
+/**
+ * Model ManualPayment
+ * 
+ */
+export type ManualPayment = Prisma.ManualPaymentModel

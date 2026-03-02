@@ -31,7 +31,15 @@ import {
   handleVoiceEdit,
   handleVoiceRerecord,
 } from "./aiFeatures";
-import { handleGoPro, handlePayPaystack, handleCheckPayment } from "./payments";
+import {
+  handleGoPro,
+  handlePayPaystack,
+  handleCheckPayment,
+  handlePayManual,
+  handleManualSent,
+  handleAdminApprove,
+  handleAdminReject,
+} from "./payments";
 import {
   handleSettings,
   handleSettingsMenu,
@@ -111,6 +119,10 @@ bot.callbackQuery("voice_rerecord", handleVoiceRerecord);
 bot.callbackQuery("go_pro", handleGoPro);
 bot.callbackQuery("pay_paystack", handlePayPaystack);
 bot.callbackQuery("check_payment", handleCheckPayment);
+bot.callbackQuery("pay_manual", handlePayManual);
+bot.callbackQuery("manual_sent", handleManualSent);
+bot.callbackQuery(/^mpay_approve_\d+$/, handleAdminApprove);
+bot.callbackQuery(/^mpay_reject_\d+$/, handleAdminReject);
 
 // Settings flow (11)
 bot.callbackQuery("settings_menu", handleSettingsMenu);
