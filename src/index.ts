@@ -5,9 +5,13 @@ import { startScheduler } from "./services/scheduler";
 import { startUserActivity } from "./services/userActivity";
 import express from "express";
 import { prisma } from "./lib/prisma";
+import { adminRouter } from "./admin/router";
 
 const app = express();
 app.use(express.json());
+
+// Admin dashboard (HTTP Basic auth — set ADMIN_USER + ADMIN_PASSWORD env vars)
+app.use("/admin", adminRouter);
 
 // Paystack webhook endpoint
 app.post("/webhook/paystack", async (req, res) => {

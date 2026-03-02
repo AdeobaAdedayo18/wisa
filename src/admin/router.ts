@@ -1,0 +1,620 @@
+import { Router, Request, Response, NextFunction } from "express";
+import path from "path";
+import fs from "fs";
+import { prisma } from "../lib/prisma";
+import {
+  startOfDay,
+  endOfDay,
+  subDays,
+  format,
+  parseISO,
+  isValid,
+} from "date-fns";
+
+const router = Router();
+
+// ─── HTTP Basic Auth ──────────────────────────────────────────────────────────
+function basicAuth(req: Request, res: Response, next: NextFunction): void {
+  const adminUser = process.env.ADMIN_USER ?? "admin";
+  const adminPass = process.env.ADMIN_PASSWORD;
+
+  if (!adminPass) {
+    res
+      .status(500)
+      .send(
+        "ADMIN_PASSWORD environment variable is not set. Set it to enable admin access.",
+      );
+    return;
+  }
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Basic ")) {
+    res.setHeader("WWW-Authenticate", 'Basic realm="Wisa Admin"');
+    res.status(401).send("Authentication required");
+    return;
+  }
+
+  const credentials = Buffer.from(authHeader.slice(6), "base64")
+    .toString("utf8")
+    .split(":");
+  const user = credentials[0];
+  const pass = credentials.slice(1).join(":"); // allow colons in password
+
+  if (user !== adminUser || pass !== adminPass) {
+    res.setHeader("WWW-Authenticate", 'Basic realm="Wisa Admin"');
+    res.status(401).send("Invalid credentials");
+    return;
+  }
+
+  next();
+}
+
+router.use(basicAuth);
+
+// ─── Serve Dashboard HTML ─────────────────────────────────────────────────────
+router.get("/", (_req: Request, res: Response): void => {
+  // Works in dev (tsx: __dirname = src/admin) and prod (compiled: dist/admin)
+  const htmlPath = path.join(__dirname, "dashboard.html");
+  if (!fs.existsSync(htmlPath)) {
+    res.status(500).send("dashboard.html not found — check your build.");
+    return;
+  }
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.sendFile(htmlPath);
+});
+
+// ─── Helper ───────────────────────────────────────────────────────────────────
+function handleError(res: Response, label: string, err: unknown): void {
+  console.error(`[admin] ${label}:`, err);
+  res.status(500).json({ error: `Failed to fetch ${label}` });
+}
+
+// ─── /api/stats ───────────────────────────────────────────────────────────────
+router.get("/api/stats", async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const now = new Date();
+    const todayStart = startOfDay(now);
+    const todayEnd = endOfDay(now);
+    const weekStart = subDays(now, 7);
+
+    const [
+      totalUsers,
+      proUsers,
+      onboardedUsers,
+      newUsersToday,
+      newUsersThisWeek,
+      totalLogs,
+      logsToday,
+      usersLoggedTodayRaw,
+      voiceLogs,
+      logsThisWeek,
+      activeSubs,
+      expiredSubs,
+      cancelledSubs,
+      pendingPayments,
+      approvedPayments,
+      rejectedPayments,
+      pendingReminders,
+      sentReminders,
+      snoozedReminders,
+      skippedReminders,
+    ] = await Promise.all([
+      prisma.user.count(),
+      prisma.user.count({ where: { isPro: true } }),
+      prisma.user.count({ where: { onboardingDone: true } }),
+      prisma.user.count({
+        where: { createdAt: { gte: todayStart, lte: todayEnd } },
+      }),
+      prisma.user.count({ where: { createdAt: { gte: weekStart } } }),
+      prisma.log.count(),
+      prisma.log.count({
+        where: { logDate: { gte: todayStart, lte: todayEnd } },
+      }),
+      prisma.log.groupBy({
+        by: ["userId"],
+        where: { logDate: { gte: todayStart, lte: todayEnd } },
+      }),
+      prisma.log.count({ where: { isVoice: true } }),
+      prisma.log.count({ where: { logDate: { gte: weekStart } } }),
+      prisma.subscription.count({ where: { status: "active" } }),
+      prisma.subscription.count({ where: { status: "expired" } }),
+      prisma.subscription.count({ where: { status: "cancelled" } }),
+      prisma.manualPayment.count({ where: { status: "pending" } }),
+      prisma.manualPayment.count({ where: { status: "approved" } }),
+      prisma.manualPayment.count({ where: { status: "rejected" } }),
+      prisma.reminderJob.count({ where: { status: "pending" } }),
+      prisma.reminderJob.count({ where: { status: "sent" } }),
+      prisma.reminderJob.count({ where: { status: "snoozed" } }),
+      prisma.reminderJob.count({ where: { status: "skipped" } }),
+    ]);
+
+    res.json({
+      users: {
+        total: totalUsers,
+        pro: proUsers,
+        free: totalUsers - proUsers,
+        onboarded: onboardedUsers,
+        newToday: newUsersToday,
+        newThisWeek: newUsersThisWeek,
+      },
+      logs: {
+        total: totalLogs,
+        today: logsToday,
+        usersLoggedToday: usersLoggedTodayRaw.length,
+        voice: voiceLogs,
+        thisWeek: logsThisWeek,
+      },
+      subscriptions: {
+        active: activeSubs,
+        expired: expiredSubs,
+        cancelled: cancelledSubs,
+      },
+      payments: {
+        pending: pendingPayments,
+        approved: approvedPayments,
+        rejected: rejectedPayments,
+      },
+      reminders: {
+        pending: pendingReminders,
+        sent: sentReminders,
+        snoozed: snoozedReminders,
+        skipped: skippedReminders,
+      },
+    });
+  } catch (err) {
+    handleError(res, "/api/stats", err);
+  }
+});
+
+// ─── /api/users ───────────────────────────────────────────────────────────────
+router.get("/api/users", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
+    const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit ?? "25"), 10)));
+    const search = String(req.query.search ?? "").trim();
+    const skip = (page - 1) * limit;
+
+    const where = search
+      ? {
+          OR: [
+            { firstName: { contains: search, mode: "insensitive" as const } },
+            { username: { contains: search, mode: "insensitive" as const } },
+          ],
+        }
+      : {};
+
+    const [users, total] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+        include: {
+          subscription: { select: { status: true, endDate: true } },
+          _count: { select: { logs: true } },
+        },
+      }),
+      prisma.user.count({ where }),
+    ]);
+
+    res.json({
+      data: users.map((u) => ({
+        id: u.id,
+        telegramId: u.telegramId.toString(),
+        firstName: u.firstName,
+        username: u.username,
+        isPro: u.isPro,
+        onboardingDone: u.onboardingDone,
+        logFrequency: u.logFrequency,
+        timezone: u.timezone,
+        freeAiRefinements: u.freeAiRefinements,
+        freeVoiceLogs: u.freeVoiceLogs,
+        createdAt: u.createdAt,
+        logCount: u._count.logs,
+        subscription: u.subscription
+          ? { status: u.subscription.status, endDate: u.subscription.endDate }
+          : null,
+      })),
+      total,
+      page,
+      pages: Math.ceil(total / limit),
+    });
+  } catch (err) {
+    handleError(res, "/api/users", err);
+  }
+});
+
+// ─── /api/users/:id/logs ─────────────────────────────────────────────────────
+router.get(
+  "/api/users/:id/logs",
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const userId = parseInt(String(req.params.id), 10);
+      const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
+      const limit = 10;
+      const skip = (page - 1) * limit;
+
+      const [logs, total, user] = await Promise.all([
+        prisma.log.findMany({
+          where: { userId },
+          skip,
+          take: limit,
+          orderBy: { logDate: "desc" },
+        }),
+        prisma.log.count({ where: { userId } }),
+        prisma.user.findUnique({
+          where: { id: userId },
+          select: { firstName: true, username: true, telegramId: true },
+        }),
+      ]);
+
+      res.json({
+        user: user
+          ? { ...user, telegramId: user.telegramId.toString() }
+          : null,
+        data: logs,
+        total,
+        page,
+        pages: Math.ceil(total / limit),
+      });
+    } catch (err) {
+      handleError(res, "/api/users/:id/logs", err);
+    }
+  },
+);
+
+// ─── /api/logs/today ─────────────────────────────────────────────────────────
+router.get(
+  "/api/logs/today",
+  async (_req: Request, res: Response): Promise<void> => {
+    try {
+      const now = new Date();
+      const todayStart = startOfDay(now);
+      const todayEnd = endOfDay(now);
+
+      const logs = await prisma.log.findMany({
+        where: { logDate: { gte: todayStart, lte: todayEnd } },
+        orderBy: { createdAt: "desc" },
+        include: {
+          user: { select: { firstName: true, username: true } },
+        },
+      });
+
+      res.json({ data: logs, count: logs.length });
+    } catch (err) {
+      handleError(res, "/api/logs/today", err);
+    }
+  },
+);
+
+// ─── /api/logs ────────────────────────────────────────────────────────────────
+router.get("/api/logs", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
+    const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit ?? "20"), 10)));
+    const skip = (page - 1) * limit;
+
+    const dateStr = String(req.query.date ?? "");
+    const userIdStr = String(req.query.userId ?? "");
+
+    const where: Record<string, unknown> = {};
+    if (dateStr) {
+      const d = parseISO(dateStr);
+      if (isValid(d)) {
+        where["logDate"] = { gte: startOfDay(d), lte: endOfDay(d) };
+      }
+    }
+    if (userIdStr) {
+      const uid = parseInt(userIdStr, 10);
+      if (!isNaN(uid)) where["userId"] = uid;
+    }
+
+    const [logs, total] = await Promise.all([
+      prisma.log.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { logDate: "desc" },
+        include: {
+          user: { select: { id: true, firstName: true, username: true } },
+        },
+      }),
+      prisma.log.count({ where }),
+    ]);
+
+    res.json({ data: logs, total, page, pages: Math.ceil(total / limit) });
+  } catch (err) {
+    handleError(res, "/api/logs", err);
+  }
+});
+
+// ─── /api/at-risk-users ───────────────────────────────────────────────────────
+router.get(
+  "/api/at-risk-users",
+  async (_req: Request, res: Response): Promise<void> => {
+    try {
+      const cutoff = subDays(startOfDay(new Date()), 3);
+
+      // Users who are onboarded but have no log in the last 3 days
+      const usersWithRecentLog = await prisma.log.groupBy({
+        by: ["userId"],
+        where: { logDate: { gte: cutoff } },
+      });
+      const recentUserIds = new Set(usersWithRecentLog.map((r) => r.userId));
+
+      const atRiskUsers = await prisma.user.findMany({
+        where: {
+          onboardingDone: true,
+          id: { notIn: [...recentUserIds] },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        include: {
+          logs: {
+            orderBy: { logDate: "desc" },
+            take: 1,
+            select: { logDate: true },
+          },
+          _count: { select: { logs: true } },
+        },
+      });
+
+      res.json({
+        data: atRiskUsers.map((u) => ({
+          id: u.id,
+          telegramId: u.telegramId.toString(),
+          firstName: u.firstName,
+          username: u.username,
+          isPro: u.isPro,
+          logFrequency: u.logFrequency,
+          logCount: u._count.logs,
+          lastLogDate: u.logs[0]?.logDate ?? null,
+          createdAt: u.createdAt,
+        })),
+      });
+    } catch (err) {
+      handleError(res, "/api/at-risk-users", err);
+    }
+  },
+);
+
+// ─── /api/chart/daily-logs ────────────────────────────────────────────────────
+router.get(
+  "/api/chart/daily-logs",
+  async (_req: Request, res: Response): Promise<void> => {
+    try {
+      const now = new Date();
+      const days: Array<{ label: string; start: Date; end: Date }> = [];
+
+      for (let i = 13; i >= 0; i--) {
+        const d = subDays(now, i);
+        days.push({
+          label: format(d, "MMM d"),
+          start: startOfDay(d),
+          end: endOfDay(d),
+        });
+      }
+
+      const counts = await Promise.all(
+        days.map((d) =>
+          prisma.log.count({ where: { logDate: { gte: d.start, lte: d.end } } }),
+        ),
+      );
+
+      res.json({
+        labels: days.map((d) => d.label),
+        values: counts,
+      });
+    } catch (err) {
+      handleError(res, "/api/chart/daily-logs", err);
+    }
+  },
+);
+
+// ─── /api/chart/user-growth ───────────────────────────────────────────────────
+router.get(
+  "/api/chart/user-growth",
+  async (_req: Request, res: Response): Promise<void> => {
+    try {
+      const now = new Date();
+      const days: Array<{ label: string; start: Date; end: Date }> = [];
+
+      for (let i = 13; i >= 0; i--) {
+        const d = subDays(now, i);
+        days.push({
+          label: format(d, "MMM d"),
+          start: startOfDay(d),
+          end: endOfDay(d),
+        });
+      }
+
+      const counts = await Promise.all(
+        days.map((d) =>
+          prisma.user.count({
+            where: { createdAt: { gte: d.start, lte: d.end } },
+          }),
+        ),
+      );
+
+      res.json({
+        labels: days.map((d) => d.label),
+        values: counts,
+      });
+    } catch (err) {
+      handleError(res, "/api/chart/user-growth", err);
+    }
+  },
+);
+
+// ─── /api/manual-payments ─────────────────────────────────────────────────────
+router.get(
+  "/api/manual-payments",
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const status = String(req.query.status ?? "");
+      const where = status ? { status } : {};
+
+      const payments = await prisma.manualPayment.findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              username: true,
+              telegramId: true,
+              isPro: true,
+            },
+          },
+        },
+      });
+
+      res.json({
+        data: payments.map((p) => ({
+          ...p,
+          user: { ...p.user, telegramId: p.user.telegramId.toString() },
+        })),
+      });
+    } catch (err) {
+      handleError(res, "/api/manual-payments", err);
+    }
+  },
+);
+
+// ─── POST /api/manual-payments/:id/approve ───────────────────────────────────
+router.post(
+  "/api/manual-payments/:id/approve",
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const id = parseInt(String(req.params.id), 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: "Invalid payment ID" });
+        return;
+      }
+
+      const payment = await prisma.manualPayment.findUnique({
+        where: { id },
+        include: { user: true },
+      });
+
+      if (!payment) {
+        res.status(404).json({ error: "Payment not found" });
+        return;
+      }
+
+      if (payment.status !== "pending") {
+        res
+          .status(409)
+          .json({ error: `Payment is already ${payment.status}` });
+        return;
+      }
+
+      await prisma.$transaction([
+        prisma.manualPayment.update({
+          where: { id },
+          data: { status: "approved" },
+        }),
+        prisma.user.update({
+          where: { id: payment.userId },
+          data: { isPro: true },
+        }),
+      ]);
+
+      console.log(
+        `[admin] Manual payment #${id} approved. User ${payment.userId} => isPro=true`,
+      );
+      res.json({ success: true, message: "Payment approved and user upgraded to Pro." });
+    } catch (err) {
+      handleError(res, "/api/manual-payments/:id/approve", err);
+    }
+  },
+);
+
+// ─── POST /api/manual-payments/:id/reject ────────────────────────────────────
+router.post(
+  "/api/manual-payments/:id/reject",
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const id = parseInt(String(req.params.id), 10);
+      if (isNaN(id)) {
+        res.status(400).json({ error: "Invalid payment ID" });
+        return;
+      }
+
+      const payment = await prisma.manualPayment.findUnique({ where: { id } });
+
+      if (!payment) {
+        res.status(404).json({ error: "Payment not found" });
+        return;
+      }
+
+      if (payment.status !== "pending") {
+        res
+          .status(409)
+          .json({ error: `Payment is already ${payment.status}` });
+        return;
+      }
+
+      await prisma.manualPayment.update({
+        where: { id },
+        data: { status: "rejected" },
+      });
+
+      console.log(`[admin] Manual payment #${id} rejected.`);
+      res.json({ success: true, message: "Payment rejected." });
+    } catch (err) {
+      handleError(res, "/api/manual-payments/:id/reject", err);
+    }
+  },
+);
+
+// ─── /api/reminders ───────────────────────────────────────────────────────────
+router.get(
+  "/api/reminders",
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
+      const limit = 25;
+      const skip = (page - 1) * limit;
+      const status = String(req.query.status ?? "");
+      const where = status ? { status } : {};
+
+      const [jobs, total] = await Promise.all([
+        prisma.reminderJob.findMany({
+          where,
+          skip,
+          take: limit,
+          orderBy: { scheduledFor: "desc" },
+        }),
+        prisma.reminderJob.count({ where }),
+      ]);
+
+      // Attach user first names in bulk
+      const userIds = [...new Set(jobs.map((j) => j.userId))];
+      const usersMap = await prisma.user
+        .findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, firstName: true, username: true },
+        })
+        .then((users) =>
+          Object.fromEntries(users.map((u) => [u.id, u])),
+        );
+
+      res.json({
+        data: jobs.map((j) => ({
+          ...j,
+          telegramId: j.telegramId.toString(),
+          user: usersMap[j.userId] ?? null,
+        })),
+        total,
+        page,
+        pages: Math.ceil(total / limit),
+      });
+    } catch (err) {
+      handleError(res, "/api/reminders", err);
+    }
+  },
+);
+
+export { router as adminRouter };

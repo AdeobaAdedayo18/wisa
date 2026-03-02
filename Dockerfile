@@ -11,6 +11,9 @@ COPY . .
 RUN npx prisma generate
 RUN npm run build
 
+# Copy static admin assets (HTML dashboard) into the compiled output
+RUN mkdir -p dist/admin && cp src/admin/dashboard.html dist/admin/dashboard.html
+
 # Copy Prisma schema for migrate deploy
 COPY prisma ./prisma
 
