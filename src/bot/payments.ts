@@ -199,14 +199,14 @@ export async function handlePaymentSenderNameText(ctx: BotContext): Promise<bool
   try {
     await ctx.api.sendMessage(
       ADMIN_ID,
-      `💰 *New Manual Payment Request*\n\n` +
-        `👤 *User:* ${userName} (ID: \`${user.telegramId}\`)\n` +
-        `🏦 *Sent from account:* ${senderName}\n` +
-        `💳 *Amount:* ${BANK_TRANSFER_AMOUNT}\n` +
-        `🆔 *Payment ID:* \`${paymentId}\`\n\n` +
+      `💰 <b>New Manual Payment Request</b>\n\n` +
+        `👤 <b>User:</b> ${userName} (ID: <code>${user.telegramId}</code>)\n` +
+        `🏦 <b>Sent from account:</b> ${senderName}\n` +
+        `💳 <b>Amount:</b> ${BANK_TRANSFER_AMOUNT}\n` +
+        `🆔 <b>Payment ID:</b> <code>${paymentId}</code>\n\n` +
         `Did you receive this transfer?`,
       {
-        parse_mode: "Markdown",
+        parse_mode: "HTML",
         reply_markup: {
           inline_keyboard: [
             [
