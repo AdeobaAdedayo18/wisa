@@ -140,7 +140,7 @@ export async function handleSettingsSub(ctx: BotContext) {
       {
         parse_mode: "Markdown",
         reply_markup: new InlineKeyboard()
-          .text("👑 Upgrade to Pro", "pay_paystack").row()
+          .text("👑 Upgrade to Pro", "go_pro").row()
           .text("🏠 Menu", "nav_menu"),
       },
     );
@@ -170,7 +170,7 @@ export async function handleSettingsSub(ctx: BotContext) {
             .text("❌ Cancel subscription", "settings_cancel_sub").row()
             .text("🏠 Menu", "nav_menu")
         : new InlineKeyboard()
-            .text("🔄 Renew Pro", "pay_paystack").row()
+            .text("🔄 Renew Pro", "go_pro").row()
             .text("🏠 Menu", "nav_menu"),
     },
   );
