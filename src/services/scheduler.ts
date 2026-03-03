@@ -9,6 +9,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
   // ── Re-entry locks — prevent overlapping async cron ticks ───────────────
   let reminderCronRunning = false;
   let autoSnoozeCronRunning = false;
+  let onboardingNudgeCronRunning = false;
 
   // ── 5.1 — Fire due reminders (every minute) ───────────────────────────────
   cron.schedule("* * * * *", async () => {
@@ -204,6 +205,44 @@ export function startScheduler(bot: Bot<BotContext>): void {
 
     } finally {
       autoSnoozeCronRunning = false;
+    }
+  });
+
+  // ── Onboarding nudge — 8 pm WAT (19:00 UTC) daily ───────────────────────
+  cron.schedule("0 19 * * *", async () => {
+    if (onboardingNudgeCronRunning) {
+      console.log("[scheduler] Onboarding nudge cron still running — skipping");
+      return;
+    }
+    onboardingNudgeCronRunning = true;
+
+    try {
+      const incompleteUsers = await prisma.user.findMany({
+        where: { onboardingDone: false },
+        select: { telegramId: true, firstName: true },
+      });
+
+      console.log(`[scheduler] Sending onboarding nudge to ${incompleteUsers.length} user(s)`);
+
+      for (const user of incompleteUsers) {
+        try {
+          await bot.api.sendMessage(
+            Number(user.telegramId),
+            `hey ${user.firstName} 👋\nyou started setting up your Wisa but never finished 😅\n\nwhich means right now you have not started taking your logs and your IT days are already going by 👀\n\nit'll take you about 20 seconds to finish. literally just pick how often you want to log and what time you want to be reminded. that's it.\n\nafter that the bot handles everything 🙏`,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: "Finish my setup ✅", callback_data: "start_onboarding" }],
+                ],
+              },
+            },
+          );
+        } catch (e) {
+          console.error(`[scheduler] Failed to send onboarding nudge to ${user.telegramId}:`, e);
+        }
+      }
+    } finally {
+      onboardingNudgeCronRunning = false;
     }
   });
 
