@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma";
 import { sendScene } from "../utils/constants";
 import { buildCalendarKeyboard, getScheduledDates } from "./calendar";
 import type { BotContext } from "./types";
+import { clearActiveFlow, startFlow, isFlowExpired } from "./types";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -21,6 +22,9 @@ const MAX_CHARS = 10_000;
  * Call with an optional ISO date string to pre-set a past-log date.
  */
 export async function startLogging(ctx: BotContext, isoDate?: string): Promise<void> {
+  // Cancel any active flow (feedback, edit, payment, etc.) before starting log
+  clearActiveFlow(ctx.session);
+
   const todayStr = isoDate ?? format(new Date(), "yyyy-MM-dd");
   const isToday = todayStr === format(new Date(), "yyyy-MM-dd");
   const telegramId = BigInt(ctx.from!.id);
@@ -64,6 +68,7 @@ export async function startLogging(ctx: BotContext, isoDate?: string): Promise<v
   ctx.session.pendingLogDate = todayStr;
   ctx.session.editingLogId = undefined;
   ctx.session.awaitingEditText = false;
+  startFlow(ctx.session);
 
   const dateLabel =
     isoDate && isoDate !== format(new Date(), "yyyy-MM-dd")
@@ -93,6 +98,7 @@ export async function startLogging(ctx: BotContext, isoDate?: string): Promise<v
  */
 export async function handleLogText(ctx: BotContext): Promise<boolean> {
   if (!ctx.session.awaitingLog) return false;
+  if (isFlowExpired(ctx.session)) return false;
 
   const text = ctx.message?.text ?? "";
   if (!text.trim()) return true; // ignore blank messages but still consume them
@@ -114,7 +120,7 @@ export async function handleLogText(ctx: BotContext): Promise<boolean> {
 export async function handleDoneLogging(ctx: BotContext): Promise<void> {
   await ctx.answerCallbackQuery();
 
-  if (!ctx.session.awaitingLog) {
+  if (!ctx.session.awaitingLog || isFlowExpired(ctx.session)) {
     await ctx.reply("No log in progress. Tap *✍️ Write today's log* to start.", {
       parse_mode: "Markdown",
     });
@@ -168,6 +174,7 @@ export async function handleDoneLogging(ctx: BotContext): Promise<void> {
   ctx.session.awaitingLog = false;
   ctx.session.pendingLogParts = [];
   ctx.session.pendingLogDate = undefined;
+  ctx.session.flowStartedAt = undefined;
 
   await sendScene(
     ctx,
@@ -212,9 +219,10 @@ export async function handleEditLog(ctx: BotContext): Promise<void> {
     return;
   }
 
+  clearActiveFlow(ctx.session);
   ctx.session.editingLogId = logId;
   ctx.session.awaitingEditText = true;
-  ctx.session.awaitingLog = false;
+  startFlow(ctx.session);
 
   await ctx.reply(
     `✏️ *Edit mode* — send your updated log now.\n\nCurrent log (${log.content.split(/\s+/).length} words):\n\n${
@@ -230,6 +238,7 @@ export async function handleEditLog(ctx: BotContext): Promise<void> {
  */
 export async function handleEditText(ctx: BotContext): Promise<boolean> {
   if (!ctx.session.awaitingEditText || !ctx.session.editingLogId) return false;
+  if (isFlowExpired(ctx.session)) return false;
 
   const newContent = ctx.message?.text?.trim() ?? "";
   if (!newContent) return true;
@@ -242,6 +251,7 @@ export async function handleEditText(ctx: BotContext): Promise<boolean> {
   // Reset edit-mode session flags
   ctx.session.awaitingEditText = false;
   ctx.session.editingLogId = undefined;
+  ctx.session.flowStartedAt = undefined;
 
   await ctx.reply("Updated! ✅ Looking good 👌", {
     reply_markup: new InlineKeyboard()

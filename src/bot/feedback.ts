@@ -1,5 +1,6 @@
 import { InlineKeyboard } from "grammy";
 import { type BotContext } from "./types";
+import { clearActiveFlow, startFlow, isFlowExpired } from "./types";
 import { MAIN_MENU_KEYBOARD } from "./onboarding";
 
 // ---------------------------------------------------------------------------
@@ -13,7 +14,9 @@ const CREATOR_ID = process.env.CREATOR_TELEGRAM_ID ?? ""; // e.g. "123456789"
 // ---------------------------------------------------------------------------
 
 export async function handleFeedback(ctx: BotContext): Promise<void> {
+  clearActiveFlow(ctx.session);
   ctx.session.awaitingFeedback = true;
+  startFlow(ctx.session);
 
   await ctx.reply(
     "💬 *I'm all ears!*\n\n" +
@@ -34,8 +37,10 @@ export async function handleFeedback(ctx: BotContext): Promise<void> {
 
 export async function handleFeedbackText(ctx: BotContext): Promise<boolean> {
   if (!ctx.session.awaitingFeedback) return false;
+  if (isFlowExpired(ctx.session)) return false;
 
   ctx.session.awaitingFeedback = false;
+  ctx.session.flowStartedAt = undefined;
 
   const text = ctx.message?.text ?? "";
   const sender = ctx.from;
@@ -78,7 +83,7 @@ export async function handleFeedbackText(ctx: BotContext): Promise<boolean> {
 
 export async function handleFeedbackCancel(ctx: BotContext): Promise<void> {
   await ctx.answerCallbackQuery();
-  ctx.session.awaitingFeedback = false;
+  clearActiveFlow(ctx.session);
 
   await ctx.editMessageText("No worries! Back to the main menu 😊").catch(() => {});
   await ctx.reply("Main menu 👇", { reply_markup: MAIN_MENU_KEYBOARD });

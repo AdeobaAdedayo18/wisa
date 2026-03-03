@@ -1,5 +1,6 @@
 import { InlineKeyboard } from "grammy";
 import { type BotContext } from "./types";
+import { clearActiveFlow, startFlow, isFlowExpired } from "./types";
 import { prisma } from "../lib/prisma";
 import { initializeTransaction } from "../services/paystack";
 import {
@@ -152,8 +153,10 @@ export async function handleManualSent(ctx: BotContext) {
   });
 
   // Store in session and ask for sender name
+  clearActiveFlow(ctx.session);
   ctx.session.pendingManualPaymentId = payment.id;
   ctx.session.awaitingPaymentSenderName = true;
+  startFlow(ctx.session);
 
   await ctx.reply(
     `✅ *Transfer recorded!*\n\n` +
@@ -167,6 +170,7 @@ export async function handleManualSent(ctx: BotContext) {
 // Returns true if the message was consumed by this flow.
 export async function handlePaymentSenderNameText(ctx: BotContext): Promise<boolean> {
   if (!ctx.session.awaitingPaymentSenderName) return false;
+  if (isFlowExpired(ctx.session)) return false;
 
   ctx.session.awaitingPaymentSenderName = false;
   const paymentId = ctx.session.pendingManualPaymentId;

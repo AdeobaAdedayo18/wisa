@@ -7,6 +7,11 @@ export interface SessionData {
   /** Accumulated message chunks before the user taps Done ✅. */
   pendingLogParts: string[];
   /**
+   * Unix timestamp (ms) of when the current awaiting flow was started.
+   * Used for auto-expiry after 1 hour of inactivity.
+   */
+  flowStartedAt?: number;
+  /**
    * ISO date string (YYYY-MM-DD) for the log being written.
    * Defaults to today when undefined.
    */
@@ -46,3 +51,45 @@ export interface SessionData {
 }
 
 export type BotContext = ConversationFlavor<Context & SessionFlavor<SessionData>>;
+
+// ---------------------------------------------------------------------------
+// Flow management helpers
+// ---------------------------------------------------------------------------
+
+const FLOW_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour
+
+/**
+ * Clear ALL "awaiting" flags so no lingering flow captures text.
+ * Call this before entering any new flow.
+ */
+export function clearActiveFlow(session: SessionData): void {
+  session.awaitingLog = false;
+  session.pendingLogParts = [];
+  session.pendingLogDate = undefined;
+  session.editingLogId = undefined;
+  session.awaitingEditText = false;
+  session.awaitingFeedback = false;
+  session.awaitingPaymentSenderName = false;
+  session.pendingVoiceTranscription = undefined;
+  session.pendingRefinedContent = undefined;
+  session.refiningLogId = undefined;
+  session.flowStartedAt = undefined;
+}
+
+/**
+ * Check if the current flow has expired (started > 1 hour ago).
+ * If expired, silently clears all flags and returns true.
+ */
+export function isFlowExpired(session: SessionData): boolean {
+  if (!session.flowStartedAt) return false;
+  if (Date.now() - session.flowStartedAt > FLOW_TIMEOUT_MS) {
+    clearActiveFlow(session);
+    return true;
+  }
+  return false;
+}
+
+/** Mark that a flow is now active (resets the 1-hour timer). */
+export function startFlow(session: SessionData): void {
+  session.flowStartedAt = Date.now();
+}
