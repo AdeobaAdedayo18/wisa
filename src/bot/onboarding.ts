@@ -23,11 +23,14 @@ export const MAIN_MENU_KEYBOARD = new Keyboard()
   .persistent();
 
 /**
- * Generate the next 4 ReminderJob entries for a user.
+ * Create a SINGLE next ReminderJob for a user.
  *
  * Key behaviour: if the reminder time has NOT yet passed today (in the user's
- * timezone), the FIRST job is scheduled for today. Otherwise it starts from
- * the next interval day. All stored dates are in UTC.
+ * timezone), the job is scheduled for today. Otherwise it starts from
+ * the next interval day. The stored date is in UTC.
+ *
+ * Only ONE pending job is created — `scheduleNextJob()` in the scheduler
+ * creates the following one after each job fires, avoiding duplicate buildup.
  */
 export async function createInitialReminderJobs(
   userId: number,
@@ -42,17 +45,15 @@ export async function createInitialReminderJobs(
   // If the reminder time hasn't passed today in the user's TZ, start from today.
   const startOffset = hasLocalTimePassed(reminderTime, timezone) ? intervalDays : 0;
 
-  const jobs = [];
-  for (let i = 0; i < 4; i++) {
-    const scheduledFor = localTimeToUtc(reminderTime, timezone, startOffset + intervalDays * i);
-    jobs.push({ userId, telegramId, scheduledFor, status: "pending" });
-  }
+  const scheduledFor = localTimeToUtc(reminderTime, timezone, startOffset);
 
   console.log(
-    `[reminders] Created ${jobs.length} jobs for user ${userId} (tz=${timezone}) — first at ${jobs[0].scheduledFor.toISOString()}`,
+    `[reminders] Created 1 job for user ${userId} (tz=${timezone}) — at ${scheduledFor.toISOString()}`,
   );
 
-  await prisma.reminderJob.createMany({ data: jobs });
+  await prisma.reminderJob.create({
+    data: { userId, telegramId, scheduledFor, status: "pending" },
+  });
 }
 
 /** Build the 33-button time picker keyboard (06:00–22:00, 30-min steps). */

@@ -26,6 +26,17 @@ export async function scheduleNextJob(userId: number, telegramId: bigint): Promi
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return;
 
+  // ── Guard: skip if this user already has a future pending job ──────────
+  const existingPending = await prisma.reminderJob.findFirst({
+    where: { userId, status: "pending", scheduledFor: { gt: new Date() } },
+  });
+  if (existingPending) {
+    console.log(
+      `[scheduler] Skipped scheduleNextJob for user ${userId} — already has pending job #${existingPending.id} at ${existingPending.scheduledFor.toISOString()}`,
+    );
+    return;
+  }
+
   const intervalDays =
     (
       {
@@ -89,7 +100,7 @@ export async function handleSnooze(ctx: BotContext): Promise<void> {
       `Okay okay, last reminder for today! 😅\n\nYou've snoozed 3 times — just write *something*, even one sentence. Your logbook needs you! 🙏`,
     );
   } else {
-    // Create a new job 30 minutes from now
+    // Create a new job 30 minutes from now — but only if user has no pending job already
     const snoozedUntil = new Date(Date.now() + 30 * 60 * 1000);
 
     await prisma.reminderJob.update({
@@ -97,15 +108,21 @@ export async function handleSnooze(ctx: BotContext): Promise<void> {
       data: { snoozeCount: newSnoozeCount, status: "snoozed" },
     });
 
-    await prisma.reminderJob.create({
-      data: {
-        userId: job.userId,
-        telegramId: job.telegramId,
-        scheduledFor: snoozedUntil,
-        status: "pending",
-        snoozeCount: newSnoozeCount,
-      },
+    const existingPending = await prisma.reminderJob.findFirst({
+      where: { userId: job.userId, status: "pending" },
     });
+
+    if (!existingPending) {
+      await prisma.reminderJob.create({
+        data: {
+          userId: job.userId,
+          telegramId: job.telegramId,
+          scheduledFor: snoozedUntil,
+          status: "pending",
+          snoozeCount: newSnoozeCount,
+        },
+      });
+    }
 
     await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
     await ctx.reply(

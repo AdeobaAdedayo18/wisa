@@ -6,13 +6,47 @@ import { sendSceneViaApi } from "../utils/constants";
 import type { BotContext } from "../bot/types";
 
 export function startScheduler(bot: Bot<BotContext>): void {
+  // ── Re-entry locks — prevent overlapping async cron ticks ───────────────
+  let reminderCronRunning = false;
+  let autoSnoozeCronRunning = false;
+
   // ── 5.1 — Fire due reminders (every minute) ───────────────────────────────
   cron.schedule("* * * * *", async () => {
+    if (reminderCronRunning) {
+      console.log("[scheduler] Reminder cron still running from previous tick — skipping");
+      return;
+    }
+    reminderCronRunning = true;
+
+    try {
     const dueJobs = await prisma.reminderJob.findMany({
       where: { status: "pending", scheduledFor: { lte: new Date() } },
     });
 
+    // ── Deduplicate: only process ONE job per user (the earliest) ────────
+    const bestJobByUser = new Map<number, (typeof dueJobs)[0]>();
+    const duplicateJobIds: number[] = [];
+
     for (const job of dueJobs) {
+      const existing = bestJobByUser.get(job.userId);
+      if (!existing || job.scheduledFor < existing.scheduledFor) {
+        if (existing) duplicateJobIds.push(existing.id);
+        bestJobByUser.set(job.userId, job);
+      } else {
+        duplicateJobIds.push(job.id);
+      }
+    }
+
+    // Silently retire all duplicate due-jobs
+    if (duplicateJobIds.length > 0) {
+      await prisma.reminderJob.updateMany({
+        where: { id: { in: duplicateJobIds } },
+        data: { status: "sent" },
+      });
+      console.log(`[scheduler] Retired ${duplicateJobIds.length} duplicate due jobs`);
+    }
+
+    for (const [, job] of bestJobByUser) {
       try {
         // ── Skip if user already wrote a log today ───────────────────────
         const todayStart = new Date();
@@ -51,16 +85,27 @@ export function startScheduler(bot: Bot<BotContext>): void {
           data: { status: "sent" },
         });
 
-        // Immediately queue the next scheduled job for this user
+        // Queue the next scheduled job (guard inside prevents duplicates)
         await scheduleNextJob(job.userId, job.telegramId);
       } catch (e) {
         console.error(`[scheduler] Failed to send reminder for job ${job.id}:`, e);
       }
     }
+
+    } finally {
+      reminderCronRunning = false;
+    }
   });
 
   // ── 5.4 — Auto-snooze: re-queue unanswered reminders (every 5 minutes) ───
   cron.schedule("*/5 * * * *", async () => {
+    if (autoSnoozeCronRunning) {
+      console.log("[scheduler] Auto-snooze cron still running from previous tick — skipping");
+      return;
+    }
+    autoSnoozeCronRunning = true;
+
+    try {
     const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000);
 
     // Jobs that were sent more than 30 mins ago and never acted on
@@ -72,7 +117,30 @@ export function startScheduler(bot: Bot<BotContext>): void {
       },
     });
 
+    // ── Deduplicate: only process ONE stale job per user (the latest) ───
+    const bestStaleByUser = new Map<number, (typeof staleJobs)[0]>();
+    const extraStaleIds: number[] = [];
+
     for (const job of staleJobs) {
+      const existing = bestStaleByUser.get(job.userId);
+      if (!existing || job.scheduledFor > existing.scheduledFor) {
+        if (existing) extraStaleIds.push(existing.id);
+        bestStaleByUser.set(job.userId, job);
+      } else {
+        extraStaleIds.push(job.id);
+      }
+    }
+
+    // Retire duplicates
+    if (extraStaleIds.length > 0) {
+      await prisma.reminderJob.updateMany({
+        where: { id: { in: extraStaleIds } },
+        data: { status: "snoozed" },
+      });
+      console.log(`[scheduler] Retired ${extraStaleIds.length} duplicate stale jobs`);
+    }
+
+    for (const [, job] of bestStaleByUser) {
       try {
         // ── Skip if user already wrote a log today ───────────────────────
         const todayStart = new Date();
@@ -85,7 +153,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
         });
 
         if (todayLog) {
-          await prisma.reminderJob.update({ where: { id: job.id }, data: { status: "sent" } });
+          await prisma.reminderJob.update({ where: { id: job.id }, data: { status: "snoozed" } });
           console.log(`[scheduler] Skipped auto-snooze for user ${job.userId} — already logged today`);
           continue;
         }
@@ -111,21 +179,31 @@ export function startScheduler(bot: Bot<BotContext>): void {
             },
           );
         } else {
-          // Auto-re-queue 30 mins from now
-          const snoozedUntil = new Date(Date.now() + 30 * 60 * 1000);
-          await prisma.reminderJob.create({
-            data: {
-              userId: job.userId,
-              telegramId: job.telegramId,
-              scheduledFor: snoozedUntil,
-              status: "pending",
-              snoozeCount: newSnoozeCount,
-            },
+          // Auto-re-queue 30 mins from now — only if no pending job exists
+          const existingPending = await prisma.reminderJob.findFirst({
+            where: { userId: job.userId, status: "pending" },
           });
+
+          if (!existingPending) {
+            const snoozedUntil = new Date(Date.now() + 30 * 60 * 1000);
+            await prisma.reminderJob.create({
+              data: {
+                userId: job.userId,
+                telegramId: job.telegramId,
+                scheduledFor: snoozedUntil,
+                status: "pending",
+                snoozeCount: newSnoozeCount,
+              },
+            });
+          }
         }
       } catch (e) {
         console.error(`[scheduler] Auto-snooze failed for job ${job.id}:`, e);
       }
+    }
+
+    } finally {
+      autoSnoozeCronRunning = false;
     }
   });
 

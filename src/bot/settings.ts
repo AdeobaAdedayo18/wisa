@@ -66,8 +66,10 @@ export async function handleSettingsTimeSelect(ctx: BotContext) {
     data: { reminderTime },
   });
 
-  // Replace all pending jobs with a fresh schedule at the new time
-  await prisma.reminderJob.deleteMany({ where: { userId: user.id, status: "pending" } });
+  // Replace all pending AND stale sent jobs with a fresh schedule at the new time
+  await prisma.reminderJob.deleteMany({
+    where: { userId: user.id, status: { in: ["pending", "sent"] } },
+  });
   await createInitialReminderJobs(user.id, telegramId, user.logFrequency, reminderTime, user.timezone);
 
   await ctx.reply(
@@ -101,8 +103,10 @@ export async function handleSettingsFreqSelect(ctx: BotContext) {
     data: { logFrequency },
   });
 
-  // Replace all pending jobs with a fresh schedule at the same reminder time
-  await prisma.reminderJob.deleteMany({ where: { userId: user.id, status: "pending" } });
+  // Replace all pending AND stale sent jobs with a fresh schedule at the same reminder time
+  await prisma.reminderJob.deleteMany({
+    where: { userId: user.id, status: { in: ["pending", "sent"] } },
+  });
   await createInitialReminderJobs(user.id, telegramId, logFrequency, user.reminderTime, user.timezone);
 
   await ctx.reply(
