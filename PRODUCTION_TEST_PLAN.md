@@ -62,7 +62,7 @@ Run through each section after deploying. Use your own account + a test account 
 ---
 
 ## 4. Flow Switching (Session Management)
-
+popop
 ### 4a. Feedback → Log
 - [ ] Tap "💬 Leave feedback" (you should see "I'm all ears")
 - [ ] **Don't send any text** — instead tap "✍️ Write today's log"
