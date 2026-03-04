@@ -232,7 +232,7 @@ export async function handleEditLog(ctx: BotContext): Promise<void> {
   startFlow(ctx.session);
 
   await ctx.reply(
-    `✏️ *Edit mode* — send your updated log now.\n\nCurrent log (${log.content.split(/\s+/).length} words):\n\n${
+    `✏️ *Edit mode*\n\n*⚠️ Whatever you type next will completely replace the current log.*\n\nCurrent log (${log.content.split(/\s+/).length} words):\n\n${
       log.content.length > 300 ? log.content.slice(0, 300) + "…" : log.content
     }`,
     { parse_mode: "Markdown" },
