@@ -538,48 +538,121 @@
     .mt-24 { margin-top: 24px; }
 
     /* ── Replay Viewer ─────────────────────────────────────────────────── */
+    /* ── Session Replay: Split-Panel Layout ──────────────────────────── */
+    #content.replay-mode { padding: 0; overflow: hidden; }
+    #panel-replay.active { display: flex !important; flex-direction: row; height: 100%; overflow: hidden; }
+
+    .replay-split-left {
+      width: 360px;
+      flex-shrink: 0;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--bg);
+    }
+    .replay-split-left .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      padding: 14px;
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .replay-split-left .stats-grid .stat-card {
+      padding: 12px 14px;
+    }
+    .replay-split-left .stats-grid .card-value { font-size: 22px; }
+    .replay-split-left .stats-grid .card-icon { font-size: 20px; }
+    .replay-split-left .table-card {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border-radius: 0;
+      border: none;
+      margin: 0;
+    }
+    .replay-split-left .section-body {
+      flex: 1;
+      overflow-y: auto;
+      max-height: none !important;
+    }
+    .replay-session-item {
+      border-left: 3px solid transparent;
+      transition: background .12s, border-color .12s;
+    }
+    .replay-session-item:hover { background: var(--s2); }
+    .replay-session-item.active {
+      background: var(--accent-g);
+      border-left-color: var(--accent);
+    }
+
+    .replay-split-right {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--bg);
+      position: relative;
+    }
+
+    .rv-empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      color: var(--t3);
+      font-size: 14px;
+      text-align: center;
+      padding: 40px;
+    }
+    .rv-empty-state .empty-icon { font-size: 48px; opacity: 0.5; }
+
     #replay-viewer {
       display: none;
       flex-direction: column;
       height: 100%;
       background: var(--bg);
-      position: absolute;
-      inset: 0;
-      z-index: 100;
+      flex: 1;
+      overflow: hidden;
     }
-    #replay-viewer.open { display: flex; }
+    #replay-viewer.active { display: flex; }
 
     .replay-header {
       display: flex;
       align-items: center;
-      gap: 12px;
-      padding: 14px 20px;
+      gap: 10px;
+      padding: 11px 16px;
       background: var(--s1);
       border-bottom: 1px solid var(--border);
       flex-shrink: 0;
     }
-    .replay-header .back-btn {
+    .replay-header .chat-info { flex: 1; min-width: 0; }
+    .replay-header .chat-name { font-size: 14px; font-weight: 600; color: var(--t1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .replay-header .chat-meta { font-size: 11px; color: var(--t3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .replay-header .replay-filters { display: flex; gap: 5px; align-items: center; flex-shrink: 0; }
+    .replay-header .rv-refresh-btn {
       background: none;
-      border: none;
+      border: 1px solid var(--border);
       color: var(--t2);
-      font-size: 18px;
+      font-size: 13px;
       cursor: pointer;
       padding: 4px 8px;
       border-radius: 6px;
       transition: background .15s;
+      flex-shrink: 0;
     }
-    .replay-header .back-btn:hover { background: var(--s2); }
-    .replay-header .chat-info { flex: 1; }
-    .replay-header .chat-name { font-size: 15px; font-weight: 600; color: var(--t1); }
-    .replay-header .chat-meta { font-size: 12px; color: var(--t3); }
-    .replay-header .replay-filters { display: flex; gap: 6px; align-items: center; }
+    .replay-header .rv-refresh-btn:hover { background: var(--s2); color: var(--t1); }
     .replay-filter-btn {
-      padding: 5px 10px;
+      padding: 4px 9px;
       background: var(--s2);
       border: 1px solid var(--border);
       border-radius: 6px;
       color: var(--t2);
-      font-size: 11.5px;
+      font-size: 11px;
       font-weight: 500;
       cursor: pointer;
       font-family: inherit;
@@ -756,11 +829,36 @@
       animation: spin .7s linear infinite;
     }
 
+    /* Session list skeleton */
+    .replay-skeleton-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .replay-skeleton-item .sk-avatar {
+      width: 36px; height: 36px; border-radius: 50%;
+      background: var(--s3);
+      flex-shrink: 0;
+      animation: skeleton-pulse 1.4s ease-in-out infinite;
+    }
+    .replay-skeleton-item .sk-lines { flex: 1; display: flex; flex-direction: column; gap: 6px; }
+    .replay-skeleton-item .sk-line {
+      height: 10px; border-radius: 4px;
+      background: var(--s3);
+      animation: skeleton-pulse 1.4s ease-in-out infinite;
+    }
+    .replay-skeleton-item .sk-line.short { width: 55%; }
+    .replay-skeleton-item .sk-right { width: 48px; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+    @keyframes skeleton-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
     .scroll-bottom-btn {
       position: absolute;
       bottom: 16px;
-      right: 24px;
-      width: 36px; height: 36px;
+      right: 20px;
+      width: 34px; height: 34px;
       background: var(--s2);
       border: 1px solid var(--border);
       border-radius: 50%;
@@ -1003,100 +1101,124 @@
 
       </div><!-- /panel-reminders -->
 
-      <!-- ── Session Replay Panel ─────────────────────────────── -->
+      <!-- ── Session Replay Panel (split layout) ──────────────────── -->
       <div class="panel" id="panel-replay">
 
-        <!-- Stats row -->
-        <div class="stats-grid" id="replay-stats-grid">
-          <div class="stat-card card-purple">
-            <div class="card-label">TRACKED SESSIONS</div>
-            <div class="card-value" id="rstat-sessions">—</div>
-            <div class="card-icon">🔄</div>
-          </div>
-          <div class="stat-card card-green">
-            <div class="card-label">EVENTS TODAY</div>
-            <div class="card-value" id="rstat-events-today">—</div>
-            <div class="card-icon">📊</div>
-          </div>
-          <div class="stat-card card-red">
-            <div class="card-label">ERRORS TODAY</div>
-            <div class="card-value" id="rstat-errors-today">—</div>
-            <div class="card-icon">⚠️</div>
-          </div>
-          <div class="stat-card card-yellow">
-            <div class="card-label">TOTAL EVENTS</div>
-            <div class="card-value" id="rstat-total-events">—</div>
-            <div class="card-icon">💾</div>
-          </div>
-        </div>
+        <!-- LEFT: Session List ──────────────────────────────────── -->
+        <div class="replay-split-left">
 
-        <!-- Search + session list -->
-        <div class="table-card">
-          <div class="table-header">
-            <h3>🔄 Session Replays</h3>
-            <input
-              type="text"
-              class="search-input"
-              id="replay-search"
-              placeholder="Search by name, username, or Telegram ID..."
-              oninput="debounceReplaySearch()"
-            />
-          </div>
-
-          <div class="section-body" id="replay-session-list" style="max-height: 600px;">
-            <div class="empty-state">
-              <div class="empty-icon">🔄</div>
-              Loading sessions...
+          <!-- Stats row (2×2 grid) -->
+          <div class="stats-grid" id="replay-stats-grid">
+            <div class="stat-card card-purple">
+              <div class="card-label">SESSIONS</div>
+              <div class="card-value" id="rstat-sessions">—</div>
+              <div class="card-icon">🔄</div>
+            </div>
+            <div class="stat-card card-green">
+              <div class="card-label">EVENTS TODAY</div>
+              <div class="card-value" id="rstat-events-today">—</div>
+              <div class="card-icon">📊</div>
+            </div>
+            <div class="stat-card card-red">
+              <div class="card-label">ERRORS TODAY</div>
+              <div class="card-value" id="rstat-errors-today">—</div>
+              <div class="card-icon">⚠️</div>
+            </div>
+            <div class="stat-card card-yellow">
+              <div class="card-label">TOTAL EVENTS</div>
+              <div class="card-value" id="rstat-total-events">—</div>
+              <div class="card-icon">💾</div>
             </div>
           </div>
 
-          <div style="padding: 12px 20px; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between;">
-            <span class="user-meta" id="replay-page-info">Page 1 of 1</span>
-            <div style="display: flex; gap: 8px;">
-              <button class="btn-refresh" id="replay-prev-btn" onclick="replayPrevPage()" disabled>◀ Prev</button>
-              <button class="btn-refresh" id="replay-next-btn" onclick="replayNextPage()">Next ▶</button>
+          <!-- Search + session list -->
+          <div class="table-card">
+            <div class="table-header" style="padding: 10px 14px;">
+              <h3 style="font-size:13px;">🔄 Sessions</h3>
+              <input
+                type="text"
+                class="search-input"
+                id="replay-search"
+                placeholder="Search name / @username / ID…"
+                oninput="debounceReplaySearch()"
+                style="font-size:12px;"
+              />
+            </div>
+
+            <div class="section-body" id="replay-session-list">
+              <!-- Skeleton placeholder on first load -->
+              <div id="replay-skeleton">
+                <div class="replay-skeleton-item"><div class="sk-avatar"></div><div class="sk-lines"><div class="sk-line"></div><div class="sk-line short"></div></div><div class="sk-right"><div class="sk-line" style="width:36px"></div></div></div>
+                <div class="replay-skeleton-item"><div class="sk-avatar"></div><div class="sk-lines"><div class="sk-line"></div><div class="sk-line short"></div></div><div class="sk-right"><div class="sk-line" style="width:36px"></div></div></div>
+                <div class="replay-skeleton-item"><div class="sk-avatar"></div><div class="sk-lines"><div class="sk-line"></div><div class="sk-line short"></div></div><div class="sk-right"><div class="sk-line" style="width:36px"></div></div></div>
+                <div class="replay-skeleton-item"><div class="sk-avatar"></div><div class="sk-lines"><div class="sk-line"></div><div class="sk-line short"></div></div><div class="sk-right"><div class="sk-line" style="width:36px"></div></div></div>
+                <div class="replay-skeleton-item"><div class="sk-avatar"></div><div class="sk-lines"><div class="sk-line"></div><div class="sk-line short"></div></div><div class="sk-right"><div class="sk-line" style="width:36px"></div></div></div>
+                <div class="replay-skeleton-item"><div class="sk-avatar"></div><div class="sk-lines"><div class="sk-line"></div><div class="sk-line short"></div></div><div class="sk-right"><div class="sk-line" style="width:36px"></div></div></div>
+                <div class="replay-skeleton-item"><div class="sk-avatar"></div><div class="sk-lines"><div class="sk-line"></div><div class="sk-line short"></div></div><div class="sk-right"><div class="sk-line" style="width:36px"></div></div></div>
+                <div class="replay-skeleton-item"><div class="sk-avatar"></div><div class="sk-lines"><div class="sk-line"></div><div class="sk-line short"></div></div><div class="sk-right"><div class="sk-line" style="width:36px"></div></div></div>
+              </div>
+            </div>
+
+            <div style="padding: 8px 14px; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;">
+              <span class="user-meta" id="replay-page-info" style="font-size:11px;">—</span>
+              <div style="display: flex; gap: 6px;">
+                <button class="btn-refresh" id="replay-prev-btn" onclick="replayPrevPage()" disabled style="font-size:11px;">◀</button>
+                <button class="btn-refresh" id="replay-next-btn" onclick="replayNextPage()" style="font-size:11px;">▶</button>
+              </div>
             </div>
           </div>
-        </div>
+
+        </div><!-- /replay-split-left -->
+
+        <!-- RIGHT: Viewer Pane ──────────────────────────────────── -->
+        <div class="replay-split-right" id="replay-split-right">
+
+          <!-- Empty state (shown when no session selected) -->
+          <div class="rv-empty-state" id="rv-empty">
+            <div class="empty-icon">💬</div>
+            <div style="font-size:15px;font-weight:600;color:var(--t2);">Pick a session</div>
+            <div>Select a user on the left to watch their replay</div>
+          </div>
+
+          <!-- Replay Viewer (hidden until session selected) -->
+          <div id="replay-viewer">
+
+            <!-- Header -->
+            <div class="replay-header">
+              <div class="user-avatar" id="rv-avatar" style="width:32px;height:32px;font-size:13px;flex-shrink:0;">?</div>
+              <div class="chat-info">
+                <div class="chat-name" id="rv-name">Loading…</div>
+                <div class="chat-meta" id="rv-meta"></div>
+              </div>
+              <div class="replay-filters">
+                <button class="replay-filter-btn active" data-filter="all" onclick="setReplayFilter('all', this)">All</button>
+                <button class="replay-filter-btn" data-filter="messages" onclick="setReplayFilter('messages', this)">Msgs</button>
+                <button class="replay-filter-btn" data-filter="errors" onclick="setReplayFilter('errors', this)">Errors</button>
+                <button class="replay-filter-btn" data-filter="state" onclick="setReplayFilter('state', this)">State</button>
+              </div>
+              <button class="rv-refresh-btn" onclick="rvRefresh()" title="Reload session">↻</button>
+            </div>
+
+            <!-- Chat body -->
+            <div class="replay-chat" id="rv-chat" style="position:relative;">
+              <!-- Loading state injected by JS -->
+            </div>
+
+            <!-- Scroll-to-bottom FAB -->
+            <div class="scroll-bottom-btn hidden" id="rv-scroll-btn" onclick="rvScrollToBottom()">↓</div>
+
+            <!-- Pagination footer -->
+            <div style="padding: 7px 16px; background: var(--s1); border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+              <button class="btn-refresh" id="rv-load-older" onclick="rvLoadOlder()" disabled style="font-size:11px;">↑ Older</button>
+              <span class="user-meta" id="rv-event-count" style="font-size:11px;"></span>
+              <button class="btn-refresh" id="rv-load-newer" onclick="rvLoadNewer()" disabled style="font-size:11px;">Newer ↓</button>
+            </div>
+
+          </div><!-- /replay-viewer -->
+
+        </div><!-- /replay-split-right -->
 
       </div><!-- /panel-replay -->
-
-      <!-- ── Replay Viewer Overlay ─────────────────────────────────────── -->
-      <div id="replay-viewer">
-        <!-- Header -->
-        <div class="replay-header">
-          <button class="back-btn" onclick="closeReplay()">← Back</button>
-          <div class="user-avatar" id="rv-avatar">?</div>
-          <div class="chat-info">
-            <div class="chat-name" id="rv-name">Loading...</div>
-            <div class="chat-meta" id="rv-meta"></div>
-          </div>
-          <div class="replay-filters">
-            <button class="replay-filter-btn active" data-filter="all" onclick="setReplayFilter('all', this)">All</button>
-            <button class="replay-filter-btn" data-filter="messages" onclick="setReplayFilter('messages', this)">Messages</button>
-            <button class="replay-filter-btn" data-filter="errors" onclick="setReplayFilter('errors', this)">Errors</button>
-            <button class="replay-filter-btn" data-filter="state" onclick="setReplayFilter('state', this)">State</button>
-          </div>
-        </div>
-
-        <!-- Chat body -->
-        <div class="replay-chat" id="rv-chat" style="position: relative;">
-          <div class="replay-loading" id="rv-loading">
-            <div class="spinner"></div>
-            Loading conversation...
-          </div>
-        </div>
-
-        <!-- Scroll-to-bottom -->
-        <div class="scroll-bottom-btn hidden" id="rv-scroll-btn" onclick="rvScrollToBottom()">↓</div>
-
-        <!-- Pagination footer -->
-        <div style="padding: 8px 20px; background: var(--s1); border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;" id="rv-footer">
-          <button class="btn-refresh" id="rv-load-older" onclick="rvLoadOlder()">Load older ↑</button>
-          <span class="user-meta" id="rv-event-count"></span>
-          <button class="btn-refresh" id="rv-load-newer" onclick="rvLoadNewer()">Load newer ↓</button>
-        </div>
-      </div><!-- /replay-viewer -->
 
     </div><!-- /content -->
   </div><!-- /main -->
@@ -1160,9 +1282,12 @@ function debounceLogSearch() {
 
 // ── Navigation ─────────────────────────────────────────────────────
 function setPanel(name) {
-  // Close replay viewer when switching away from the replay panel
-  if (name !== 'replay' && document.getElementById('replay-viewer').classList.contains('open')) {
+  // Leaving replay: close viewer + remove replay-mode from content
+  if (name !== 'replay') {
     closeReplay();
+    document.getElementById('content').classList.remove('replay-mode');
+  } else {
+    document.getElementById('content').classList.add('replay-mode');
   }
   state.currentPanel = name;
   document.querySelectorAll('.nav-item').forEach(el =>
@@ -1970,18 +2095,26 @@ let replayDebounceTimer = null;
 function debounceReplaySearch() {
   clearTimeout(replayDebounceTimer);
   replayDebounceTimer = setTimeout(() => {
-    replaySearch = document.getElementById('replay-search').value;
+    replaySearch = document.getElementById('replay-search').value.trim();
     replayPage = 1;
     loadReplaySessions();
   }, 300);
 }
 
 async function loadReplaySessions() {
+  const list = document.getElementById('replay-session-list');
+
+  // Show skeleton while loading
+  list.innerHTML = `<div id="replay-skeleton">
+    ${'<div class="replay-skeleton-item"><div class="sk-avatar"></div><div class="sk-lines"><div class="sk-line"></div><div class="sk-line short"></div></div><div class="sk-right"><div class="sk-line" style="width:36px"></div></div></div>'.repeat(6)}
+  </div>`;
+
   try {
     const [sessionsRes, statsRes] = await Promise.all([
       fetch(`/admin/api/replay/sessions?page=${replayPage}&limit=25&search=${encodeURIComponent(replaySearch)}`),
       fetch('/admin/api/replay/stats'),
     ]);
+    if (!sessionsRes.ok || !statsRes.ok) throw new Error('API error');
 
     const sessions = await sessionsRes.json();
     const stats = await statsRes.json();
@@ -2001,15 +2134,15 @@ async function loadReplaySessions() {
       badge.classList.add('hidden');
     }
 
-    // Render session list
-    const list = document.getElementById('replay-session-list');
-
     if (!sessions.data?.length) {
       list.innerHTML = `
         <div class="empty-state">
           <div class="empty-icon">🔍</div>
-          ${replaySearch ? 'No sessions match your search.' : 'No sessions recorded yet. Interact with the bot to start capturing.'}
+          <div>${replaySearch ? 'No sessions match your search.' : 'No sessions recorded yet.'}</div>
         </div>`;
+      document.getElementById('replay-page-info').textContent = '0 sessions';
+      document.getElementById('replay-prev-btn').disabled = true;
+      document.getElementById('replay-next-btn').disabled = true;
       return;
     }
 
@@ -2019,77 +2152,127 @@ async function loadReplaySessions() {
       const errBadge = s.errorCount > 0
         ? `<span style="background:var(--red-g);color:var(--red);font-size:10px;font-weight:700;padding:2px 6px;border-radius:99px;margin-left:4px;">⚠ ${s.errorCount}</span>`
         : '';
-      const proBadge = s.isPro ? '<span class="pro-badge">PRO</span>' : '';
+      const proBadge = s.isPro ? '<span class="pro-badge" style="font-size:9px;">PRO</span>' : '';
       const usernameSpan = s.username
-        ? `<span style="color:var(--t3);font-weight:400;margin-left:4px;">@${s.username}</span>`
+        ? `<span style="color:var(--t3);font-weight:400;font-size:11px;">@${escHtml(s.username)}</span>`
         : '';
+      const isActive = s.telegramId === rvTelegramId;
 
       return `
-        <div class="user-row" onclick="openReplay('${s.telegramId}')" style="cursor:pointer;transition:background .12s;">
-          <div class="user-avatar">${letter}</div>
+        <div class="user-row replay-session-item${isActive ? ' active' : ''}" data-tid="${s.telegramId}" onclick="openReplay('${s.telegramId}')">
+          <div class="user-avatar" style="width:34px;height:34px;font-size:13px;flex-shrink:0;">${letter}</div>
           <div style="flex:1;min-width:0;">
-            <div class="user-name">${escHtml(s.firstName)}${usernameSpan}${proBadge}${errBadge}</div>
-            <div class="user-meta" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:420px;">${escHtml(s.preview)}</div>
+            <div class="user-name" style="font-size:13px;">${escHtml(s.firstName)} ${usernameSpan}${proBadge}${errBadge}</div>
+            <div class="user-meta" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;">${escHtml(s.preview || '—')}</div>
           </div>
           <div style="text-align:right;flex-shrink:0;">
-            <div class="time-badge">${ago}</div>
-            <div class="user-meta">${s.eventCount.toLocaleString()} events</div>
+            <div class="time-badge" style="font-size:10px;">${ago}</div>
+            <div class="user-meta" style="font-size:10px;">${s.eventCount.toLocaleString()} ev</div>
           </div>
         </div>`;
     }).join('');
 
-    // Pagination
-    document.getElementById('replay-page-info').textContent = `Page ${sessions.page} of ${sessions.pages}`;
+    document.getElementById('replay-page-info').textContent =
+      `${sessions.page}/${sessions.pages} · ${sessions.total} sessions`;
     document.getElementById('replay-prev-btn').disabled = sessions.page <= 1;
     document.getElementById('replay-next-btn').disabled = sessions.page >= sessions.pages;
 
   } catch (err) {
     console.error('Failed to load replay sessions:', err);
+    list.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div>Failed to load sessions.</div>`;
   }
 }
 
 function replayPrevPage() { replayPage--; loadReplaySessions(); }
 function replayNextPage() { replayPage++; loadReplaySessions(); }
 
-// ── Replay Viewer State ────────────────────────────────────────────────
+// ── Replay Viewer State ─────────────────────────────────────────────
 let rvTelegramId = null;
 let rvEvents = [];
 let rvPage = 1;
 let rvTotalPages = 1;
 let rvFilter = 'all';
 let rvUser = null;
+// Request-ID guard — prevents stale fetches from overwriting newer results
+let rvReqId = 0;
 
-async function openReplay(telegramId) {
+function rvShowLoading() {
+  const chat = document.getElementById('rv-chat');
+  chat.innerHTML = '';
+  const div = document.createElement('div');
+  div.className = 'replay-loading';
+  div.innerHTML = '<div class="spinner"></div><span>Loading conversation…</span>';
+  chat.appendChild(div);
+}
+
+function openReplay(telegramId) {
+  // Highlight active row in the list
+  document.querySelectorAll('.replay-session-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.tid === telegramId);
+  });
+
+  // If already viewing this session, do nothing
+  if (rvTelegramId === telegramId) return;
+
+  // Reset viewer state
   rvTelegramId = telegramId;
   rvPage = 1;
   rvFilter = 'all';
   rvEvents = [];
+  rvUser = null;
 
   // Reset filter buttons
   document.querySelectorAll('.replay-filter-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.filter === 'all');
   });
 
-  const viewer = document.getElementById('replay-viewer');
+  // Show viewer, hide empty state
+  document.getElementById('rv-empty').style.display = 'none';
+  document.getElementById('replay-viewer').classList.add('active');
+
+  // Attach scroll-to-bottom FAB listener once per open (clone to remove previous)
   const chat = document.getElementById('rv-chat');
-  const loading = document.getElementById('rv-loading');
+  const scrollBtn = document.getElementById('rv-scroll-btn');
+  const onScroll = () => {
+    const atBottom = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 80;
+    scrollBtn.classList.toggle('hidden', atBottom);
+  };
+  chat.removeEventListener('scroll', chat._rvScrollHandler);
+  chat._rvScrollHandler = onScroll;
+  chat.addEventListener('scroll', onScroll, { passive: true });
 
-  viewer.classList.add('open');
-  chat.innerHTML = '';
-  loading.style.display = 'flex';
-  chat.appendChild(loading);
+  // Clear header immediately so old user data doesn't flash
+  document.getElementById('rv-avatar').textContent = '…';
+  document.getElementById('rv-name').textContent = 'Loading…';
+  document.getElementById('rv-meta').textContent = '';
+  document.getElementById('rv-event-count').textContent = '';
 
-  await rvLoadEvents();
+  rvShowLoading();
+  rvLoadEvents();
 }
 
 function closeReplay() {
-  document.getElementById('replay-viewer').classList.remove('open');
   rvTelegramId = null;
   rvEvents = [];
+  rvReqId++; // Invalidate any in-flight request
+  document.getElementById('replay-viewer').classList.remove('active');
+  document.getElementById('rv-empty').style.display = '';
+  // Deselect all session rows
+  document.querySelectorAll('.replay-session-item').forEach(el => el.classList.remove('active'));
+}
+
+function rvRefresh() {
+  if (!rvTelegramId) return;
+  rvEvents = [];
+  rvShowLoading();
+  rvLoadEvents();
 }
 
 async function rvLoadEvents() {
   if (!rvTelegramId) return;
+
+  // Snapshot the request ID at time of call so we can detect stale responses
+  const myReqId = ++rvReqId;
 
   try {
     const params = new URLSearchParams({
@@ -2099,6 +2282,11 @@ async function rvLoadEvents() {
     });
 
     const res = await fetch(`/admin/api/replay/events/${rvTelegramId}?${params}`);
+
+    // If a newer request was started while we were waiting, discard this response
+    if (myReqId !== rvReqId) return;
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
     rvEvents = data.data;
@@ -2109,22 +2297,24 @@ async function rvLoadEvents() {
     document.getElementById('rv-avatar').textContent = (rvUser?.firstName || '?')[0].toUpperCase();
     document.getElementById('rv-name').innerHTML =
       escHtml(rvUser?.firstName ?? 'Unknown') +
-      (rvUser?.username ? ` <span style="color:var(--t3);font-weight:400;">@${escHtml(rvUser.username)}</span>` : '') +
+      (rvUser?.username ? ` <span style="color:var(--t3);font-weight:400;font-size:12px;">@${escHtml(rvUser.username)}</span>` : '') +
       (rvUser?.isPro ? ' <span class="pro-badge">PRO</span>' : '');
     document.getElementById('rv-meta').textContent =
-      `${data.total} events · ${rvUser?.timezone ?? ''} · Joined ${rvUser?.createdAt ? new Date(rvUser.createdAt).toLocaleDateString() : '—'}`;
+      `${data.total} events · ${rvUser?.timezone ?? '—'} · Joined ${rvUser?.createdAt ? new Date(rvUser.createdAt).toLocaleDateString() : '—'}`;
 
     // Update footer
-    document.getElementById('rv-event-count').textContent = `${data.total} events total · Page ${rvPage} of ${rvTotalPages}`;
+    document.getElementById('rv-event-count').textContent =
+      `${data.total} total · page ${rvPage}/${rvTotalPages}`;
     document.getElementById('rv-load-older').disabled = rvPage <= 1;
     document.getElementById('rv-load-newer').disabled = rvPage >= rvTotalPages;
 
     renderReplayEvents();
 
   } catch (err) {
+    if (myReqId !== rvReqId) return; // Stale — ignore
     console.error('Failed to load replay events:', err);
     document.getElementById('rv-chat').innerHTML =
-      '<div class="empty-state"><div class="empty-icon">⚠️</div>Failed to load session data.</div>';
+      '<div class="empty-state"><div class="empty-icon">⚠️</div>Failed to load session. Try refreshing.</div>';
   }
 }
 
@@ -2148,6 +2338,8 @@ function renderReplayEvents() {
     return;
   }
 
+  // Append to a fragment for performance (single reflow)
+  const frag = document.createDocumentFragment();
   let lastDate = '';
 
   filtered.forEach(event => {
@@ -2160,38 +2352,26 @@ function renderReplayEvents() {
       const sep = document.createElement('div');
       sep.className = 'replay-date-sep';
       sep.innerHTML = `<span>${dateStr}</span>`;
-      chat.appendChild(sep);
+      frag.appendChild(sep);
     }
 
     const p = event.payload;
-
+    let el;
     switch (event.eventType) {
-      case 'user_message':
-        chat.appendChild(createBubble('user', p.text, timeStr));
-        break;
-      case 'user_voice':
-        chat.appendChild(createVoiceBubble(p.duration, timeStr));
-        break;
-      case 'user_callback':
-        chat.appendChild(createActionPill(p.buttonLabel || p.data, timeStr));
-        break;
-      case 'bot_message':
-        chat.appendChild(createBotBubble(p.text, timeStr, p.replyMarkup));
-        break;
-      case 'bot_photo':
-        chat.appendChild(createPhotoBubble(p.caption, timeStr));
-        break;
-      case 'bot_edit':
-        chat.appendChild(createBotBubble(p.newText, timeStr, p.replyMarkup, true));
-        break;
-      case 'error':
-        chat.appendChild(createErrorBanner(p.errorMessage, p.context, p.errorStack, timeStr));
-        break;
-      case 'state_change':
-        chat.appendChild(createStateChange(p.changes, timeStr));
-        break;
+      case 'user_message':  el = createBubble('user', p.text, timeStr); break;
+      case 'user_voice':    el = createVoiceBubble(p.duration, timeStr); break;
+      case 'user_callback': el = createActionPill(p.buttonLabel || p.data, timeStr); break;
+      case 'bot_message':   el = createBotBubble(p.text, timeStr, p.replyMarkup); break;
+      case 'bot_photo':     el = createPhotoBubble(p.caption, timeStr); break;
+      case 'bot_edit':      el = createBotBubble(p.newText, timeStr, p.replyMarkup, true); break;
+      case 'error':         el = createErrorBanner(p.errorMessage, p.context, p.errorStack, timeStr); break;
+      case 'state_change':  el = createStateChange(p.changes, timeStr); break;
+      default: return;
     }
+    frag.appendChild(el);
   });
+
+  chat.appendChild(frag);
 
   rvScrollToBottom();
 }
@@ -2309,8 +2489,12 @@ function setReplayFilter(filter, btn) {
 }
 
 // ── Pagination ────────────────────────────────────────────────────────────
-function rvLoadOlder() { if (rvPage > 1) { rvPage--; rvLoadEvents(); } }
-function rvLoadNewer() { if (rvPage < rvTotalPages) { rvPage++; rvLoadEvents(); } }
+function rvLoadOlder() {
+  if (rvPage > 1) { rvPage--; rvShowLoading(); rvLoadEvents(); }
+}
+function rvLoadNewer() {
+  if (rvPage < rvTotalPages) { rvPage++; rvShowLoading(); rvLoadEvents(); }
+}
 
 // ── Init ───────────────────────────────────────────────────────────
 async function init() {
