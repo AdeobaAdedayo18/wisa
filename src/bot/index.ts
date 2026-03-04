@@ -4,7 +4,7 @@ import { conversations, createConversation } from "@grammyjs/conversations";
 import { PrismaAdapter } from "@grammyjs/storage-prisma";
 import { prisma } from "../lib/prisma";
 import { onboardingConversation, handleStart, handleLetsGo, MAIN_MENU_KEYBOARD } from "./onboarding";
-import { handleSnooze, handleSkip } from "./reminders";
+import { handleSnooze, handleSkip, scheduleNextJob } from "./reminders";
 import {
   startLogging,
   handleLogText,
@@ -77,6 +77,26 @@ bot.use(conversations());
 
 // ── Conversations ──────────────────────────────────────────────────────────
 bot.use(createConversation(onboardingConversation, "onboarding"));
+
+// ── Bot-unblock recovery ───────────────────────────────────────────────────
+// If a user previously blocked the bot but then comes back, clear the flag
+// and re-queue their reminders so they start receiving them again.
+bot.use(async (ctx, next) => {
+  if (ctx.from) {
+    const user = await prisma.user.findUnique({
+      where: { telegramId: BigInt(ctx.from.id) },
+      select: { id: true, telegramId: true, botBlocked: true, onboardingDone: true },
+    });
+    if (user?.botBlocked) {
+      await prisma.user.update({ where: { id: user.id }, data: { botBlocked: false } });
+      if (user.onboardingDone) {
+        await scheduleNextJob(user.id, user.telegramId);
+      }
+      console.log(`[bot] User ${user.id} unblocked the bot — reminders re-enabled`);
+    }
+  }
+  return next();
+});
 
 // ── Command handlers ───────────────────────────────────────────────────────
 bot.command("start", handleStart);
