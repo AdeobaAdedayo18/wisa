@@ -536,6 +536,246 @@
     .section-title { font-size: 11px; font-weight: 600; color: var(--t3); letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 12px; }
     .loading-row { padding: 28px; text-align: center; color: var(--t3); font-size: 13px; }
     .mt-24 { margin-top: 24px; }
+
+    /* ── Replay Viewer ─────────────────────────────────────────────────── */
+    #replay-viewer {
+      display: none;
+      flex-direction: column;
+      height: 100%;
+      background: var(--bg);
+      position: absolute;
+      inset: 0;
+      z-index: 100;
+    }
+    #replay-viewer.open { display: flex; }
+
+    .replay-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 14px 20px;
+      background: var(--s1);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .replay-header .back-btn {
+      background: none;
+      border: none;
+      color: var(--t2);
+      font-size: 18px;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 6px;
+      transition: background .15s;
+    }
+    .replay-header .back-btn:hover { background: var(--s2); }
+    .replay-header .chat-info { flex: 1; }
+    .replay-header .chat-name { font-size: 15px; font-weight: 600; color: var(--t1); }
+    .replay-header .chat-meta { font-size: 12px; color: var(--t3); }
+    .replay-header .replay-filters { display: flex; gap: 6px; align-items: center; }
+    .replay-filter-btn {
+      padding: 5px 10px;
+      background: var(--s2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--t2);
+      font-size: 11.5px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background .15s, color .15s;
+    }
+    .replay-filter-btn:hover { background: var(--s3); color: var(--t1); }
+    .replay-filter-btn.active { background: var(--accent-g); color: var(--accent); border-color: var(--accent); }
+
+    .replay-chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      background:
+        radial-gradient(ellipse at 20% 50%, rgba(124,58,237,0.04), transparent 70%),
+        radial-gradient(ellipse at 80% 20%, rgba(6,182,212,0.03), transparent 70%),
+        var(--bg);
+    }
+
+    .replay-date-sep { text-align: center; padding: 12px 0 8px; }
+    .replay-date-sep span {
+      background: var(--s2);
+      border: 1px solid var(--border);
+      padding: 4px 14px;
+      border-radius: 99px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--t2);
+      letter-spacing: 0.3px;
+    }
+
+    .replay-msg {
+      max-width: 75%;
+      padding: 9px 14px;
+      border-radius: 16px;
+      font-size: 13.5px;
+      line-height: 1.55;
+      position: relative;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+    }
+    .replay-msg .msg-time { font-size: 10.5px; color: rgba(255,255,255,0.35); margin-top: 3px; text-align: right; }
+    .replay-msg.user { align-self: flex-end; background: #1d4ed8; color: #e0e7ff; border-bottom-right-radius: 4px; }
+    .replay-msg.user .msg-time { color: rgba(224,231,255,0.5); }
+    .replay-msg.bot { align-self: flex-start; background: var(--s2); color: var(--t1); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+    .replay-msg.bot .msg-time { color: var(--t3); }
+
+    .replay-msg.bot-photo {
+      align-self: flex-start;
+      background: var(--s2);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      border-bottom-left-radius: 4px;
+      overflow: hidden;
+      padding: 0;
+      max-width: 320px;
+    }
+    .replay-msg.bot-photo .photo-placeholder {
+      width: 100%; height: 140px;
+      background: linear-gradient(135deg, var(--s3), var(--s2));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 32px;
+    }
+    .replay-msg.bot-photo .photo-caption { padding: 10px 14px; font-size: 13px; line-height: 1.5; color: var(--t1); }
+    .replay-msg.bot-photo .msg-time { padding: 0 14px 8px; font-size: 10.5px; color: var(--t3); text-align: right; }
+
+    .replay-msg.voice {
+      align-self: flex-end;
+      background: #1d4ed8;
+      color: #e0e7ff;
+      border-bottom-right-radius: 4px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .replay-msg.voice .voice-icon { font-size: 20px; }
+    .replay-msg.voice .voice-bar { flex: 1; height: 3px; background: rgba(255,255,255,0.2); border-radius: 2px; }
+    .replay-msg.voice .voice-dur { font-size: 12px; color: rgba(224,231,255,0.6); white-space: nowrap; }
+
+    .replay-action {
+      align-self: center;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--accent-g);
+      border: 1px solid rgba(124,58,237,0.25);
+      padding: 5px 16px;
+      border-radius: 99px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent);
+      margin: 4px 0;
+    }
+    .replay-action .action-icon { font-size: 13px; }
+
+    .replay-error {
+      align-self: center;
+      background: var(--red-g);
+      border: 1px solid rgba(239,68,68,0.25);
+      padding: 10px 18px;
+      border-radius: 10px;
+      font-size: 12.5px;
+      color: var(--red);
+      margin: 6px 0;
+      max-width: 85%;
+    }
+    .replay-error .error-title { font-weight: 700; margin-bottom: 3px; display: flex; align-items: center; gap: 6px; }
+    .replay-error .error-context { font-size: 11px; color: rgba(239,68,68,0.7); font-family: 'Courier New', monospace; }
+    .replay-error .error-stack {
+      font-size: 10.5px;
+      color: rgba(239,68,68,0.5);
+      font-family: 'Courier New', monospace;
+      margin-top: 4px;
+      white-space: pre-wrap;
+      max-height: 60px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: max-height .3s;
+    }
+    .replay-error .error-stack.expanded { max-height: 300px; }
+
+    .replay-state {
+      align-self: center;
+      font-size: 11px;
+      color: var(--t3);
+      background: var(--s2);
+      border: 1px solid var(--border);
+      padding: 4px 12px;
+      border-radius: 99px;
+      margin: 2px 0;
+      max-width: 85%;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      cursor: pointer;
+    }
+    .replay-state:hover { background: var(--s3); white-space: normal; }
+
+    .edited-badge { font-size: 10px; color: var(--t3); font-style: italic; margin-left: 6px; }
+
+    .msg-keyboard { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+    .msg-keyboard-row { display: flex; gap: 4px; }
+    .msg-kb-btn {
+      flex: 1;
+      padding: 6px 8px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px;
+      font-size: 12px;
+      color: var(--cyan);
+      text-align: center;
+      cursor: default;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .replay-loading {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: var(--t3);
+    }
+    .replay-loading .spinner {
+      width: 28px; height: 28px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+
+    .scroll-bottom-btn {
+      position: absolute;
+      bottom: 16px;
+      right: 24px;
+      width: 36px; height: 36px;
+      background: var(--s2);
+      border: 1px solid var(--border);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 14px;
+      color: var(--t2);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      transition: background .15s;
+      z-index: 10;
+    }
+    .scroll-bottom-btn:hover { background: var(--s3); }
+    .scroll-bottom-btn.hidden { display: none; }
   </style>
 </head>
 <body>
@@ -576,6 +816,14 @@
       <div class="nav-item" data-panel="payments" onclick="setPanel('payments')">
         <span class="nav-icon">💳</span> Payments
         <span id="pending-badge" class="nav-badge hidden">0</span>
+      </div>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-label">Debug</div>
+      <div class="nav-item" data-panel="replay" onclick="setPanel('replay')">
+        <span class="nav-icon">🔄</span> Session Replay
+        <span class="nav-badge hidden" id="replay-error-badge">0</span>
       </div>
     </div>
 
@@ -755,6 +1003,101 @@
 
       </div><!-- /panel-reminders -->
 
+      <!-- ── Session Replay Panel ─────────────────────────────── -->
+      <div class="panel" id="panel-replay">
+
+        <!-- Stats row -->
+        <div class="stats-grid" id="replay-stats-grid">
+          <div class="stat-card card-purple">
+            <div class="card-label">TRACKED SESSIONS</div>
+            <div class="card-value" id="rstat-sessions">—</div>
+            <div class="card-icon">🔄</div>
+          </div>
+          <div class="stat-card card-green">
+            <div class="card-label">EVENTS TODAY</div>
+            <div class="card-value" id="rstat-events-today">—</div>
+            <div class="card-icon">📊</div>
+          </div>
+          <div class="stat-card card-red">
+            <div class="card-label">ERRORS TODAY</div>
+            <div class="card-value" id="rstat-errors-today">—</div>
+            <div class="card-icon">⚠️</div>
+          </div>
+          <div class="stat-card card-yellow">
+            <div class="card-label">TOTAL EVENTS</div>
+            <div class="card-value" id="rstat-total-events">—</div>
+            <div class="card-icon">💾</div>
+          </div>
+        </div>
+
+        <!-- Search + session list -->
+        <div class="table-card">
+          <div class="table-header">
+            <h3>🔄 Session Replays</h3>
+            <input
+              type="text"
+              class="search-input"
+              id="replay-search"
+              placeholder="Search by name, username, or Telegram ID..."
+              oninput="debounceReplaySearch()"
+            />
+          </div>
+
+          <div class="section-body" id="replay-session-list" style="max-height: 600px;">
+            <div class="empty-state">
+              <div class="empty-icon">🔄</div>
+              Loading sessions...
+            </div>
+          </div>
+
+          <div style="padding: 12px 20px; border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between;">
+            <span class="user-meta" id="replay-page-info">Page 1 of 1</span>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn-refresh" id="replay-prev-btn" onclick="replayPrevPage()" disabled>◀ Prev</button>
+              <button class="btn-refresh" id="replay-next-btn" onclick="replayNextPage()">Next ▶</button>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /panel-replay -->
+
+      <!-- ── Replay Viewer Overlay ─────────────────────────────────────── -->
+      <div id="replay-viewer">
+        <!-- Header -->
+        <div class="replay-header">
+          <button class="back-btn" onclick="closeReplay()">← Back</button>
+          <div class="user-avatar" id="rv-avatar">?</div>
+          <div class="chat-info">
+            <div class="chat-name" id="rv-name">Loading...</div>
+            <div class="chat-meta" id="rv-meta"></div>
+          </div>
+          <div class="replay-filters">
+            <button class="replay-filter-btn active" data-filter="all" onclick="setReplayFilter('all', this)">All</button>
+            <button class="replay-filter-btn" data-filter="messages" onclick="setReplayFilter('messages', this)">Messages</button>
+            <button class="replay-filter-btn" data-filter="errors" onclick="setReplayFilter('errors', this)">Errors</button>
+            <button class="replay-filter-btn" data-filter="state" onclick="setReplayFilter('state', this)">State</button>
+          </div>
+        </div>
+
+        <!-- Chat body -->
+        <div class="replay-chat" id="rv-chat" style="position: relative;">
+          <div class="replay-loading" id="rv-loading">
+            <div class="spinner"></div>
+            Loading conversation...
+          </div>
+        </div>
+
+        <!-- Scroll-to-bottom -->
+        <div class="scroll-bottom-btn hidden" id="rv-scroll-btn" onclick="rvScrollToBottom()">↓</div>
+
+        <!-- Pagination footer -->
+        <div style="padding: 8px 20px; background: var(--s1); border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;" id="rv-footer">
+          <button class="btn-refresh" id="rv-load-older" onclick="rvLoadOlder()">Load older ↑</button>
+          <span class="user-meta" id="rv-event-count"></span>
+          <button class="btn-refresh" id="rv-load-newer" onclick="rvLoadNewer()">Load newer ↓</button>
+        </div>
+      </div><!-- /replay-viewer -->
+
     </div><!-- /content -->
   </div><!-- /main -->
 </div><!-- /app -->
@@ -787,6 +1130,7 @@ const PANEL_TITLES = {
   logs: 'Logs',
   payments: 'Payments',
   reminders: 'Reminders',
+  replay: 'Session Replay',
 };
 
 // ── State ──────────────────────────────────────────────────────────
@@ -816,6 +1160,10 @@ function debounceLogSearch() {
 
 // ── Navigation ─────────────────────────────────────────────────────
 function setPanel(name) {
+  // Close replay viewer when switching away from the replay panel
+  if (name !== 'replay' && document.getElementById('replay-viewer').classList.contains('open')) {
+    closeReplay();
+  }
   state.currentPanel = name;
   document.querySelectorAll('.nav-item').forEach(el =>
     el.classList.toggle('active', el.dataset.panel === name));
@@ -832,6 +1180,7 @@ async function loadPanel(name) {
     case 'logs':      return loadLogs();
     case 'payments':  return loadPayments();
     case 'reminders': return loadReminders();
+    case 'replay':    return loadReplaySessions();
   }
 }
 
@@ -1612,6 +1961,356 @@ function renderPagination(containerId, current, total, onPage, totalItems) {
     <span class="page-info">${fmt(totalItems)} total</span>
   `;
 }
+
+// ── Session Replay ────────────────────────────────────────────────
+let replayPage = 1;
+let replaySearch = '';
+let replayDebounceTimer = null;
+
+function debounceReplaySearch() {
+  clearTimeout(replayDebounceTimer);
+  replayDebounceTimer = setTimeout(() => {
+    replaySearch = document.getElementById('replay-search').value;
+    replayPage = 1;
+    loadReplaySessions();
+  }, 300);
+}
+
+async function loadReplaySessions() {
+  try {
+    const [sessionsRes, statsRes] = await Promise.all([
+      fetch(`/admin/api/replay/sessions?page=${replayPage}&limit=25&search=${encodeURIComponent(replaySearch)}`),
+      fetch('/admin/api/replay/stats'),
+    ]);
+
+    const sessions = await sessionsRes.json();
+    const stats = await statsRes.json();
+
+    // Update stats
+    document.getElementById('rstat-sessions').textContent = stats.totalSessions.toLocaleString();
+    document.getElementById('rstat-events-today').textContent = stats.eventsToday.toLocaleString();
+    document.getElementById('rstat-errors-today').textContent = stats.errorsToday.toLocaleString();
+    document.getElementById('rstat-total-events').textContent = stats.totalEvents.toLocaleString();
+
+    // Update error badge in sidebar
+    const badge = document.getElementById('replay-error-badge');
+    if (stats.errorsToday > 0) {
+      badge.textContent = stats.errorsToday;
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
+
+    // Render session list
+    const list = document.getElementById('replay-session-list');
+
+    if (!sessions.data?.length) {
+      list.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">🔍</div>
+          ${replaySearch ? 'No sessions match your search.' : 'No sessions recorded yet. Interact with the bot to start capturing.'}
+        </div>`;
+      return;
+    }
+
+    list.innerHTML = sessions.data.map(s => {
+      const letter = (s.firstName || '?')[0].toUpperCase();
+      const ago = timeAgo(new Date(s.lastActivity));
+      const errBadge = s.errorCount > 0
+        ? `<span style="background:var(--red-g);color:var(--red);font-size:10px;font-weight:700;padding:2px 6px;border-radius:99px;margin-left:4px;">⚠ ${s.errorCount}</span>`
+        : '';
+      const proBadge = s.isPro ? '<span class="pro-badge">PRO</span>' : '';
+      const usernameSpan = s.username
+        ? `<span style="color:var(--t3);font-weight:400;margin-left:4px;">@${s.username}</span>`
+        : '';
+
+      return `
+        <div class="user-row" onclick="openReplay('${s.telegramId}')" style="cursor:pointer;transition:background .12s;">
+          <div class="user-avatar">${letter}</div>
+          <div style="flex:1;min-width:0;">
+            <div class="user-name">${escHtml(s.firstName)}${usernameSpan}${proBadge}${errBadge}</div>
+            <div class="user-meta" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:420px;">${escHtml(s.preview)}</div>
+          </div>
+          <div style="text-align:right;flex-shrink:0;">
+            <div class="time-badge">${ago}</div>
+            <div class="user-meta">${s.eventCount.toLocaleString()} events</div>
+          </div>
+        </div>`;
+    }).join('');
+
+    // Pagination
+    document.getElementById('replay-page-info').textContent = `Page ${sessions.page} of ${sessions.pages}`;
+    document.getElementById('replay-prev-btn').disabled = sessions.page <= 1;
+    document.getElementById('replay-next-btn').disabled = sessions.page >= sessions.pages;
+
+  } catch (err) {
+    console.error('Failed to load replay sessions:', err);
+  }
+}
+
+function replayPrevPage() { replayPage--; loadReplaySessions(); }
+function replayNextPage() { replayPage++; loadReplaySessions(); }
+
+// ── Replay Viewer State ────────────────────────────────────────────────
+let rvTelegramId = null;
+let rvEvents = [];
+let rvPage = 1;
+let rvTotalPages = 1;
+let rvFilter = 'all';
+let rvUser = null;
+
+async function openReplay(telegramId) {
+  rvTelegramId = telegramId;
+  rvPage = 1;
+  rvFilter = 'all';
+  rvEvents = [];
+
+  // Reset filter buttons
+  document.querySelectorAll('.replay-filter-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.filter === 'all');
+  });
+
+  const viewer = document.getElementById('replay-viewer');
+  const chat = document.getElementById('rv-chat');
+  const loading = document.getElementById('rv-loading');
+
+  viewer.classList.add('open');
+  chat.innerHTML = '';
+  loading.style.display = 'flex';
+  chat.appendChild(loading);
+
+  await rvLoadEvents();
+}
+
+function closeReplay() {
+  document.getElementById('replay-viewer').classList.remove('open');
+  rvTelegramId = null;
+  rvEvents = [];
+}
+
+async function rvLoadEvents() {
+  if (!rvTelegramId) return;
+
+  try {
+    const params = new URLSearchParams({
+      page: String(rvPage),
+      limit: '150',
+      order: 'asc',
+    });
+
+    const res = await fetch(`/admin/api/replay/events/${rvTelegramId}?${params}`);
+    const data = await res.json();
+
+    rvEvents = data.data;
+    rvUser = data.user;
+    rvTotalPages = data.pages;
+
+    // Update header
+    document.getElementById('rv-avatar').textContent = (rvUser?.firstName || '?')[0].toUpperCase();
+    document.getElementById('rv-name').innerHTML =
+      escHtml(rvUser?.firstName ?? 'Unknown') +
+      (rvUser?.username ? ` <span style="color:var(--t3);font-weight:400;">@${escHtml(rvUser.username)}</span>` : '') +
+      (rvUser?.isPro ? ' <span class="pro-badge">PRO</span>' : '');
+    document.getElementById('rv-meta').textContent =
+      `${data.total} events · ${rvUser?.timezone ?? ''} · Joined ${rvUser?.createdAt ? new Date(rvUser.createdAt).toLocaleDateString() : '—'}`;
+
+    // Update footer
+    document.getElementById('rv-event-count').textContent = `${data.total} events total · Page ${rvPage} of ${rvTotalPages}`;
+    document.getElementById('rv-load-older').disabled = rvPage <= 1;
+    document.getElementById('rv-load-newer').disabled = rvPage >= rvTotalPages;
+
+    renderReplayEvents();
+
+  } catch (err) {
+    console.error('Failed to load replay events:', err);
+    document.getElementById('rv-chat').innerHTML =
+      '<div class="empty-state"><div class="empty-icon">⚠️</div>Failed to load session data.</div>';
+  }
+}
+
+function renderReplayEvents() {
+  const chat = document.getElementById('rv-chat');
+  chat.innerHTML = '';
+
+  let filtered = rvEvents;
+  if (rvFilter === 'messages') {
+    filtered = rvEvents.filter(e =>
+      ['user_message', 'user_voice', 'bot_message', 'bot_photo', 'bot_edit'].includes(e.eventType)
+    );
+  } else if (rvFilter === 'errors') {
+    filtered = rvEvents.filter(e => e.eventType === 'error');
+  } else if (rvFilter === 'state') {
+    filtered = rvEvents.filter(e => e.eventType === 'state_change');
+  }
+
+  if (filtered.length === 0) {
+    chat.innerHTML = '<div class="empty-state"><div class="empty-icon">💬</div>No events to display.</div>';
+    return;
+  }
+
+  let lastDate = '';
+
+  filtered.forEach(event => {
+    const ts = new Date(event.timestamp);
+    const dateStr = ts.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    const timeStr = ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+
+    if (dateStr !== lastDate) {
+      lastDate = dateStr;
+      const sep = document.createElement('div');
+      sep.className = 'replay-date-sep';
+      sep.innerHTML = `<span>${dateStr}</span>`;
+      chat.appendChild(sep);
+    }
+
+    const p = event.payload;
+
+    switch (event.eventType) {
+      case 'user_message':
+        chat.appendChild(createBubble('user', p.text, timeStr));
+        break;
+      case 'user_voice':
+        chat.appendChild(createVoiceBubble(p.duration, timeStr));
+        break;
+      case 'user_callback':
+        chat.appendChild(createActionPill(p.buttonLabel || p.data, timeStr));
+        break;
+      case 'bot_message':
+        chat.appendChild(createBotBubble(p.text, timeStr, p.replyMarkup));
+        break;
+      case 'bot_photo':
+        chat.appendChild(createPhotoBubble(p.caption, timeStr));
+        break;
+      case 'bot_edit':
+        chat.appendChild(createBotBubble(p.newText, timeStr, p.replyMarkup, true));
+        break;
+      case 'error':
+        chat.appendChild(createErrorBanner(p.errorMessage, p.context, p.errorStack, timeStr));
+        break;
+      case 'state_change':
+        chat.appendChild(createStateChange(p.changes, timeStr));
+        break;
+    }
+  });
+
+  rvScrollToBottom();
+}
+
+// ── Bubble Constructors ───────────────────────────────────────────────────
+
+function createBubble(side, text, time) {
+  const el = document.createElement('div');
+  el.className = `replay-msg ${side}`;
+  el.innerHTML = `<div>${formatMd(text)}</div><div class="msg-time">${time}</div>`;
+  return el;
+}
+
+function createBotBubble(text, time, replyMarkup, isEdited = false) {
+  const el = document.createElement('div');
+  el.className = 'replay-msg bot';
+
+  let keyboardHtml = '';
+  if (replyMarkup?.inline_keyboard) {
+    keyboardHtml = '<div class="msg-keyboard">' +
+      replyMarkup.inline_keyboard.map(row =>
+        '<div class="msg-keyboard-row">' +
+        row.map(btn => `<div class="msg-kb-btn">${escHtml(btn.text)}</div>`).join('') +
+        '</div>'
+      ).join('') +
+      '</div>';
+  }
+
+  el.innerHTML = `
+    <div>${formatMd(text)}${isEdited ? '<span class="edited-badge">(edited)</span>' : ''}</div>
+    ${keyboardHtml}
+    <div class="msg-time">${time}</div>
+  `;
+  return el;
+}
+
+function createPhotoBubble(caption, time) {
+  const el = document.createElement('div');
+  el.className = 'replay-msg bot-photo';
+  el.innerHTML = `
+    <div class="photo-placeholder">🖼️</div>
+    <div class="photo-caption">${formatMd(caption)}</div>
+    <div class="msg-time">${time}</div>
+  `;
+  return el;
+}
+
+function createVoiceBubble(duration, time) {
+  const el = document.createElement('div');
+  el.className = 'replay-msg voice';
+  const mins = Math.floor((duration || 0) / 60);
+  const secs = (duration || 0) % 60;
+  el.innerHTML = `
+    <span class="voice-icon">🎤</span>
+    <div class="voice-bar"></div>
+    <span class="voice-dur">${mins}:${String(secs).padStart(2, '0')}</span>
+    <div class="msg-time">${time}</div>
+  `;
+  return el;
+}
+
+function createActionPill(label, time) {
+  const el = document.createElement('div');
+  el.className = 'replay-action';
+  el.innerHTML = `<span class="action-icon">👆</span> ${escHtml(label)} <span style="font-size:10px;color:rgba(124,58,237,0.5);margin-left:4px;">${time}</span>`;
+  return el;
+}
+
+function createErrorBanner(message, context, stack, time) {
+  const el = document.createElement('div');
+  el.className = 'replay-error';
+  el.innerHTML = `
+    <div class="error-title">⚠️ Error in ${escHtml(context || 'unknown')}</div>
+    <div style="margin-bottom:4px;">${escHtml(message)}</div>
+    ${stack ? `<div class="error-stack" onclick="this.classList.toggle('expanded')">${escHtml(stack)}</div>` : ''}
+    <div style="font-size:10px;color:rgba(239,68,68,0.4);margin-top:4px;">${time}</div>
+  `;
+  return el;
+}
+
+function createStateChange(changes, time) {
+  const el = document.createElement('div');
+  el.className = 'replay-state';
+  const parts = Object.entries(changes || {}).map(([key, val]) =>
+    `${key}: ${JSON.stringify(val.from)} → ${JSON.stringify(val.to)}`
+  );
+  el.textContent = `⚙ ${parts.join(' · ')} · ${time}`;
+  el.title = JSON.stringify(changes, null, 2);
+  return el;
+}
+
+// ── Markdown formatter ────────────────────────────────────────────────────
+function formatMd(text) {
+  if (!text) return '';
+  return escHtml(text)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<strong>$1</strong>')
+    .replace(/_(.+?)_/g, '<em>$1</em>')
+    .replace(/`(.+?)`/g, '<code style="background:rgba(255,255,255,0.08);padding:1px 4px;border-radius:3px;font-size:12px;">$1</code>')
+    .replace(/\n/g, '<br>');
+}
+
+// ── Scroll ────────────────────────────────────────────────────────────────
+function rvScrollToBottom() {
+  const chat = document.getElementById('rv-chat');
+  setTimeout(() => { chat.scrollTop = chat.scrollHeight; }, 50);
+}
+
+// ── Filters ───────────────────────────────────────────────────────────────
+function setReplayFilter(filter, btn) {
+  rvFilter = filter;
+  document.querySelectorAll('.replay-filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderReplayEvents();
+}
+
+// ── Pagination ────────────────────────────────────────────────────────────
+function rvLoadOlder() { if (rvPage > 1) { rvPage--; rvLoadEvents(); } }
+function rvLoadNewer() { if (rvPage < rvTotalPages) { rvPage++; rvLoadEvents(); } }
 
 // ── Init ───────────────────────────────────────────────────────────
 async function init() {

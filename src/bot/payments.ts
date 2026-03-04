@@ -2,6 +2,7 @@ import { InlineKeyboard } from "grammy";
 import { type BotContext } from "./types";
 import { clearActiveFlow, startFlow, isFlowExpired } from "./types";
 import { prisma } from "../lib/prisma";
+import { captureReplayError } from "../services/replayCapture";
 import { initializeTransaction } from "../services/paystack";
 import {
   BANK_NAME,
@@ -63,6 +64,7 @@ export async function handlePayPaystack(ctx: BotContext) {
     );
   } catch (err) {
     console.error("Paystack initializeTransaction failed:", err);
+    captureReplayError(telegramId, err, "handlePayPaystack", ctx.chat?.id);
     await ctx.reply(
       "Oops! Couldn't generate a payment link right now. Please try again in a moment 🙏"
     );
@@ -224,6 +226,7 @@ export async function handlePaymentSenderNameText(ctx: BotContext): Promise<bool
     console.log(`[payments] Admin notified for payment ${paymentId} from user ${user.id}`);
   } catch (err) {
     console.error("[payments] Failed to notify admin:", err);
+    captureReplayError(telegramId, err, "handlePaymentSenderNameText:adminNotify", ctx.chat?.id);
   }
 
   return true;

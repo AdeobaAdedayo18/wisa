@@ -617,4 +617,240 @@ router.get(
   },
 );
 
+// ─── /api/replay/sessions — list all user sessions ────────────────────────
+router.get(
+  "/api/replay/sessions",
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
+      const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit ?? "25"), 10)));
+      const search = String(req.query.search ?? "").trim();
+      const offset = (page - 1) * limit;
+
+      // Step 1: Get latest event per user (subquery-style via raw SQL for performance)
+      const sessionsRaw: Array<{
+        telegramId: bigint;
+        latestTimestamp: Date;
+        eventCount: bigint;
+        errorCount: bigint;
+      }> = await prisma.$queryRaw`
+        SELECT
+          "telegramId",
+          MAX("timestamp") AS "latestTimestamp",
+          COUNT(*)::bigint AS "eventCount",
+          COUNT(*) FILTER (WHERE "eventType" = 'error')::bigint AS "errorCount"
+        FROM "ReplayEvent"
+        GROUP BY "telegramId"
+        ORDER BY MAX("timestamp") DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `;
+
+      // Step 2: Enrich with user info
+      const telegramIds = sessionsRaw.map((s) => s.telegramId);
+      const users = await prisma.user.findMany({
+        where: { telegramId: { in: telegramIds } },
+        select: {
+          telegramId: true,
+          firstName: true,
+          username: true,
+          isPro: true,
+        },
+      });
+      const userMap = new Map(users.map((u) => [u.telegramId.toString(), u]));
+
+      // Step 3: Get the latest message preview for each user
+      const previews = await Promise.all(
+        telegramIds.map(async (tid) => {
+          const latest = await prisma.replayEvent.findFirst({
+            where: { telegramId: tid },
+            orderBy: { timestamp: "desc" },
+            select: { eventType: true, payload: true },
+          });
+          if (!latest) return { tid: tid.toString(), preview: "" };
+
+          try {
+            const p = JSON.parse(latest.payload);
+            let preview = "";
+            switch (latest.eventType) {
+              case "user_message":
+                preview = p.text?.slice(0, 80) ?? "";
+                break;
+              case "bot_message":
+                preview = p.text?.slice(0, 80) ?? "";
+                break;
+              case "user_callback":
+                preview = `Tapped: ${p.buttonLabel ?? p.data}`;
+                break;
+              case "error":
+                preview = `⚠️ ${p.errorMessage?.slice(0, 60)}`;
+                break;
+              default:
+                preview = latest.eventType;
+            }
+            return { tid: tid.toString(), preview };
+          } catch {
+            return { tid: tid.toString(), preview: latest.eventType };
+          }
+        }),
+      );
+      const previewMap = new Map(previews.map((p) => [p.tid, p.preview]));
+
+      // Step 4: Get total count for pagination
+      const totalRaw: Array<{ count: bigint }> = await prisma.$queryRaw`
+        SELECT COUNT(DISTINCT "telegramId")::bigint AS count FROM "ReplayEvent"
+      `;
+      const total = Number(totalRaw[0]?.count ?? 0);
+
+      // Step 5: Build response
+      const data = sessionsRaw.map((s) => {
+        const user = userMap.get(s.telegramId.toString());
+        return {
+          telegramId: s.telegramId.toString(),
+          firstName: user?.firstName ?? "Unknown",
+          username: user?.username ?? null,
+          isPro: user?.isPro ?? false,
+          lastActivity: s.latestTimestamp,
+          eventCount: Number(s.eventCount),
+          errorCount: Number(s.errorCount),
+          preview: previewMap.get(s.telegramId.toString()) ?? "",
+        };
+      });
+
+      // Optional: filter by search term (post-query — fine for <10k users)
+      const filtered = search
+        ? data.filter(
+            (d) =>
+              d.firstName.toLowerCase().includes(search.toLowerCase()) ||
+              (d.username?.toLowerCase().includes(search.toLowerCase()) ?? false) ||
+              d.telegramId.includes(search),
+          )
+        : data;
+
+      res.json({
+        data: filtered,
+        total,
+        page,
+        pages: Math.ceil(total / limit),
+      });
+    } catch (err) {
+      handleError(res, "/api/replay/sessions", err);
+    }
+  },
+);
+
+// ─── /api/replay/events/:telegramId — get events for replay ──────────────
+router.get(
+  "/api/replay/events/:telegramId",
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const telegramId = BigInt(String(req.params.telegramId));
+      const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
+      const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit ?? "100"), 10)));
+      const skip = (page - 1) * limit;
+      const order = req.query.order === "desc" ? "desc" : "asc";
+
+      // Optional date range filter
+      const afterStr = String(req.query.after ?? "");
+      const beforeStr = String(req.query.before ?? "");
+      const where: Record<string, unknown> = { telegramId };
+
+      if (afterStr || beforeStr) {
+        const timestampFilter: Record<string, Date> = {};
+        if (afterStr) timestampFilter.gte = new Date(afterStr);
+        if (beforeStr) timestampFilter.lte = new Date(beforeStr);
+        where.timestamp = timestampFilter;
+      }
+
+      // Optional event type filter
+      const eventType = String(req.query.eventType ?? "");
+      if (eventType) {
+        where.eventType = eventType;
+      }
+
+      const [events, total] = await Promise.all([
+        prisma.replayEvent.findMany({
+          where,
+          skip,
+          take: limit,
+          orderBy: { timestamp: order as "asc" | "desc" },
+        }),
+        prisma.replayEvent.count({ where }),
+      ]);
+
+      // Get user info
+      const user = await prisma.user.findUnique({
+        where: { telegramId },
+        select: {
+          firstName: true,
+          username: true,
+          isPro: true,
+          createdAt: true,
+          logFrequency: true,
+          timezone: true,
+        },
+      });
+
+      res.json({
+        user: user
+          ? { ...user, telegramId: telegramId.toString() }
+          : { telegramId: telegramId.toString() },
+        data: events.map((e) => {
+          let parsedPayload: unknown;
+          try {
+            parsedPayload = JSON.parse(e.payload);
+          } catch {
+            parsedPayload = { raw: e.payload };
+          }
+          return {
+            id: e.id,
+            eventType: e.eventType,
+            direction: e.direction,
+            payload: parsedPayload,
+            timestamp: e.timestamp,
+          };
+        }),
+        total,
+        page,
+        pages: Math.ceil(total / limit),
+      });
+    } catch (err) {
+      handleError(res, "/api/replay/events/:telegramId", err);
+    }
+  },
+);
+
+// ─── /api/replay/stats — replay system stats ─────────────────────────────
+router.get(
+  "/api/replay/stats",
+  async (_req: Request, res: Response): Promise<void> => {
+    try {
+      const now = new Date();
+      const todayStart = startOfDay(now);
+
+      const [totalEvents, totalSessions, eventsToday, errorsToday] = await Promise.all([
+        prisma.replayEvent.count(),
+        prisma.$queryRaw<Array<{ count: bigint }>>`
+          SELECT COUNT(DISTINCT "telegramId")::bigint AS count FROM "ReplayEvent"
+        `.then((r) => Number(r[0]?.count ?? 0)),
+        prisma.replayEvent.count({
+          where: { timestamp: { gte: todayStart } },
+        }),
+        prisma.replayEvent.count({
+          where: { eventType: "error", timestamp: { gte: todayStart } },
+        }),
+      ]);
+
+      res.json({
+        totalEvents,
+        totalSessions,
+        eventsToday,
+        errorsToday,
+      });
+    } catch (err) {
+      handleError(res, "/api/replay/stats", err);
+    }
+  },
+);
+
 export { router as adminRouter };
+

@@ -5,6 +5,7 @@ import { InlineKeyboard } from "grammy";
 import { prisma } from "../lib/prisma";
 import { sendScene } from "../utils/constants";
 import { refineLog, transcribeVoice } from "../services/openai";
+import { captureReplayError } from "../services/replayCapture";
 import type { BotContext } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -84,6 +85,7 @@ export async function handleAiRefine(ctx: BotContext): Promise<void> {
     }
   } catch (err) {
     console.error("AI refinement error:", err);
+    captureReplayError(telegramId, err, "handleAiRefine", ctx.chat?.id);
     await ctx.api
       .editMessageText(
         ctx.chat!.id,
@@ -229,6 +231,7 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
     );
   } catch (err) {
     console.error("Voice transcription error:", err);
+    captureReplayError(telegramId, err, "handleVoiceLog", ctx.chat?.id);
     await ctx.api
       .editMessageText(
         ctx.chat!.id,
@@ -290,6 +293,7 @@ export async function handleVoiceSave(ctx: BotContext): Promise<void> {
     });
   } catch (err) {
     console.error("Error saving voice log:", err);
+    captureReplayError(telegramId, err, "handleVoiceSave", ctx.chat?.id);
     await ctx.reply("Couldn't save the log. Please try again. 😢");
   }
 }

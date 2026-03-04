@@ -1,6 +1,7 @@
 import { InlineKeyboard } from "grammy";
 import { type BotContext } from "./types";
 import { prisma } from "../lib/prisma";
+import { captureReplayError } from "../services/replayCapture";
 import { buildTimeKeyboard, createInitialReminderJobs, MAIN_MENU_KEYBOARD } from "./onboarding";
 
 // ---------------------------------------------------------------------------
@@ -60,7 +61,7 @@ export async function handleSettingsTimeSelect(ctx: BotContext) {
   await ctx.answerCallbackQuery();
   const reminderTime = (ctx.callbackQuery?.data ?? "").replace("stg_time_", "");
   const telegramId = BigInt(ctx.from!.id);
-
+  try {
   const user = await prisma.user.update({
     where: { telegramId },
     data: { reminderTime },
@@ -76,6 +77,11 @@ export async function handleSettingsTimeSelect(ctx: BotContext) {
     `Done! ✅ Your reminder time is now *${reminderTime}* ⏰\n\nNew reminder schedule created 🗓️`,
     { parse_mode: "Markdown", reply_markup: SETTINGS_BACK_KB },
   );
+  } catch (err) {
+    console.error("[settings] handleSettingsTimeSelect error:", err);
+    captureReplayError(telegramId, err, "handleSettingsTimeSelect", ctx.chat?.id);
+    await ctx.reply("Couldn't update your settings. Please try again 😢");
+  }
 }
 
 // ---------------------------------------------------------------------------

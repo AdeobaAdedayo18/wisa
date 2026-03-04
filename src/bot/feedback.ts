@@ -2,6 +2,7 @@ import { InlineKeyboard } from "grammy";
 import { type BotContext } from "./types";
 import { clearActiveFlow, startFlow, isFlowExpired } from "./types";
 import { MAIN_MENU_KEYBOARD } from "./onboarding";
+import { captureReplayError } from "../services/replayCapture";
 
 // ---------------------------------------------------------------------------
 // Creator Telegram ID — set CREATOR_TELEGRAM_ID in your Railway / .env
@@ -58,6 +59,7 @@ export async function handleFeedbackText(ctx: BotContext): Promise<boolean> {
       console.log(`[feedback] Forwarded from user ${senderId} (${senderUsername}): ${text}`);
     } catch (err) {
       console.error("[feedback] Failed to forward message to creator:", err);
+      captureReplayError(BigInt(senderId), err, "handleFeedbackText:forward", ctx.chat?.id);
     }
   } else {
     console.warn("[feedback] CREATOR_TELEGRAM_ID not set — cannot forward feedback.");

@@ -6,6 +6,7 @@ import { startUserActivity } from "./services/userActivity";
 import express from "express";
 import { prisma } from "./lib/prisma";
 import { adminRouter } from "./admin/router";
+import { flushReplayBuffer, captureReplayError } from "./services/replayCapture";
 
 const app = express();
 app.use(express.json());
@@ -67,12 +68,23 @@ app.post("/webhook/paystack", async (req, res) => {
         { parse_mode: "Markdown" },
       );
     } catch (err) {
-      console.error("[webhook] Error processing charge.success:", err);
-      // Still return 200 so Paystack doesn’t retry indefinitely
+      console.error("[webhook] Error processing charge.success:", err);      captureReplayError(telegramId, err, "webhook:charge.success");      // Still return 200 so Paystack doesn’t retry indefinitely
     }
   }
 
   return res.sendStatus(200);
+});
+
+process.on("SIGTERM", async () => {
+  console.log("[shutdown] Flushing replay buffer...");
+  await flushReplayBuffer();
+  process.exit(0);
+});
+
+process.on("SIGINT", async () => {
+  console.log("[shutdown] Flushing replay buffer...");
+  await flushReplayBuffer();
+  process.exit(0);
 });
 
 async function main() {

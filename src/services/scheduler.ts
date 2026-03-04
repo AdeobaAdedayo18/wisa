@@ -3,6 +3,7 @@ import { Bot } from "grammy";
 import { prisma } from "../lib/prisma";
 import { getReminderMessage, scheduleNextJob } from "../bot/reminders";
 import { sendSceneViaApi } from "../utils/constants";
+import { captureReplayError } from "./replayCapture";
 import type { BotContext } from "../bot/types";
 
 export function startScheduler(bot: Bot<BotContext>): void {
@@ -90,6 +91,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
         await scheduleNextJob(job.userId, job.telegramId);
       } catch (e) {
         console.error(`[scheduler] Failed to send reminder for job ${job.id}:`, e);
+        captureReplayError(job.telegramId, e, "scheduler:sendReminder");
       }
     }
 
@@ -243,6 +245,23 @@ export function startScheduler(bot: Bot<BotContext>): void {
       }
     } finally {
       onboardingNudgeCronRunning = false;
+    }
+  });
+
+  // ── Replay event cleanup — runs daily at 3:00 AM ──────────────────────────
+  cron.schedule("0 3 * * *", async () => {
+    try {
+      const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const result = await prisma.replayEvent.deleteMany({
+        where: { timestamp: { lt: cutoff } },
+      });
+      if (result.count > 0) {
+        console.log(
+          `[scheduler] Cleaned up ${result.count} replay events older than 30 days`,
+        );
+      }
+    } catch (err) {
+      console.error("[scheduler] Failed to clean up replay events:", err);
     }
   });
 

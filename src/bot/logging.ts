@@ -1,6 +1,7 @@
 import { InlineKeyboard } from "grammy";
 import { format, startOfMonth, endOfMonth, parseISO } from "date-fns";
 import { prisma } from "../lib/prisma";
+import { captureReplayError } from "../services/replayCapture";
 import { sendScene } from "../utils/constants";
 import { buildCalendarKeyboard, getScheduledDates } from "./calendar";
 import type { BotContext } from "./types";
@@ -159,6 +160,7 @@ export async function handleDoneLogging(ctx: BotContext): Promise<void> {
     ? parseISO(ctx.session.pendingLogDate)
     : new Date();
 
+  try {
   const savedLog = await prisma.log.create({
     data: {
       userId: dbUser.id,
@@ -197,6 +199,11 @@ export async function handleDoneLogging(ctx: BotContext): Promise<void> {
       .text("📖 View logs", "nav_calendar")
       .text("🏠 Menu", "nav_menu"),
   });
+  } catch (err) {
+    console.error("[log] handleDoneLogging error:", err);
+    captureReplayError(telegramId, err, "handleDoneLogging", ctx.chat?.id);
+    await ctx.reply("Something went wrong saving your log. Please try again 😢");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -243,6 +250,8 @@ export async function handleEditText(ctx: BotContext): Promise<boolean> {
   const newContent = ctx.message?.text?.trim() ?? "";
   if (!newContent) return true;
 
+  const telegramId = BigInt(ctx.from!.id);
+  try {
   await prisma.log.update({
     where: { id: ctx.session.editingLogId },
     data: { content: newContent },
@@ -258,6 +267,11 @@ export async function handleEditText(ctx: BotContext): Promise<boolean> {
       .text("✨ Refine with AI", `ai_refine_latest`)
       .text("🏠 Menu", "nav_menu"),
   });
+  } catch (err) {
+    console.error("[log] handleEditText error:", err);
+    captureReplayError(telegramId, err, "handleEditText", ctx.chat?.id);
+    await ctx.reply("Couldn't save your edit. Please try again 😢");
+  }
 
   return true;
 }

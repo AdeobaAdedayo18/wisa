@@ -78,3 +78,15 @@ model ManualPayment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+model ReplayEvent {
+  id         Int      @id @default(autoincrement())
+  telegramId BigInt
+  eventType  String   // "user_message" | "user_voice" | "user_callback" | "bot_message" | "bot_photo" | "bot_edit" | "bot_callback_answer" | "error" | "state_change"
+  direction  String   // "incoming" | "outgoing" | "system"
+  payload    String   // JSON blob — full event data
+  timestamp  DateTime @default(now())
+
+  @@index([telegramId, timestamp(sort: Desc)])
+  @@index([timestamp])
+}

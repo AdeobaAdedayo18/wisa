@@ -389,7 +389,8 @@ export const ModelName = {
   Subscription: 'Subscription',
   ReminderJob: 'ReminderJob',
   Session: 'Session',
-  ManualPayment: 'ManualPayment'
+  ManualPayment: 'ManualPayment',
+  ReplayEvent: 'ReplayEvent'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -405,7 +406,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "log" | "subscription" | "reminderJob" | "session" | "manualPayment"
+    modelProps: "user" | "log" | "subscription" | "reminderJob" | "session" | "manualPayment" | "replayEvent"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -853,6 +854,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    ReplayEvent: {
+      payload: Prisma.$ReplayEventPayload<ExtArgs>
+      fields: Prisma.ReplayEventFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.ReplayEventFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ReplayEventPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.ReplayEventFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ReplayEventPayload>
+        }
+        findFirst: {
+          args: Prisma.ReplayEventFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ReplayEventPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.ReplayEventFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ReplayEventPayload>
+        }
+        findMany: {
+          args: Prisma.ReplayEventFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ReplayEventPayload>[]
+        }
+        create: {
+          args: Prisma.ReplayEventCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ReplayEventPayload>
+        }
+        createMany: {
+          args: Prisma.ReplayEventCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.ReplayEventCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ReplayEventPayload>[]
+        }
+        delete: {
+          args: Prisma.ReplayEventDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ReplayEventPayload>
+        }
+        update: {
+          args: Prisma.ReplayEventUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ReplayEventPayload>
+        }
+        deleteMany: {
+          args: Prisma.ReplayEventDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.ReplayEventUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.ReplayEventUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ReplayEventPayload>[]
+        }
+        upsert: {
+          args: Prisma.ReplayEventUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ReplayEventPayload>
+        }
+        aggregate: {
+          args: Prisma.ReplayEventAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateReplayEvent>
+        }
+        groupBy: {
+          args: Prisma.ReplayEventGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ReplayEventGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.ReplayEventCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ReplayEventCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -968,6 +1043,18 @@ export const ManualPaymentScalarFieldEnum = {
 } as const
 
 export type ManualPaymentScalarFieldEnum = (typeof ManualPaymentScalarFieldEnum)[keyof typeof ManualPaymentScalarFieldEnum]
+
+
+export const ReplayEventScalarFieldEnum = {
+  id: 'id',
+  telegramId: 'telegramId',
+  eventType: 'eventType',
+  direction: 'direction',
+  payload: 'payload',
+  timestamp: 'timestamp'
+} as const
+
+export type ReplayEventScalarFieldEnum = (typeof ReplayEventScalarFieldEnum)[keyof typeof ReplayEventScalarFieldEnum]
 
 
 export const SortOrder = {
@@ -1177,6 +1264,7 @@ export type GlobalOmitConfig = {
   reminderJob?: Prisma.ReminderJobOmit
   session?: Prisma.SessionOmit
   manualPayment?: Prisma.ManualPaymentOmit
+  replayEvent?: Prisma.ReplayEventOmit
 }
 
 /* Types for Logging */

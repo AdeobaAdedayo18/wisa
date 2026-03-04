@@ -1,4 +1,5 @@
 import { Bot, session } from "grammy";
+import { replayMiddleware, replayTransformer, captureReplayError } from "../services/replayCapture";
 import { conversations, createConversation } from "@grammyjs/conversations";
 import { PrismaAdapter } from "@grammyjs/storage-prisma";
 import { prisma } from "../lib/prisma";
@@ -59,6 +60,13 @@ import { type SessionData, type BotContext } from "./types";
 export type { SessionData, BotContext };
 
 export const bot = new Bot<BotContext>(process.env.TELEGRAM_BOT_TOKEN!);
+//To rollback comment the next 2 lines of code
+// ── Replay capture (MUST be before session middleware) ───────────────────────
+bot.use(replayMiddleware());
+
+// ── Outgoing API call capture via Transformer ────────────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+bot.api.config.use(replayTransformer as any);
 
 // Session middleware backed by Prisma/PostgreSQL
 bot.use(session({
@@ -178,4 +186,18 @@ bot.on("message:text", async (ctx) => {
   if (await handleEditText(ctx)) return;
   if (await handleLogText(ctx)) return;
   // Fall through — other text messages not handled here
+});
+
+// ── Global error boundary ─────────────────────────────────────────────────
+bot.catch((err) => {
+  const ctx = err.ctx;
+  const telegramId = ctx.from?.id ?? 0;
+  console.error(`[bot] Unhandled error for user ${telegramId}:`, err.error);
+
+  captureReplayError(
+    BigInt(telegramId),
+    err.error,
+    `bot.catch:${err.message}`,
+    ctx.chat?.id,
+  );
 });

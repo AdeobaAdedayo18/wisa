@@ -56,7 +56,8 @@ export const ModelName = {
   Subscription: 'Subscription',
   ReminderJob: 'ReminderJob',
   Session: 'Session',
-  ManualPayment: 'ManualPayment'
+  ManualPayment: 'ManualPayment',
+  ReplayEvent: 'ReplayEvent'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -151,6 +152,18 @@ export const ManualPaymentScalarFieldEnum = {
 } as const
 
 export type ManualPaymentScalarFieldEnum = (typeof ManualPaymentScalarFieldEnum)[keyof typeof ManualPaymentScalarFieldEnum]
+
+
+export const ReplayEventScalarFieldEnum = {
+  id: 'id',
+  telegramId: 'telegramId',
+  eventType: 'eventType',
+  direction: 'direction',
+  payload: 'payload',
+  timestamp: 'timestamp'
+} as const
+
+export type ReplayEventScalarFieldEnum = (typeof ReplayEventScalarFieldEnum)[keyof typeof ReplayEventScalarFieldEnum]
 
 
 export const SortOrder = {
