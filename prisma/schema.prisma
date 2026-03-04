@@ -25,6 +25,7 @@ model User {
   freeAiRefinements  Int             @default(3)
   freeVoiceLogs      Int             @default(3)
   onboardingDone     Boolean         @default(false)
+  botBlocked         Boolean         @default(false)
   createdAt          DateTime        @default(now())
   logs               Log[]
   subscription       Subscription?

@@ -88,6 +88,7 @@ export const UserScalarFieldEnum = {
   freeAiRefinements: 'freeAiRefinements',
   freeVoiceLogs: 'freeVoiceLogs',
   onboardingDone: 'onboardingDone',
+  botBlocked: 'botBlocked',
   createdAt: 'createdAt'
 } as const
 

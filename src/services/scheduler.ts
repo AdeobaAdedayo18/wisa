@@ -21,8 +21,16 @@ export function startScheduler(bot: Bot<BotContext>): void {
     reminderCronRunning = true;
 
     try {
+    const blockedUserIds = await prisma.user
+      .findMany({ where: { botBlocked: true }, select: { id: true } })
+      .then((rows) => rows.map((r) => r.id));
+
     const dueJobs = await prisma.reminderJob.findMany({
-      where: { status: "pending", scheduledFor: { lte: new Date() } },
+      where: {
+        status: "pending",
+        scheduledFor: { lte: new Date() },
+        ...(blockedUserIds.length > 0 && { userId: { notIn: blockedUserIds } }),
+      },
     });
 
     // ── Deduplicate: only process ONE job per user (the earliest) ────────
@@ -89,9 +97,26 @@ export function startScheduler(bot: Bot<BotContext>): void {
 
         // Queue the next scheduled job (guard inside prevents duplicates)
         await scheduleNextJob(job.userId, job.telegramId);
-      } catch (e) {
-        console.error(`[scheduler] Failed to send reminder for job ${job.id}:`, e);
-        captureReplayError(job.telegramId, e, "scheduler:sendReminder");
+      } catch (e: unknown) {
+        // If the user blocked the bot, mark them so and cancel all their pending jobs
+        const isBotBlocked =
+          e instanceof Error &&
+          e.message.includes("bot was blocked by the user");
+
+        if (isBotBlocked) {
+          console.warn(`[scheduler] User ${job.userId} blocked the bot — disabling reminders`);
+          await prisma.user.update({
+            where: { id: job.userId },
+            data: { botBlocked: true },
+          });
+          await prisma.reminderJob.updateMany({
+            where: { userId: job.userId, status: { in: ["pending", "snoozed"] } },
+            data: { status: "skipped" },
+          });
+        } else {
+          console.error(`[scheduler] Failed to send reminder for job ${job.id}:`, e);
+          captureReplayError(job.telegramId, e, "scheduler:sendReminder");
+        }
       }
     }
 
@@ -111,12 +136,17 @@ export function startScheduler(bot: Bot<BotContext>): void {
     try {
     const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000);
 
-    // Jobs that were sent more than 30 mins ago and never acted on
+    // Jobs that were sent more than 30 mins ago and never acted on (skip blocked users)
+    const blockedUserIdsForSnooze = await prisma.user
+      .findMany({ where: { botBlocked: true }, select: { id: true } })
+      .then((rows) => rows.map((r) => r.id));
+
     const staleJobs = await prisma.reminderJob.findMany({
       where: {
         status: "sent",
         scheduledFor: { lte: thirtyMinsAgo },
         snoozeCount: { lt: 3 },
+        ...(blockedUserIdsForSnooze.length > 0 && { userId: { notIn: blockedUserIdsForSnooze } }),
       },
     });
 
@@ -200,8 +230,24 @@ export function startScheduler(bot: Bot<BotContext>): void {
             });
           }
         }
-      } catch (e) {
-        console.error(`[scheduler] Auto-snooze failed for job ${job.id}:`, e);
+      } catch (e: unknown) {
+        const isBotBlocked =
+          e instanceof Error &&
+          e.message.includes("bot was blocked by the user");
+
+        if (isBotBlocked) {
+          console.warn(`[scheduler] User ${job.userId} blocked the bot — disabling reminders (auto-snooze)`);
+          await prisma.user.update({
+            where: { id: job.userId },
+            data: { botBlocked: true },
+          });
+          await prisma.reminderJob.updateMany({
+            where: { userId: job.userId, status: { in: ["pending", "snoozed"] } },
+            data: { status: "skipped" },
+          });
+        } else {
+          console.error(`[scheduler] Auto-snooze failed for job ${job.id}:`, e);
+        }
       }
     }
 
@@ -220,8 +266,8 @@ export function startScheduler(bot: Bot<BotContext>): void {
 
     try {
       const incompleteUsers = await prisma.user.findMany({
-        where: { onboardingDone: false },
-        select: { telegramId: true, firstName: true },
+        where: { onboardingDone: false, botBlocked: false },
+        select: { telegramId: true, firstName: true, id: true },
       });
 
       console.log(`[scheduler] Sending onboarding nudge to ${incompleteUsers.length} user(s)`);
@@ -239,8 +285,20 @@ export function startScheduler(bot: Bot<BotContext>): void {
               },
             },
           );
-        } catch (e) {
-          console.error(`[scheduler] Failed to send onboarding nudge to ${user.telegramId}:`, e);
+        } catch (e: unknown) {
+          const isBotBlocked =
+            e instanceof Error &&
+            e.message.includes("bot was blocked by the user");
+
+          if (isBotBlocked) {
+            console.warn(`[scheduler] User ${user.id} blocked the bot — flagging (onboarding nudge)`);
+            await prisma.user.update({
+              where: { id: user.id },
+              data: { botBlocked: true },
+            });
+          } else {
+            console.error(`[scheduler] Failed to send onboarding nudge to ${user.telegramId}:`, e);
+          }
         }
       }
     } finally {

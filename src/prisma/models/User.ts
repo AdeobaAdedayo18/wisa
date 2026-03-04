@@ -52,6 +52,7 @@ export type UserMinAggregateOutputType = {
   freeAiRefinements: number | null
   freeVoiceLogs: number | null
   onboardingDone: boolean | null
+  botBlocked: boolean | null
   createdAt: Date | null
 }
 
@@ -67,6 +68,7 @@ export type UserMaxAggregateOutputType = {
   freeAiRefinements: number | null
   freeVoiceLogs: number | null
   onboardingDone: boolean | null
+  botBlocked: boolean | null
   createdAt: Date | null
 }
 
@@ -82,6 +84,7 @@ export type UserCountAggregateOutputType = {
   freeAiRefinements: number
   freeVoiceLogs: number
   onboardingDone: number
+  botBlocked: number
   createdAt: number
   _all: number
 }
@@ -113,6 +116,7 @@ export type UserMinAggregateInputType = {
   freeAiRefinements?: true
   freeVoiceLogs?: true
   onboardingDone?: true
+  botBlocked?: true
   createdAt?: true
 }
 
@@ -128,6 +132,7 @@ export type UserMaxAggregateInputType = {
   freeAiRefinements?: true
   freeVoiceLogs?: true
   onboardingDone?: true
+  botBlocked?: true
   createdAt?: true
 }
 
@@ -143,6 +148,7 @@ export type UserCountAggregateInputType = {
   freeAiRefinements?: true
   freeVoiceLogs?: true
   onboardingDone?: true
+  botBlocked?: true
   createdAt?: true
   _all?: true
 }
@@ -245,6 +251,7 @@ export type UserGroupByOutputType = {
   freeAiRefinements: number
   freeVoiceLogs: number
   onboardingDone: boolean
+  botBlocked: boolean
   createdAt: Date
   _count: UserCountAggregateOutputType | null
   _avg: UserAvgAggregateOutputType | null
@@ -283,6 +290,7 @@ export type UserWhereInput = {
   freeAiRefinements?: Prisma.IntFilter<"User"> | number
   freeVoiceLogs?: Prisma.IntFilter<"User"> | number
   onboardingDone?: Prisma.BoolFilter<"User"> | boolean
+  botBlocked?: Prisma.BoolFilter<"User"> | boolean
   createdAt?: Prisma.DateTimeFilter<"User"> | Date | string
   logs?: Prisma.LogListRelationFilter
   subscription?: Prisma.XOR<Prisma.SubscriptionNullableScalarRelationFilter, Prisma.SubscriptionWhereInput> | null
@@ -301,6 +309,7 @@ export type UserOrderByWithRelationInput = {
   freeAiRefinements?: Prisma.SortOrder
   freeVoiceLogs?: Prisma.SortOrder
   onboardingDone?: Prisma.SortOrder
+  botBlocked?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   logs?: Prisma.LogOrderByRelationAggregateInput
   subscription?: Prisma.SubscriptionOrderByWithRelationInput
@@ -322,6 +331,7 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   freeAiRefinements?: Prisma.IntFilter<"User"> | number
   freeVoiceLogs?: Prisma.IntFilter<"User"> | number
   onboardingDone?: Prisma.BoolFilter<"User"> | boolean
+  botBlocked?: Prisma.BoolFilter<"User"> | boolean
   createdAt?: Prisma.DateTimeFilter<"User"> | Date | string
   logs?: Prisma.LogListRelationFilter
   subscription?: Prisma.XOR<Prisma.SubscriptionNullableScalarRelationFilter, Prisma.SubscriptionWhereInput> | null
@@ -340,6 +350,7 @@ export type UserOrderByWithAggregationInput = {
   freeAiRefinements?: Prisma.SortOrder
   freeVoiceLogs?: Prisma.SortOrder
   onboardingDone?: Prisma.SortOrder
+  botBlocked?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   _count?: Prisma.UserCountOrderByAggregateInput
   _avg?: Prisma.UserAvgOrderByAggregateInput
@@ -363,6 +374,7 @@ export type UserScalarWhereWithAggregatesInput = {
   freeAiRefinements?: Prisma.IntWithAggregatesFilter<"User"> | number
   freeVoiceLogs?: Prisma.IntWithAggregatesFilter<"User"> | number
   onboardingDone?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
+  botBlocked?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"User"> | Date | string
 }
 
@@ -377,6 +389,7 @@ export type UserCreateInput = {
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
+  botBlocked?: boolean
   createdAt?: Date | string
   logs?: Prisma.LogCreateNestedManyWithoutUserInput
   subscription?: Prisma.SubscriptionCreateNestedOneWithoutUserInput
@@ -395,6 +408,7 @@ export type UserUncheckedCreateInput = {
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
+  botBlocked?: boolean
   createdAt?: Date | string
   logs?: Prisma.LogUncheckedCreateNestedManyWithoutUserInput
   subscription?: Prisma.SubscriptionUncheckedCreateNestedOneWithoutUserInput
@@ -412,6 +426,7 @@ export type UserUpdateInput = {
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUpdateManyWithoutUserNestedInput
   subscription?: Prisma.SubscriptionUpdateOneWithoutUserNestedInput
@@ -430,6 +445,7 @@ export type UserUncheckedUpdateInput = {
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUncheckedUpdateManyWithoutUserNestedInput
   subscription?: Prisma.SubscriptionUncheckedUpdateOneWithoutUserNestedInput
@@ -448,6 +464,7 @@ export type UserCreateManyInput = {
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
+  botBlocked?: boolean
   createdAt?: Date | string
 }
 
@@ -462,6 +479,7 @@ export type UserUpdateManyMutationInput = {
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -477,6 +495,7 @@ export type UserUncheckedUpdateManyInput = {
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -492,6 +511,7 @@ export type UserCountOrderByAggregateInput = {
   freeAiRefinements?: Prisma.SortOrder
   freeVoiceLogs?: Prisma.SortOrder
   onboardingDone?: Prisma.SortOrder
+  botBlocked?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -514,6 +534,7 @@ export type UserMaxOrderByAggregateInput = {
   freeAiRefinements?: Prisma.SortOrder
   freeVoiceLogs?: Prisma.SortOrder
   onboardingDone?: Prisma.SortOrder
+  botBlocked?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -529,6 +550,7 @@ export type UserMinOrderByAggregateInput = {
   freeAiRefinements?: Prisma.SortOrder
   freeVoiceLogs?: Prisma.SortOrder
   onboardingDone?: Prisma.SortOrder
+  botBlocked?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -629,6 +651,7 @@ export type UserCreateWithoutLogsInput = {
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
+  botBlocked?: boolean
   createdAt?: Date | string
   subscription?: Prisma.SubscriptionCreateNestedOneWithoutUserInput
   manualPayments?: Prisma.ManualPaymentCreateNestedManyWithoutUserInput
@@ -646,6 +669,7 @@ export type UserUncheckedCreateWithoutLogsInput = {
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
+  botBlocked?: boolean
   createdAt?: Date | string
   subscription?: Prisma.SubscriptionUncheckedCreateNestedOneWithoutUserInput
   manualPayments?: Prisma.ManualPaymentUncheckedCreateNestedManyWithoutUserInput
@@ -678,6 +702,7 @@ export type UserUpdateWithoutLogsInput = {
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   subscription?: Prisma.SubscriptionUpdateOneWithoutUserNestedInput
   manualPayments?: Prisma.ManualPaymentUpdateManyWithoutUserNestedInput
@@ -695,6 +720,7 @@ export type UserUncheckedUpdateWithoutLogsInput = {
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   subscription?: Prisma.SubscriptionUncheckedUpdateOneWithoutUserNestedInput
   manualPayments?: Prisma.ManualPaymentUncheckedUpdateManyWithoutUserNestedInput
@@ -711,6 +737,7 @@ export type UserCreateWithoutSubscriptionInput = {
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
+  botBlocked?: boolean
   createdAt?: Date | string
   logs?: Prisma.LogCreateNestedManyWithoutUserInput
   manualPayments?: Prisma.ManualPaymentCreateNestedManyWithoutUserInput
@@ -728,6 +755,7 @@ export type UserUncheckedCreateWithoutSubscriptionInput = {
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
+  botBlocked?: boolean
   createdAt?: Date | string
   logs?: Prisma.LogUncheckedCreateNestedManyWithoutUserInput
   manualPayments?: Prisma.ManualPaymentUncheckedCreateNestedManyWithoutUserInput
@@ -760,6 +788,7 @@ export type UserUpdateWithoutSubscriptionInput = {
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUpdateManyWithoutUserNestedInput
   manualPayments?: Prisma.ManualPaymentUpdateManyWithoutUserNestedInput
@@ -777,6 +806,7 @@ export type UserUncheckedUpdateWithoutSubscriptionInput = {
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUncheckedUpdateManyWithoutUserNestedInput
   manualPayments?: Prisma.ManualPaymentUncheckedUpdateManyWithoutUserNestedInput
@@ -793,6 +823,7 @@ export type UserCreateWithoutManualPaymentsInput = {
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
+  botBlocked?: boolean
   createdAt?: Date | string
   logs?: Prisma.LogCreateNestedManyWithoutUserInput
   subscription?: Prisma.SubscriptionCreateNestedOneWithoutUserInput
@@ -810,6 +841,7 @@ export type UserUncheckedCreateWithoutManualPaymentsInput = {
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
+  botBlocked?: boolean
   createdAt?: Date | string
   logs?: Prisma.LogUncheckedCreateNestedManyWithoutUserInput
   subscription?: Prisma.SubscriptionUncheckedCreateNestedOneWithoutUserInput
@@ -842,6 +874,7 @@ export type UserUpdateWithoutManualPaymentsInput = {
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUpdateManyWithoutUserNestedInput
   subscription?: Prisma.SubscriptionUpdateOneWithoutUserNestedInput
@@ -859,6 +892,7 @@ export type UserUncheckedUpdateWithoutManualPaymentsInput = {
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUncheckedUpdateManyWithoutUserNestedInput
   subscription?: Prisma.SubscriptionUncheckedUpdateOneWithoutUserNestedInput
@@ -916,6 +950,7 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   freeAiRefinements?: boolean
   freeVoiceLogs?: boolean
   onboardingDone?: boolean
+  botBlocked?: boolean
   createdAt?: boolean
   logs?: boolean | Prisma.User$logsArgs<ExtArgs>
   subscription?: boolean | Prisma.User$subscriptionArgs<ExtArgs>
@@ -935,6 +970,7 @@ export type UserSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   freeAiRefinements?: boolean
   freeVoiceLogs?: boolean
   onboardingDone?: boolean
+  botBlocked?: boolean
   createdAt?: boolean
 }, ExtArgs["result"]["user"]>
 
@@ -950,6 +986,7 @@ export type UserSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   freeAiRefinements?: boolean
   freeVoiceLogs?: boolean
   onboardingDone?: boolean
+  botBlocked?: boolean
   createdAt?: boolean
 }, ExtArgs["result"]["user"]>
 
@@ -965,10 +1002,11 @@ export type UserSelectScalar = {
   freeAiRefinements?: boolean
   freeVoiceLogs?: boolean
   onboardingDone?: boolean
+  botBlocked?: boolean
   createdAt?: boolean
 }
 
-export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "telegramId" | "firstName" | "username" | "logFrequency" | "reminderTime" | "timezone" | "isPro" | "freeAiRefinements" | "freeVoiceLogs" | "onboardingDone" | "createdAt", ExtArgs["result"]["user"]>
+export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "telegramId" | "firstName" | "username" | "logFrequency" | "reminderTime" | "timezone" | "isPro" | "freeAiRefinements" | "freeVoiceLogs" | "onboardingDone" | "botBlocked" | "createdAt", ExtArgs["result"]["user"]>
 export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   logs?: boolean | Prisma.User$logsArgs<ExtArgs>
   subscription?: boolean | Prisma.User$subscriptionArgs<ExtArgs>
@@ -997,6 +1035,7 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     freeAiRefinements: number
     freeVoiceLogs: number
     onboardingDone: boolean
+    botBlocked: boolean
     createdAt: Date
   }, ExtArgs["result"]["user"]>
   composites: {}
@@ -1435,6 +1474,7 @@ export interface UserFieldRefs {
   readonly freeAiRefinements: Prisma.FieldRef<"User", 'Int'>
   readonly freeVoiceLogs: Prisma.FieldRef<"User", 'Int'>
   readonly onboardingDone: Prisma.FieldRef<"User", 'Boolean'>
+  readonly botBlocked: Prisma.FieldRef<"User", 'Boolean'>
   readonly createdAt: Prisma.FieldRef<"User", 'DateTime'>
 }
     

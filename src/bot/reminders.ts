@@ -26,6 +26,12 @@ export async function scheduleNextJob(userId: number, telegramId: bigint): Promi
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) return;
 
+  // Don't schedule new reminders for users who blocked the bot
+  if (user.botBlocked) {
+    console.log(`[scheduler] Skipped scheduleNextJob for user ${userId} — bot is blocked`);
+    return;
+  }
+
   // ── Guard: skip if this user already has a future pending job ──────────
   const existingPending = await prisma.reminderJob.findFirst({
     where: { userId, status: "pending", scheduledFor: { gt: new Date() } },
