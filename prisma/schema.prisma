@@ -56,13 +56,15 @@ model Subscription {
 }
 
 model ReminderJob {
-  id           Int      @id @default(autoincrement())
-  userId       Int
-  telegramId   BigInt
-  scheduledFor DateTime
-  status       String   // "pending" | "sent" | "snoozed" | "skipped"
-  snoozeCount  Int      @default(0)
-  createdAt    DateTime @default(now())
+  id             Int      @id @default(autoincrement())
+  userId         Int
+  telegramId     BigInt
+  scheduledFor   DateTime
+  status         String   // "pending" | "sent" | "snoozed" | "skipped"
+  snoozeCount    Int      @default(0)
+  autoNudgeCount Int      @default(0)
+  logDate        String?  // ISO date "YYYY-MM-DD" the reminder is for (user's local date)
+  createdAt      DateTime @default(now())
 }
 
 model Session {

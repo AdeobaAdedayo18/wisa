@@ -1,6 +1,8 @@
+import { InlineKeyboard } from "grammy";
 import { prisma } from "../lib/prisma";
-import { localTimeToUtc } from "../utils/dateHelpers";
+import { localTimeToUtc, skipWeekend } from "../utils/dateHelpers";
 import { sendScene } from "../utils/constants";
+import { startLogging } from "./logging";
 import type { BotContext } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -32,13 +34,16 @@ export async function scheduleNextJob(userId: number, telegramId: bigint): Promi
     return;
   }
 
-  // ── Guard: skip if this user already has a future pending job ──────────
-  const existingPending = await prisma.reminderJob.findFirst({
-    where: { userId, status: "pending", scheduledFor: { gt: new Date() } },
+  // ── Guard: skip if this user already has a future SCHEDULED pending job ──
+  // Only block if there's a pending job > 4 hours away (next-day type).
+  // This allows snooze jobs (30 min away) to coexist.
+  const fourHoursFromNow = new Date(Date.now() + 4 * 60 * 60 * 1000);
+  const existingScheduled = await prisma.reminderJob.findFirst({
+    where: { userId, status: "pending", scheduledFor: { gte: fourHoursFromNow } },
   });
-  if (existingPending) {
+  if (existingScheduled) {
     console.log(
-      `[scheduler] Skipped scheduleNextJob for user ${userId} — already has pending job #${existingPending.id} at ${existingPending.scheduledFor.toISOString()}`,
+      `[scheduler] Skipped scheduleNextJob for user ${userId} — already has scheduled job #${existingScheduled.id} at ${existingScheduled.scheduledFor.toISOString()}`,
     );
     return;
   }
@@ -55,8 +60,14 @@ export async function scheduleNextJob(userId: number, telegramId: bigint): Promi
 
   const scheduledFor = localTimeToUtc(user.reminderTime, user.timezone, intervalDays);
 
+  // Skip weekends — push Saturday/Sunday reminders to Monday
+  const adjustedScheduledFor = skipWeekend(scheduledFor, user.timezone);
+
+  // Compute the log date in the user's local timezone
+  const logDate = new Intl.DateTimeFormat("en-CA", { timeZone: user.timezone }).format(adjustedScheduledFor);
+
   await prisma.reminderJob.create({
-    data: { userId, telegramId, scheduledFor, status: "pending" },
+    data: { userId, telegramId, scheduledFor: adjustedScheduledFor, status: "pending", logDate },
   });
 }
 
@@ -97,28 +108,48 @@ export async function handleSnooze(ctx: BotContext): Promise<void> {
     // Final nudge — no more snooze option
     await prisma.reminderJob.update({
       where: { id: jobId },
-      data: { snoozeCount: newSnoozeCount, status: "snoozed" },
+      data: { snoozeCount: newSnoozeCount, status: "snoozed", autoNudgeCount: 3 },
     });
+
+    // Build "Write my log" button with the correct date
+    const logDate = job.logDate ?? new Intl.DateTimeFormat("en-CA").format(new Date());
 
     await sendScene(
       ctx,
       "scene6",
       `Okay okay, last reminder for today! 😅\n\nYou've snoozed 3 times — just write *something*, even one sentence. Your logbook needs you! 🙏`,
     );
+
+    // Send a follow-up with actionable buttons (sendScene doesn't support reply_markup)
+    await ctx.reply("Tap below to start writing 👇", {
+      reply_markup: new InlineKeyboard()
+        .text("✍️ Write my log", `write_log_${jobId}_${logDate}`)
+        .row()
+        .text("🙈 Skip today", `skip_${jobId}`),
+    });
   } else {
-    // Create a new job 30 minutes from now — but only if user has no pending job already
+    // Create a new job 30 minutes from NOW — only check for nearby pending jobs
     const snoozedUntil = new Date(Date.now() + 30 * 60 * 1000);
 
+    // Mark original job as snoozed (stops auto-nudge too)
     await prisma.reminderJob.update({
       where: { id: jobId },
-      data: { snoozeCount: newSnoozeCount, status: "snoozed" },
+      data: { snoozeCount: newSnoozeCount, status: "snoozed", autoNudgeCount: 3 },
     });
 
-    const existingPending = await prisma.reminderJob.findFirst({
-      where: { userId: job.userId, status: "pending" },
+    // Only check for pending jobs within the next 2 hours to avoid blocking
+    // on next-day scheduled jobs. This prevents duplicate snooze jobs
+    // while allowing snooze + next-day to coexist.
+    const twoHoursFromNow = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    const existingNearPending = await prisma.reminderJob.findFirst({
+      where: {
+        userId: job.userId,
+        status: "pending",
+        scheduledFor: { lte: twoHoursFromNow },
+      },
     });
 
-    if (!existingPending) {
+    if (!existingNearPending) {
       await prisma.reminderJob.create({
         data: {
           userId: job.userId,
@@ -126,6 +157,8 @@ export async function handleSnooze(ctx: BotContext): Promise<void> {
           scheduledFor: snoozedUntil,
           status: "pending",
           snoozeCount: newSnoozeCount,
+          autoNudgeCount: 0, // reset auto-nudge for the new job
+          logDate: job.logDate, // carry forward the original log date
         },
       });
     }
@@ -153,4 +186,40 @@ export async function handleSkip(ctx: BotContext): Promise<void> {
 
   await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
   await ctx.reply("No wahala! 😊 See you next time 👋");
+}
+
+// ---------------------------------------------------------------------------
+// "Write my log" from a reminder button — callback: `write_log_<jobId>_<date>`
+// ---------------------------------------------------------------------------
+
+export async function handleWriteFromReminder(ctx: BotContext): Promise<void> {
+  const data = ctx.callbackQuery?.data ?? "";
+  // Format: write_log_<jobId>_<YYYY-MM-DD>
+  const match = data.match(/^write_log_(\d+)_(\d{4}-\d{2}-\d{2})$/);
+  await ctx.answerCallbackQuery();
+
+  if (!match) {
+    // Fallback: treat as generic write_log (today)
+    await startLogging(ctx);
+    return;
+  }
+
+  const jobId = parseInt(match[1], 10);
+  const logDate = match[2];
+
+  // Mark the job as interacted-with so auto-nudge stops
+  try {
+    await prisma.reminderJob.update({
+      where: { id: jobId },
+      data: { autoNudgeCount: 3 }, // stops auto-nudge; status stays "sent"
+    });
+  } catch {
+    // Job might not exist or already be in a different state — that's fine
+  }
+
+  // Remove buttons from the reminder message
+  await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } }).catch(() => {});
+
+  // Start logging for the date the reminder was originally for
+  await startLogging(ctx, logDate);
 }

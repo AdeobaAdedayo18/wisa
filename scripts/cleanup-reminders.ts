@@ -12,22 +12,40 @@ async function main() {
     orderBy: { scheduledFor: "asc" },
   });
 
-  // 2. For each user, keep only the EARLIEST pending job
+  // 2. For each user, keep up to TWO legitimate pending jobs:
+  //    - One near-term (snooze / due within 4 hours)
+  //    - One far-term  (next scheduled reminder, > 4 hours away)
+  //    Any extras beyond that are duplicates and should be deleted.
+  const fourHoursFromNow = new Date(Date.now() + 4 * 60 * 60 * 1000);
   const keepIds = new Set<number>();
   const deleteIds: number[] = [];
-  const seenUsers = new Set<number>();
+
+  // Track per user: has a near-term been kept? has a far-term been kept?
+  const nearKept = new Set<number>();
+  const farKept = new Set<number>();
 
   for (const job of pendingJobs) {
-    if (seenUsers.has(job.userId)) {
-      deleteIds.push(job.id);
+    const isNear = job.scheduledFor < fourHoursFromNow;
+    if (isNear) {
+      if (nearKept.has(job.userId)) {
+        deleteIds.push(job.id); // duplicate near-term
+      } else {
+        nearKept.add(job.userId);
+        keepIds.add(job.id);
+      }
     } else {
-      seenUsers.add(job.userId);
-      keepIds.add(job.id);
+      if (farKept.has(job.userId)) {
+        deleteIds.push(job.id); // duplicate far-term
+      } else {
+        farKept.add(job.userId);
+        keepIds.add(job.id);
+      }
     }
   }
 
+  const uniqueUsers = new Set([...nearKept, ...farKept]);
   console.log("Pending jobs total:", pendingJobs.length);
-  console.log("Users with pending jobs:", seenUsers.size);
+  console.log("Users with pending jobs:", uniqueUsers.size);
   console.log("Jobs to keep:", keepIds.size);
   console.log("Jobs to DELETE:", deleteIds.length);
 

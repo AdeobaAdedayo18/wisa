@@ -4,13 +4,16 @@ import { prisma } from "../lib/prisma";
 import { getReminderMessage, scheduleNextJob } from "../bot/reminders";
 import { sendSceneViaApi } from "../utils/constants";
 import { captureReplayError } from "./replayCapture";
-import type { BotContext } from "../bot/types";
+import { getLocalDayOfWeek } from "../utils/dateHelpers";
+import type { BotContext, SessionData } from "../bot/types";
+import { parseISO } from "date-fns";
 
 export function startScheduler(bot: Bot<BotContext>): void {
   // ── Re-entry locks — prevent overlapping async cron ticks ───────────────
   let reminderCronRunning = false;
   let autoSnoozeCronRunning = false;
   let onboardingNudgeCronRunning = false;
+  let autoSaveCronRunning = false;
 
   // ── 5.1 — Fire due reminders (every minute) ───────────────────────────────
   cron.schedule("* * * * *", async () => {
@@ -76,6 +79,21 @@ export function startScheduler(bot: Bot<BotContext>): void {
           continue;
         }
 
+        // ── Skip if today is a weekend (Sat/Sun) in user's timezone ──────
+        const userForTz = await prisma.user.findUnique({ where: { id: job.userId }, select: { timezone: true } });
+        const userTz = userForTz?.timezone ?? "Africa/Lagos";
+        const localDow = getLocalDayOfWeek(new Date(), userTz);
+        if (localDow === 0 || localDow === 6) {
+          await prisma.reminderJob.update({ where: { id: job.id }, data: { status: "skipped" } });
+          await scheduleNextJob(job.userId, job.telegramId);
+          console.log(`[scheduler] Skipped reminder for user ${job.userId} — weekend (${localDow === 6 ? "Sat" : "Sun"})`);
+          continue;
+        }
+
+        // Compute log date in user's timezone for the "Write my log" button
+        const logDate = job.logDate
+          ?? new Intl.DateTimeFormat("en-CA", { timeZone: userTz }).format(job.scheduledFor);
+
         await sendSceneViaApi(
           bot.api,
           Number(job.telegramId),
@@ -83,16 +101,17 @@ export function startScheduler(bot: Bot<BotContext>): void {
           getReminderMessage(),
           {
             inline_keyboard: [
-              [{ text: "✍️ Write my log", callback_data: "write_log" }],
+              [{ text: "✍️ Write my log", callback_data: `write_log_${job.id}_${logDate}` }],
               [{ text: "⏳ Remind me in 30 mins", callback_data: `snooze_${job.id}` }],
               [{ text: "🙈 Skip today", callback_data: `skip_${job.id}` }],
             ],
           },
         );
 
+        // Store computed logDate on the job for auto-nudge messages later
         await prisma.reminderJob.update({
           where: { id: job.id },
-          data: { status: "sent" },
+          data: { status: "sent", logDate },
         });
 
         // Queue the next scheduled job (guard inside prevents duplicates)
@@ -125,56 +144,85 @@ export function startScheduler(bot: Bot<BotContext>): void {
     }
   });
 
-  // ── 5.4 — Auto-snooze: re-queue unanswered reminders (every 5 minutes) ───
+  // ── 5.4 — Auto-nudge: send follow-up reminders when user ignores (every 5 min)
+  //
+  // Design: If a reminder was sent and the user hasn't interacted (status stays
+  // "sent"), we send up to 3 follow-up nudges at 30-minute intervals. We track
+  // the count via `autoNudgeCount` on the original job — NO new jobs are
+  // created, which avoids the duplicate-job issues we had previously.
+  //
+  // Auto-nudge STOPS if the user interacts (snooze/skip/write changes status
+  // away from "sent", or sets autoNudgeCount = 3).
+  // ---------------------------------------------------------------------------
+
+  const AUTO_NUDGE_MESSAGES = [
+    // Nudge 1 — gentle
+    `Hey! 👋 Just checking in — haven't heard from you yet. Ready to write your log?`,
+    // Nudge 2 — moderate
+    `Still there? 😊 Your logbook is waiting. Even a few sentences is better than nothing!`,
+    // Nudge 3 — final
+    `Last nudge for today! 😅 Just write something quick — your future self will thank you 🙏`,
+  ];
+
   cron.schedule("*/5 * * * *", async () => {
     if (autoSnoozeCronRunning) {
-      console.log("[scheduler] Auto-snooze cron still running from previous tick — skipping");
+      console.log("[scheduler] Auto-nudge cron still running from previous tick — skipping");
       return;
     }
     autoSnoozeCronRunning = true;
 
     try {
-    const thirtyMinsAgo = new Date(Date.now() - 30 * 60 * 1000);
+    const now = new Date();
 
-    // Jobs that were sent more than 30 mins ago and never acted on (skip blocked users)
-    const blockedUserIdsForSnooze = await prisma.user
+    // Find "sent" jobs that still have auto-nudges remaining
+    const blockedUserIdsForNudge = await prisma.user
       .findMany({ where: { botBlocked: true }, select: { id: true } })
       .then((rows) => rows.map((r) => r.id));
 
-    const staleJobs = await prisma.reminderJob.findMany({
+    const sentJobs = await prisma.reminderJob.findMany({
       where: {
         status: "sent",
-        scheduledFor: { lte: thirtyMinsAgo },
-        snoozeCount: { lt: 3 },
-        ...(blockedUserIdsForSnooze.length > 0 && { userId: { notIn: blockedUserIdsForSnooze } }),
+        autoNudgeCount: { lt: 3 },
+        ...(blockedUserIdsForNudge.length > 0 && { userId: { notIn: blockedUserIdsForNudge } }),
       },
     });
 
-    // ── Deduplicate: only process ONE stale job per user (the latest) ───
-    const bestStaleByUser = new Map<number, (typeof staleJobs)[0]>();
-    const extraStaleIds: number[] = [];
+    // ── Deduplicate: only process ONE sent job per user (the latest) ─────
+    const bestSentByUser = new Map<number, (typeof sentJobs)[0]>();
+    const extraSentIds: number[] = [];
 
-    for (const job of staleJobs) {
-      const existing = bestStaleByUser.get(job.userId);
+    for (const job of sentJobs) {
+      const existing = bestSentByUser.get(job.userId);
       if (!existing || job.scheduledFor > existing.scheduledFor) {
-        if (existing) extraStaleIds.push(existing.id);
-        bestStaleByUser.set(job.userId, job);
+        if (existing) extraSentIds.push(existing.id);
+        bestSentByUser.set(job.userId, job);
       } else {
-        extraStaleIds.push(job.id);
+        extraSentIds.push(job.id);
       }
     }
 
-    // Retire duplicates
-    if (extraStaleIds.length > 0) {
+    // Retire duplicate sent jobs
+    if (extraSentIds.length > 0) {
       await prisma.reminderJob.updateMany({
-        where: { id: { in: extraStaleIds } },
-        data: { status: "snoozed" },
+        where: { id: { in: extraSentIds } },
+        data: { status: "snoozed", autoNudgeCount: 3 },
       });
-      console.log(`[scheduler] Retired ${extraStaleIds.length} duplicate stale jobs`);
+      console.log(`[scheduler] Retired ${extraSentIds.length} duplicate sent jobs`);
     }
 
-    for (const [, job] of bestStaleByUser) {
+    for (const [, job] of bestSentByUser) {
       try {
+        // Timing check: is the next nudge due?
+        // Nudge N fires at scheduledFor + (N+1)*30 minutes
+        const nextNudgeAt = new Date(
+          job.scheduledFor.getTime() + (job.autoNudgeCount + 1) * 30 * 60 * 1000,
+        );
+        if (now < nextNudgeAt) continue; // not yet time for the next nudge
+
+        // Re-check job status (might have changed since initial query)
+        const freshJob = await prisma.reminderJob.findUnique({ where: { id: job.id } });
+        if (!freshJob || freshJob.status !== "sent" || freshJob.autoNudgeCount >= 3) continue;
+
         // ── Skip if user already wrote a log today ───────────────────────
         const todayStart = new Date();
         todayStart.setUTCHours(0, 0, 0, 0);
@@ -182,61 +230,73 @@ export function startScheduler(bot: Bot<BotContext>): void {
         tomorrowStart.setUTCDate(tomorrowStart.getUTCDate() + 1);
 
         const todayLog = await prisma.log.findFirst({
-          where: { userId: job.userId, logDate: { gte: todayStart, lt: tomorrowStart } },
+          where: { userId: freshJob.userId, logDate: { gte: todayStart, lt: tomorrowStart } },
         });
 
         if (todayLog) {
-          await prisma.reminderJob.update({ where: { id: job.id }, data: { status: "snoozed" } });
-          console.log(`[scheduler] Skipped auto-snooze for user ${job.userId} — already logged today`);
+          await prisma.reminderJob.update({
+            where: { id: freshJob.id },
+            data: { autoNudgeCount: 3 },
+          });
+          console.log(`[scheduler] Skipped auto-nudge for user ${freshJob.userId} — already logged today`);
           continue;
         }
 
-        const newSnoozeCount = job.snoozeCount + 1;
+        const nudgeIndex = freshJob.autoNudgeCount; // 0, 1, or 2
+        const nudgeMessage = AUTO_NUDGE_MESSAGES[nudgeIndex];
+        const logDate = freshJob.logDate
+          ?? new Intl.DateTimeFormat("en-CA").format(freshJob.scheduledFor);
 
-        await prisma.reminderJob.update({
-          where: { id: job.id },
-          data: { snoozeCount: newSnoozeCount, status: "snoozed" },
-        });
-
-        if (newSnoozeCount >= 3) {
-          // Final auto-nudge — Scene 6
+        if (nudgeIndex === 2) {
+          // Final nudge — use Scene 6 for visual emphasis
           await sendSceneViaApi(
             bot.api,
-            Number(job.telegramId),
+            Number(freshJob.telegramId),
             "scene6",
-            `Okay okay, last reminder for today! 😅\n\nYou've been quiet a while — just write *something*, even one sentence. Your logbook needs you! 🙏`,
+            nudgeMessage,
             {
               inline_keyboard: [
-                [{ text: "✍️ Write my log", callback_data: "write_log" }],
+                [{ text: "✍️ Write my log", callback_data: `write_log_${freshJob.id}_${logDate}` }],
+                [{ text: "🙈 Skip today", callback_data: `skip_${freshJob.id}` }],
               ],
             },
           );
         } else {
-          // Auto-re-queue 30 mins from now — only if no pending job exists
-          const existingPending = await prisma.reminderJob.findFirst({
-            where: { userId: job.userId, status: "pending" },
-          });
-
-          if (!existingPending) {
-            const snoozedUntil = new Date(Date.now() + 30 * 60 * 1000);
-            await prisma.reminderJob.create({
-              data: {
-                userId: job.userId,
-                telegramId: job.telegramId,
-                scheduledFor: snoozedUntil,
-                status: "pending",
-                snoozeCount: newSnoozeCount,
+          // Nudge 1 & 2 — plain text (less intrusive than a photo)
+          await bot.api.sendMessage(
+            Number(freshJob.telegramId),
+            nudgeMessage,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: "✍️ Write my log", callback_data: `write_log_${freshJob.id}_${logDate}` }],
+                  [{ text: "🙈 Skip today", callback_data: `skip_${freshJob.id}` }],
+                ],
               },
-            });
-          }
+            },
+          );
         }
+
+        // Increment auto-nudge count; retire job after the 3rd nudge
+        const newAutoNudgeCount = freshJob.autoNudgeCount + 1;
+        await prisma.reminderJob.update({
+          where: { id: freshJob.id },
+          data: {
+            autoNudgeCount: newAutoNudgeCount,
+            ...(newAutoNudgeCount >= 3 && { status: "snoozed" }),
+          },
+        });
+
+        console.log(
+          `[scheduler] Auto-nudge #${newAutoNudgeCount} sent for user ${freshJob.userId} (job ${freshJob.id})`,
+        );
       } catch (e: unknown) {
         const isBotBlocked =
           e instanceof Error &&
           e.message.includes("bot was blocked by the user");
 
         if (isBotBlocked) {
-          console.warn(`[scheduler] User ${job.userId} blocked the bot — disabling reminders (auto-snooze)`);
+          console.warn(`[scheduler] User ${job.userId} blocked the bot — disabling reminders (auto-nudge)`);
           await prisma.user.update({
             where: { id: job.userId },
             data: { botBlocked: true },
@@ -246,7 +306,8 @@ export function startScheduler(bot: Bot<BotContext>): void {
             data: { status: "skipped" },
           });
         } else {
-          console.error(`[scheduler] Auto-snooze failed for job ${job.id}:`, e);
+          console.error(`[scheduler] Auto-nudge failed for job ${job.id}:`, e);
+          captureReplayError(job.telegramId, e, "scheduler:autoNudge");
         }
       }
     }
@@ -320,6 +381,148 @@ export function startScheduler(bot: Bot<BotContext>): void {
       }
     } catch (err) {
       console.error("[scheduler] Failed to clean up replay events:", err);
+    }
+  });
+
+  // ── Auto-save: rescue unfinished log-writing sessions (every 5 min) ───────
+  //
+  // When a user starts writing a log, sends messages (gets 👍 reactions), but
+  // never taps "Done ✅", their work is stuck in the session. This cron reads
+  // all Session rows from the DB, finds ones with pending log parts that have
+  // gone idle, and either:
+  //   - After 15 min idle: sends a prompt asking to save or keep writing
+  //   - After 30 min idle (15 min after prompt): auto-saves the log
+  // ---------------------------------------------------------------------------
+
+  const IDLE_PROMPT_MS = 15 * 60 * 1000;    // 15 minutes
+  const IDLE_AUTOSAVE_MS = 30 * 60 * 1000;  // 30 minutes total
+
+  cron.schedule("*/5 * * * *", async () => {
+    if (autoSaveCronRunning) return;
+    autoSaveCronRunning = true;
+
+    try {
+      const allSessions = await prisma.session.findMany();
+      const now = Date.now();
+
+      for (const row of allSessions) {
+        try {
+          const session: SessionData = JSON.parse(row.value);
+
+          // Only care about sessions actively writing a log with actual content
+          if (!session.awaitingLog || !session.pendingLogParts?.length) continue;
+
+          // Need a lastLogMessageAt timestamp to measure idle time
+          const lastActivity = session.lastLogMessageAt;
+          if (!lastActivity) continue;
+
+          const idleMs = now - lastActivity;
+          const chatId = parseInt(row.key, 10);
+          if (isNaN(chatId)) continue;
+
+          // ── Stage 2: Auto-save after 30 min total idle ────────────────
+          if (session.autoSavePromptSent && idleMs >= IDLE_AUTOSAVE_MS) {
+            // Look up the DB user
+            const dbUser = await prisma.user.findUnique({
+              where: { telegramId: BigInt(chatId) },
+            });
+            if (!dbUser) continue;
+
+            const fullText = session.pendingLogParts.join("\n\n").trim();
+            if (!fullText) continue;
+
+            const logDate = session.pendingLogDate
+              ? parseISO(session.pendingLogDate)
+              : new Date();
+
+            const savedLog = await prisma.log.create({
+              data: {
+                userId: dbUser.id,
+                content: fullText,
+                logDate,
+                isVoice: false,
+              },
+            });
+
+            console.log(
+              `[auto-save] Saved log #${savedLog.id} for user ${dbUser.id} (${fullText.split(/\s+/).length} words, idle ${Math.round(idleMs / 60000)}m)`,
+            );
+
+            // Clear the session
+            session.awaitingLog = false;
+            session.pendingLogParts = [];
+            session.pendingLogDate = undefined;
+            session.flowStartedAt = undefined;
+            session.lastLogMessageAt = undefined;
+            session.autoSavePromptSent = undefined;
+
+            await prisma.session.update({
+              where: { id: row.id },
+              data: { value: JSON.stringify(session) },
+            });
+
+            // Notify the user
+            try {
+              await bot.api.sendMessage(
+                chatId,
+                `✅ I went ahead and saved your log — it looked like you were done.\n\n📖 ${fullText.length > 150 ? fullText.slice(0, 150) + "…" : fullText}\n\nYou can always edit it later from your calendar 📅`,
+                {
+                  reply_markup: {
+                    inline_keyboard: [
+                      [{ text: "✨ Refine with AI", callback_data: `ai_refine_${savedLog.id}` }],
+                      [
+                        { text: "📖 View logs", callback_data: "nav_calendar" },
+                        { text: "🏠 Menu", callback_data: "nav_menu" },
+                      ],
+                    ],
+                  },
+                },
+              );
+            } catch (sendErr) {
+              console.error(`[auto-save] Failed to notify chat ${chatId}:`, sendErr);
+            }
+
+            continue;
+          }
+
+          // ── Stage 1: Prompt after 15 min idle ─────────────────────────
+          if (!session.autoSavePromptSent && idleMs >= IDLE_PROMPT_MS) {
+            session.autoSavePromptSent = true;
+
+            await prisma.session.update({
+              where: { id: row.id },
+              data: { value: JSON.stringify(session) },
+            });
+
+            const wordCount = session.pendingLogParts.join(" ").split(/\s+/).filter(Boolean).length;
+
+            try {
+              await bot.api.sendMessage(
+                chatId,
+                `Hey! 👋 Looks like you stopped writing.\n\nI've got *${wordCount} word${wordCount === 1 ? "" : "s"}* so far. Want me to save it, or are you still going?`,
+                {
+                  parse_mode: "Markdown",
+                  reply_markup: {
+                    inline_keyboard: [
+                      [{ text: "💾 Save it", callback_data: "auto_save_confirm" }],
+                      [{ text: "✏️ I'm still writing", callback_data: "auto_save_continue" }],
+                    ],
+                  },
+                },
+              );
+            } catch (sendErr) {
+              console.error(`[auto-save] Failed to prompt chat ${chatId}:`, sendErr);
+            }
+          }
+        } catch (parseErr) {
+          // Corrupt session row — skip
+          continue;
+        }
+      }
+    } catch (err) {
+      console.error("[scheduler] Auto-save cron error:", err);
+    } finally {
+      autoSaveCronRunning = false;
     }
   });
 

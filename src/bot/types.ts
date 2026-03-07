@@ -48,6 +48,13 @@ export interface SessionData {
   awaitingPaymentSenderName?: boolean;
   /** ManualPayment DB id waiting for admin review. */
   pendingManualPaymentId?: number;
+  /**
+   * Unix timestamp (ms) of the last log message the user sent during
+   * the current awaitingLog flow. Used by the auto-save cron to detect idle.
+   */
+  lastLogMessageAt?: number;
+  /** True once the "Save what you have?" auto-save prompt has been sent. */
+  autoSavePromptSent?: boolean;
 }
 
 export type BotContext = ConversationFlavor<Context & SessionFlavor<SessionData>>;
@@ -74,6 +81,8 @@ export function clearActiveFlow(session: SessionData): void {
   session.pendingRefinedContent = undefined;
   session.refiningLogId = undefined;
   session.flowStartedAt = undefined;
+  session.lastLogMessageAt = undefined;
+  session.autoSavePromptSent = undefined;
 }
 
 /**

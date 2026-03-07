@@ -4,7 +4,7 @@ import { conversations, createConversation } from "@grammyjs/conversations";
 import { PrismaAdapter } from "@grammyjs/storage-prisma";
 import { prisma } from "../lib/prisma";
 import { onboardingConversation, handleStart, handleLetsGo, MAIN_MENU_KEYBOARD } from "./onboarding";
-import { handleSnooze, handleSkip, scheduleNextJob } from "./reminders";
+import { handleSnooze, handleSkip, handleWriteFromReminder, scheduleNextJob } from "./reminders";
 import {
   startLogging,
   handleLogText,
@@ -14,6 +14,8 @@ import {
   showPastLogCalendar,
   handlePastCalNav,
   handlePastLogDateSelect,
+  handleAutoSaveConfirm,
+  handleAutoSaveContinue,
 } from "./logging";
 import {
   showViewCalendar,
@@ -116,8 +118,11 @@ bot.callbackQuery(/^snooze_\d+$/, handleSnooze);
 bot.callbackQuery(/^skip_\d+$/, handleSkip);
 
 // Logging flow
+bot.callbackQuery(/^write_log_\d+_\d{4}-\d{2}-\d{2}$/, handleWriteFromReminder);
 bot.callbackQuery("write_log", (ctx) => startLogging(ctx));
 bot.callbackQuery("done_log", handleDoneLogging);
+bot.callbackQuery("auto_save_confirm", handleAutoSaveConfirm);
+bot.callbackQuery("auto_save_continue", handleAutoSaveContinue);
 bot.callbackQuery(/^edit_log_\d+$/, handleEditLog);
 
 // Past-log calendar (6.4)

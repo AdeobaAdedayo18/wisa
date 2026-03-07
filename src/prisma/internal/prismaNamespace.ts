@@ -1020,6 +1020,8 @@ export const ReminderJobScalarFieldEnum = {
   scheduledFor: 'scheduledFor',
   status: 'status',
   snoozeCount: 'snoozeCount',
+  autoNudgeCount: 'autoNudgeCount',
+  logDate: 'logDate',
   createdAt: 'createdAt'
 } as const
 

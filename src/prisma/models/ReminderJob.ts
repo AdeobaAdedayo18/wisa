@@ -31,6 +31,7 @@ export type ReminderJobAvgAggregateOutputType = {
   userId: number | null
   telegramId: number | null
   snoozeCount: number | null
+  autoNudgeCount: number | null
 }
 
 export type ReminderJobSumAggregateOutputType = {
@@ -38,6 +39,7 @@ export type ReminderJobSumAggregateOutputType = {
   userId: number | null
   telegramId: bigint | null
   snoozeCount: number | null
+  autoNudgeCount: number | null
 }
 
 export type ReminderJobMinAggregateOutputType = {
@@ -47,6 +49,8 @@ export type ReminderJobMinAggregateOutputType = {
   scheduledFor: Date | null
   status: string | null
   snoozeCount: number | null
+  autoNudgeCount: number | null
+  logDate: string | null
   createdAt: Date | null
 }
 
@@ -57,6 +61,8 @@ export type ReminderJobMaxAggregateOutputType = {
   scheduledFor: Date | null
   status: string | null
   snoozeCount: number | null
+  autoNudgeCount: number | null
+  logDate: string | null
   createdAt: Date | null
 }
 
@@ -67,6 +73,8 @@ export type ReminderJobCountAggregateOutputType = {
   scheduledFor: number
   status: number
   snoozeCount: number
+  autoNudgeCount: number
+  logDate: number
   createdAt: number
   _all: number
 }
@@ -77,6 +85,7 @@ export type ReminderJobAvgAggregateInputType = {
   userId?: true
   telegramId?: true
   snoozeCount?: true
+  autoNudgeCount?: true
 }
 
 export type ReminderJobSumAggregateInputType = {
@@ -84,6 +93,7 @@ export type ReminderJobSumAggregateInputType = {
   userId?: true
   telegramId?: true
   snoozeCount?: true
+  autoNudgeCount?: true
 }
 
 export type ReminderJobMinAggregateInputType = {
@@ -93,6 +103,8 @@ export type ReminderJobMinAggregateInputType = {
   scheduledFor?: true
   status?: true
   snoozeCount?: true
+  autoNudgeCount?: true
+  logDate?: true
   createdAt?: true
 }
 
@@ -103,6 +115,8 @@ export type ReminderJobMaxAggregateInputType = {
   scheduledFor?: true
   status?: true
   snoozeCount?: true
+  autoNudgeCount?: true
+  logDate?: true
   createdAt?: true
 }
 
@@ -113,6 +127,8 @@ export type ReminderJobCountAggregateInputType = {
   scheduledFor?: true
   status?: true
   snoozeCount?: true
+  autoNudgeCount?: true
+  logDate?: true
   createdAt?: true
   _all?: true
 }
@@ -210,6 +226,8 @@ export type ReminderJobGroupByOutputType = {
   scheduledFor: Date
   status: string
   snoozeCount: number
+  autoNudgeCount: number
+  logDate: string | null
   createdAt: Date
   _count: ReminderJobCountAggregateOutputType | null
   _avg: ReminderJobAvgAggregateOutputType | null
@@ -243,6 +261,8 @@ export type ReminderJobWhereInput = {
   scheduledFor?: Prisma.DateTimeFilter<"ReminderJob"> | Date | string
   status?: Prisma.StringFilter<"ReminderJob"> | string
   snoozeCount?: Prisma.IntFilter<"ReminderJob"> | number
+  autoNudgeCount?: Prisma.IntFilter<"ReminderJob"> | number
+  logDate?: Prisma.StringNullableFilter<"ReminderJob"> | string | null
   createdAt?: Prisma.DateTimeFilter<"ReminderJob"> | Date | string
 }
 
@@ -253,6 +273,8 @@ export type ReminderJobOrderByWithRelationInput = {
   scheduledFor?: Prisma.SortOrder
   status?: Prisma.SortOrder
   snoozeCount?: Prisma.SortOrder
+  autoNudgeCount?: Prisma.SortOrder
+  logDate?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -266,6 +288,8 @@ export type ReminderJobWhereUniqueInput = Prisma.AtLeast<{
   scheduledFor?: Prisma.DateTimeFilter<"ReminderJob"> | Date | string
   status?: Prisma.StringFilter<"ReminderJob"> | string
   snoozeCount?: Prisma.IntFilter<"ReminderJob"> | number
+  autoNudgeCount?: Prisma.IntFilter<"ReminderJob"> | number
+  logDate?: Prisma.StringNullableFilter<"ReminderJob"> | string | null
   createdAt?: Prisma.DateTimeFilter<"ReminderJob"> | Date | string
 }, "id">
 
@@ -276,6 +300,8 @@ export type ReminderJobOrderByWithAggregationInput = {
   scheduledFor?: Prisma.SortOrder
   status?: Prisma.SortOrder
   snoozeCount?: Prisma.SortOrder
+  autoNudgeCount?: Prisma.SortOrder
+  logDate?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   _count?: Prisma.ReminderJobCountOrderByAggregateInput
   _avg?: Prisma.ReminderJobAvgOrderByAggregateInput
@@ -294,6 +320,8 @@ export type ReminderJobScalarWhereWithAggregatesInput = {
   scheduledFor?: Prisma.DateTimeWithAggregatesFilter<"ReminderJob"> | Date | string
   status?: Prisma.StringWithAggregatesFilter<"ReminderJob"> | string
   snoozeCount?: Prisma.IntWithAggregatesFilter<"ReminderJob"> | number
+  autoNudgeCount?: Prisma.IntWithAggregatesFilter<"ReminderJob"> | number
+  logDate?: Prisma.StringNullableWithAggregatesFilter<"ReminderJob"> | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"ReminderJob"> | Date | string
 }
 
@@ -303,6 +331,8 @@ export type ReminderJobCreateInput = {
   scheduledFor: Date | string
   status: string
   snoozeCount?: number
+  autoNudgeCount?: number
+  logDate?: string | null
   createdAt?: Date | string
 }
 
@@ -313,6 +343,8 @@ export type ReminderJobUncheckedCreateInput = {
   scheduledFor: Date | string
   status: string
   snoozeCount?: number
+  autoNudgeCount?: number
+  logDate?: string | null
   createdAt?: Date | string
 }
 
@@ -322,6 +354,8 @@ export type ReminderJobUpdateInput = {
   scheduledFor?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   status?: Prisma.StringFieldUpdateOperationsInput | string
   snoozeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  autoNudgeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  logDate?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -332,6 +366,8 @@ export type ReminderJobUncheckedUpdateInput = {
   scheduledFor?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   status?: Prisma.StringFieldUpdateOperationsInput | string
   snoozeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  autoNudgeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  logDate?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -342,6 +378,8 @@ export type ReminderJobCreateManyInput = {
   scheduledFor: Date | string
   status: string
   snoozeCount?: number
+  autoNudgeCount?: number
+  logDate?: string | null
   createdAt?: Date | string
 }
 
@@ -351,6 +389,8 @@ export type ReminderJobUpdateManyMutationInput = {
   scheduledFor?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   status?: Prisma.StringFieldUpdateOperationsInput | string
   snoozeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  autoNudgeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  logDate?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -361,6 +401,8 @@ export type ReminderJobUncheckedUpdateManyInput = {
   scheduledFor?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   status?: Prisma.StringFieldUpdateOperationsInput | string
   snoozeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  autoNudgeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  logDate?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -371,6 +413,8 @@ export type ReminderJobCountOrderByAggregateInput = {
   scheduledFor?: Prisma.SortOrder
   status?: Prisma.SortOrder
   snoozeCount?: Prisma.SortOrder
+  autoNudgeCount?: Prisma.SortOrder
+  logDate?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -379,6 +423,7 @@ export type ReminderJobAvgOrderByAggregateInput = {
   userId?: Prisma.SortOrder
   telegramId?: Prisma.SortOrder
   snoozeCount?: Prisma.SortOrder
+  autoNudgeCount?: Prisma.SortOrder
 }
 
 export type ReminderJobMaxOrderByAggregateInput = {
@@ -388,6 +433,8 @@ export type ReminderJobMaxOrderByAggregateInput = {
   scheduledFor?: Prisma.SortOrder
   status?: Prisma.SortOrder
   snoozeCount?: Prisma.SortOrder
+  autoNudgeCount?: Prisma.SortOrder
+  logDate?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -398,6 +445,8 @@ export type ReminderJobMinOrderByAggregateInput = {
   scheduledFor?: Prisma.SortOrder
   status?: Prisma.SortOrder
   snoozeCount?: Prisma.SortOrder
+  autoNudgeCount?: Prisma.SortOrder
+  logDate?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -406,6 +455,7 @@ export type ReminderJobSumOrderByAggregateInput = {
   userId?: Prisma.SortOrder
   telegramId?: Prisma.SortOrder
   snoozeCount?: Prisma.SortOrder
+  autoNudgeCount?: Prisma.SortOrder
 }
 
 
@@ -417,6 +467,8 @@ export type ReminderJobSelect<ExtArgs extends runtime.Types.Extensions.InternalA
   scheduledFor?: boolean
   status?: boolean
   snoozeCount?: boolean
+  autoNudgeCount?: boolean
+  logDate?: boolean
   createdAt?: boolean
 }, ExtArgs["result"]["reminderJob"]>
 
@@ -427,6 +479,8 @@ export type ReminderJobSelectCreateManyAndReturn<ExtArgs extends runtime.Types.E
   scheduledFor?: boolean
   status?: boolean
   snoozeCount?: boolean
+  autoNudgeCount?: boolean
+  logDate?: boolean
   createdAt?: boolean
 }, ExtArgs["result"]["reminderJob"]>
 
@@ -437,6 +491,8 @@ export type ReminderJobSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.E
   scheduledFor?: boolean
   status?: boolean
   snoozeCount?: boolean
+  autoNudgeCount?: boolean
+  logDate?: boolean
   createdAt?: boolean
 }, ExtArgs["result"]["reminderJob"]>
 
@@ -447,10 +503,12 @@ export type ReminderJobSelectScalar = {
   scheduledFor?: boolean
   status?: boolean
   snoozeCount?: boolean
+  autoNudgeCount?: boolean
+  logDate?: boolean
   createdAt?: boolean
 }
 
-export type ReminderJobOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "telegramId" | "scheduledFor" | "status" | "snoozeCount" | "createdAt", ExtArgs["result"]["reminderJob"]>
+export type ReminderJobOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "telegramId" | "scheduledFor" | "status" | "snoozeCount" | "autoNudgeCount" | "logDate" | "createdAt", ExtArgs["result"]["reminderJob"]>
 
 export type $ReminderJobPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   name: "ReminderJob"
@@ -462,6 +520,8 @@ export type $ReminderJobPayload<ExtArgs extends runtime.Types.Extensions.Interna
     scheduledFor: Date
     status: string
     snoozeCount: number
+    autoNudgeCount: number
+    logDate: string | null
     createdAt: Date
   }, ExtArgs["result"]["reminderJob"]>
   composites: {}
@@ -892,6 +952,8 @@ export interface ReminderJobFieldRefs {
   readonly scheduledFor: Prisma.FieldRef<"ReminderJob", 'DateTime'>
   readonly status: Prisma.FieldRef<"ReminderJob", 'String'>
   readonly snoozeCount: Prisma.FieldRef<"ReminderJob", 'Int'>
+  readonly autoNudgeCount: Prisma.FieldRef<"ReminderJob", 'Int'>
+  readonly logDate: Prisma.FieldRef<"ReminderJob", 'String'>
   readonly createdAt: Prisma.FieldRef<"ReminderJob", 'DateTime'>
 }
     

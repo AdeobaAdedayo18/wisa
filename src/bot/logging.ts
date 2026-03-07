@@ -69,6 +69,8 @@ export async function startLogging(ctx: BotContext, isoDate?: string): Promise<v
   ctx.session.pendingLogDate = todayStr;
   ctx.session.editingLogId = undefined;
   ctx.session.awaitingEditText = false;
+  ctx.session.lastLogMessageAt = undefined;
+  ctx.session.autoSavePromptSent = false;
   startFlow(ctx.session);
 
   const dateLabel =
@@ -105,6 +107,12 @@ export async function handleLogText(ctx: BotContext): Promise<boolean> {
   if (!text.trim()) return true; // ignore blank messages but still consume them
 
   ctx.session.pendingLogParts.push(text);
+  ctx.session.lastLogMessageAt = Date.now();
+
+  // Reset auto-save prompt if user resumed typing after being prompted
+  if (ctx.session.autoSavePromptSent) {
+    ctx.session.autoSavePromptSent = false;
+  }
 
   // Acknowledge without sending a new Done button each time
   await ctx.react("👍").catch(() => {
@@ -204,6 +212,112 @@ export async function handleDoneLogging(ctx: BotContext): Promise<void> {
     captureReplayError(telegramId, err, "handleDoneLogging", ctx.chat?.id);
     await ctx.reply("Something went wrong saving your log. Please try again 😢");
   }
+}
+
+// ---------------------------------------------------------------------------
+// 6.2b — Auto-save callbacks (from the idle-save prompt in scheduler)
+// ---------------------------------------------------------------------------
+
+/**
+ * User clicked "💾 Save it" on the auto-save prompt.
+ * Save whatever they've written so far.
+ */
+export async function handleAutoSaveConfirm(ctx: BotContext): Promise<void> {
+  await ctx.answerCallbackQuery();
+
+  if (!ctx.session.awaitingLog || !ctx.session.pendingLogParts?.length) {
+    await ctx.reply("No log in progress — nothing to save.");
+    return;
+  }
+
+  // Delegate to the same logic as Done ✅
+  // We fake ctx.callbackQuery being answered already, so just call the inner logic
+  const telegramId = BigInt(ctx.from!.id);
+  const dbUser = await prisma.user.findUnique({ where: { telegramId } });
+  if (!dbUser) {
+    await ctx.reply("Couldn't find your account. Try /start.");
+    return;
+  }
+
+  let fullText = ctx.session.pendingLogParts.join("\n\n").trim();
+  if (!fullText) {
+    await ctx.reply("You haven't written anything yet!");
+    return;
+  }
+
+  const wordCount = fullText.split(/\s+/).filter(Boolean).length;
+  if (wordCount > MAX_WORDS) {
+    fullText = fullText.slice(0, MAX_CHARS);
+  }
+
+  const logDate = ctx.session.pendingLogDate
+    ? parseISO(ctx.session.pendingLogDate)
+    : new Date();
+
+  try {
+    const savedLog = await prisma.log.create({
+      data: { userId: dbUser.id, content: fullText, logDate, isVoice: false },
+    });
+
+    console.log(`[log] Auto-save confirmed: user ${dbUser.id}, log #${savedLog.id} — ${wordCount} words`);
+
+    // Clear session
+    ctx.session.awaitingLog = false;
+    ctx.session.pendingLogParts = [];
+    ctx.session.pendingLogDate = undefined;
+    ctx.session.flowStartedAt = undefined;
+    ctx.session.lastLogMessageAt = undefined;
+    ctx.session.autoSavePromptSent = undefined;
+
+    // Remove prompt buttons
+    await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } }).catch(() => {});
+
+    await sendScene(
+      ctx,
+      "scene8",
+      `Log saved! 📖✨\n\nGreat work documenting your day. Keep it up — your future self will thank you 🙌`,
+    );
+
+    await ctx.reply(`What would you like to do next?`, {
+      parse_mode: "Markdown",
+      reply_markup: new InlineKeyboard()
+        .text("✨ Refine with AI", `ai_refine_${savedLog.id}`)
+        .row()
+        .text("📖 View logs", "nav_calendar")
+        .text("🏠 Menu", "nav_menu"),
+    });
+  } catch (err) {
+    console.error("[log] handleAutoSaveConfirm error:", err);
+    captureReplayError(telegramId, err, "handleAutoSaveConfirm", ctx.chat?.id);
+    await ctx.reply("Something went wrong saving your log. Please try again 😢");
+  }
+}
+
+/**
+ * User clicked "✏️ I'm still writing" on the auto-save prompt.
+ * Reset the idle timer and let them keep going.
+ */
+export async function handleAutoSaveContinue(ctx: BotContext): Promise<void> {
+  await ctx.answerCallbackQuery();
+
+  if (!ctx.session.awaitingLog) {
+    await ctx.reply("No log in progress. Tap *✍️ Write today's log* to start.", {
+      parse_mode: "Markdown",
+    });
+    return;
+  }
+
+  // Reset idle tracking
+  ctx.session.lastLogMessageAt = Date.now();
+  ctx.session.autoSavePromptSent = false;
+
+  // Remove prompt buttons
+  await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } }).catch(() => {});
+
+  await ctx.reply("No problem, take your time! 😊 Tap *Done ✅* when you're finished.", {
+    parse_mode: "Markdown",
+    reply_markup: new InlineKeyboard().text("Done ✅", "done_log"),
+  });
 }
 
 // ---------------------------------------------------------------------------

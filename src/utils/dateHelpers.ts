@@ -56,3 +56,26 @@ export function hasLocalTimePassed(time: string, timezone: string): boolean {
   const target = localTimeToUtc(time, timezone, 0);
   return new Date() >= target;
 }
+
+/**
+ * Get the day-of-week (0 = Sunday, 6 = Saturday) for a Date in a given timezone.
+ */
+export function getLocalDayOfWeek(date: Date, timezone: string): number {
+  const dayStr = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    weekday: "short",
+  }).format(date);
+  const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return map[dayStr] ?? 0;
+}
+
+/**
+ * If the given date falls on a Saturday or Sunday (in the given timezone),
+ * advance it to the next Monday at the same time.
+ */
+export function skipWeekend(date: Date, timezone: string): Date {
+  const dow = getLocalDayOfWeek(date, timezone);
+  if (dow === 6) return new Date(date.getTime() + 2 * 24 * 60 * 60 * 1000); // Sat → Mon
+  if (dow === 0) return new Date(date.getTime() + 1 * 24 * 60 * 60 * 1000); // Sun → Mon
+  return date;
+}
