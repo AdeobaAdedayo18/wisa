@@ -390,7 +390,8 @@ export const ModelName = {
   ReminderJob: 'ReminderJob',
   Session: 'Session',
   ManualPayment: 'ManualPayment',
-  ReplayEvent: 'ReplayEvent'
+  ReplayEvent: 'ReplayEvent',
+  WeeklyQuote: 'WeeklyQuote'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -406,7 +407,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "log" | "subscription" | "reminderJob" | "session" | "manualPayment" | "replayEvent"
+    modelProps: "user" | "log" | "subscription" | "reminderJob" | "session" | "manualPayment" | "replayEvent" | "weeklyQuote"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -928,6 +929,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    WeeklyQuote: {
+      payload: Prisma.$WeeklyQuotePayload<ExtArgs>
+      fields: Prisma.WeeklyQuoteFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.WeeklyQuoteFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WeeklyQuotePayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.WeeklyQuoteFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WeeklyQuotePayload>
+        }
+        findFirst: {
+          args: Prisma.WeeklyQuoteFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WeeklyQuotePayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.WeeklyQuoteFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WeeklyQuotePayload>
+        }
+        findMany: {
+          args: Prisma.WeeklyQuoteFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WeeklyQuotePayload>[]
+        }
+        create: {
+          args: Prisma.WeeklyQuoteCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WeeklyQuotePayload>
+        }
+        createMany: {
+          args: Prisma.WeeklyQuoteCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.WeeklyQuoteCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WeeklyQuotePayload>[]
+        }
+        delete: {
+          args: Prisma.WeeklyQuoteDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WeeklyQuotePayload>
+        }
+        update: {
+          args: Prisma.WeeklyQuoteUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WeeklyQuotePayload>
+        }
+        deleteMany: {
+          args: Prisma.WeeklyQuoteDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.WeeklyQuoteUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.WeeklyQuoteUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WeeklyQuotePayload>[]
+        }
+        upsert: {
+          args: Prisma.WeeklyQuoteUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$WeeklyQuotePayload>
+        }
+        aggregate: {
+          args: Prisma.WeeklyQuoteAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateWeeklyQuote>
+        }
+        groupBy: {
+          args: Prisma.WeeklyQuoteGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.WeeklyQuoteGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.WeeklyQuoteCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.WeeklyQuoteCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -1058,6 +1133,16 @@ export const ReplayEventScalarFieldEnum = {
 } as const
 
 export type ReplayEventScalarFieldEnum = (typeof ReplayEventScalarFieldEnum)[keyof typeof ReplayEventScalarFieldEnum]
+
+
+export const WeeklyQuoteScalarFieldEnum = {
+  id: 'id',
+  weekNumber: 'weekNumber',
+  quote: 'quote',
+  attribution: 'attribution'
+} as const
+
+export type WeeklyQuoteScalarFieldEnum = (typeof WeeklyQuoteScalarFieldEnum)[keyof typeof WeeklyQuoteScalarFieldEnum]
 
 
 export const SortOrder = {
@@ -1268,6 +1353,7 @@ export type GlobalOmitConfig = {
   session?: Prisma.SessionOmit
   manualPayment?: Prisma.ManualPaymentOmit
   replayEvent?: Prisma.ReplayEventOmit
+  weeklyQuote?: Prisma.WeeklyQuoteOmit
 }
 
 /* Types for Logging */

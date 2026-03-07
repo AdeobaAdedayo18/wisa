@@ -52,3 +52,8 @@ export type ManualPayment = Prisma.ManualPaymentModel
  * 
  */
 export type ReplayEvent = Prisma.ReplayEventModel
+/**
+ * Model WeeklyQuote
+ * 
+ */
+export type WeeklyQuote = Prisma.WeeklyQuoteModel

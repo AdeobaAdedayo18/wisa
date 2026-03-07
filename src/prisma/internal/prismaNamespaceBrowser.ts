@@ -57,7 +57,8 @@ export const ModelName = {
   ReminderJob: 'ReminderJob',
   Session: 'Session',
   ManualPayment: 'ManualPayment',
-  ReplayEvent: 'ReplayEvent'
+  ReplayEvent: 'ReplayEvent',
+  WeeklyQuote: 'WeeklyQuote'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -167,6 +168,16 @@ export const ReplayEventScalarFieldEnum = {
 } as const
 
 export type ReplayEventScalarFieldEnum = (typeof ReplayEventScalarFieldEnum)[keyof typeof ReplayEventScalarFieldEnum]
+
+
+export const WeeklyQuoteScalarFieldEnum = {
+  id: 'id',
+  weekNumber: 'weekNumber',
+  quote: 'quote',
+  attribution: 'attribution'
+} as const
+
+export type WeeklyQuoteScalarFieldEnum = (typeof WeeklyQuoteScalarFieldEnum)[keyof typeof WeeklyQuoteScalarFieldEnum]
 
 
 export const SortOrder = {

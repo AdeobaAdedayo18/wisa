@@ -93,3 +93,15 @@ model ReplayEvent {
   @@index([telegramId, timestamp(sort: Desc)])
   @@index([timestamp])
 }
+
+// ---------------------------------------------------------------------------
+// WeeklyQuote — one quote per IT week, shown in the Saturday recap message.
+// weekNumber: 1-based (week 1 = first week of IT).
+// attribution: optional name of the person who gave the quote.
+// ---------------------------------------------------------------------------
+model WeeklyQuote {
+  id          Int     @id @default(autoincrement())
+  weekNumber  Int     @unique
+  quote       String
+  attribution String?
+}

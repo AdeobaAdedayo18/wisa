@@ -10,6 +10,8 @@ import {
   parseISO,
   isValid,
 } from "date-fns";
+import { bot } from "../bot/index";
+import { sendWeeklyRecap } from "../services/scheduler";
 
 const router = Router();
 
@@ -848,6 +850,20 @@ router.get(
       });
     } catch (err) {
       handleError(res, "/api/replay/stats", err);
+    }
+  },
+);
+
+// ─── POST /api/trigger-recap — manually fire the Saturday weekly recap ──────
+// Useful for testing or if the server was down when the cron fired.
+router.post(
+  "/api/trigger-recap",
+  async (_req: Request, res: Response): Promise<void> => {
+    try {
+      const result = await sendWeeklyRecap(bot);
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      handleError(res, "trigger-recap", err);
     }
   },
 );

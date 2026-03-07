@@ -8,6 +8,178 @@ import { getLocalDayOfWeek } from "../utils/dateHelpers";
 import type { BotContext, SessionData } from "../bot/types";
 import { parseISO } from "date-fns";
 
+// ---------------------------------------------------------------------------
+// Weekly Recap — exported so the admin router can trigger it on-demand.
+// Called automatically every Saturday at 11:00 UTC (12:00 WAT).
+// ---------------------------------------------------------------------------
+
+/**
+ * Build and send the Saturday weekly recap to every onboarded, non-blocked user.
+ * Returns how many messages were sent vs failed.
+ */
+export async function sendWeeklyRecap(bot: Bot<BotContext>): Promise<{ sent: number; failed: number }> {
+  const now = new Date();
+
+  // ── Compute this week's Monday 00:00 UTC and Friday 23:59:59 UTC ─────────
+  // getUTCDay(): 0=Sun, 1=Mon, …, 6=Sat
+  const utcDay = now.getUTCDay();
+  const daysToMon = (utcDay - 1 + 7) % 7; // distance back to Monday
+
+  const monday = new Date(now);
+  monday.setUTCDate(monday.getUTCDate() - daysToMon);
+  monday.setUTCHours(0, 0, 0, 0);
+
+  const friday = new Date(monday);
+  friday.setUTCDate(friday.getUTCDate() + 4);
+  friday.setUTCHours(23, 59, 59, 999);
+
+  // ── Determine current IT week number ─────────────────────────────────────
+  // IT_START_DATE should be the Monday of IT Week 1 in ISO format (YYYY-MM-DD).
+  // Defaults to 2026-03-02 (the first Monday of the IT cohort).
+  const itStartIso = process.env.IT_START_DATE ?? "2026-03-02";
+  const itStartDate = new Date(`${itStartIso}T00:00:00.000Z`);
+  const diffMs = monday.getTime() - itStartDate.getTime();
+  const weekNumber = Math.max(1, Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000)) + 1);
+
+  // ── Fetch the quote for this week (cycle if we don't have that week yet) ──
+  const totalQuotes = await prisma.weeklyQuote.count();
+  let quoteRow: { quote: string; attribution: string | null } | null = null;
+
+  if (totalQuotes > 0) {
+    const cycledWeek = ((weekNumber - 1) % totalQuotes) + 1;
+    quoteRow = await prisma.weeklyQuote.findFirst({
+      where: { weekNumber: cycledWeek },
+      select: { quote: true, attribution: true },
+    });
+    // Belt-and-braces fallback to week 1
+    if (!quoteRow) {
+      quoteRow = await prisma.weeklyQuote.findFirst({
+        orderBy: { weekNumber: "asc" },
+        select: { quote: true, attribution: true },
+      });
+    }
+  }
+
+  // ── Fetch all onboarded, non-blocked users ────────────────────────────────
+  const users = await prisma.user.findMany({
+    where: { onboardingDone: true, botBlocked: false },
+    select: { id: true, telegramId: true, firstName: true },
+  });
+
+  const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  let sent = 0;
+  let failed = 0;
+
+  for (const user of users) {
+    try {
+      // ── Fetch this user's Mon-Fri logs ──────────────────────────────────
+      const logs = await prisma.log.findMany({
+        where: {
+          userId: user.id,
+          logDate: { gte: monday, lte: friday },
+        },
+        select: { logDate: true, content: true },
+        orderBy: { logDate: "asc" },
+      });
+
+      // Map by day offset from Monday (0 = Mon … 4 = Fri)
+      const logsByDay = new Map<number, string>();
+      for (const log of logs) {
+        const offsetMs = log.logDate.getTime() - monday.getTime();
+        const dayOffset = Math.round(offsetMs / (24 * 60 * 60 * 1000));
+        if (dayOffset >= 0 && dayOffset <= 4) {
+          // Keep the LAST log if a user somehow wrote two on the same day
+          logsByDay.set(dayOffset, log.content);
+        }
+      }
+
+      const loggedCount = logsByDay.size;
+
+      // ── Per-day recap lines ────────────────────────────────────────────
+      const dayLines = DAYS.map((day, i) => {
+        const content = logsByDay.get(i);
+        if (content) {
+          const preview =
+            content.length > 100 ? content.slice(0, 100).trimEnd() + "…" : content;
+          return `${day} — ${preview} 📝`;
+        }
+        return `${day} — nothing logged that day 👀`;
+      });
+
+      // ── Motivation line ────────────────────────────────────────────────
+      let motivationLine: string;
+      if (loggedCount === 5) {
+        motivationLine =
+          "You logged every single day this week 🔥 Your logbook is going to be immaculate.";
+      } else if (loggedCount >= 3) {
+        motivationLine =
+          `Solid week! The missed days can still be filled in — tap *"Fill in missed days"* and catch up before you forget 🙏`;
+      } else if (loggedCount >= 1) {
+        motivationLine =
+          `This week was rough — no judgement 😅 But go fill in what you remember before the details fade. Future you needs this.`;
+      } else {
+        motivationLine =
+          `No logs this week, ${user.firstName}. It happens — but tap *"Fill in missed days"* right now while the week is still fresh 👀`;
+      }
+
+      // ── Date header ─────────────────────────────────────────────────────
+      const monDay = monday.getUTCDate();
+      const friDay = friday.getUTCDate();
+      const monMonth = MONTHS[monday.getUTCMonth()];
+      const friMonth = MONTHS[friday.getUTCMonth()];
+      const dateRange =
+        monMonth === friMonth
+          ? `${monDay} — ${friDay} ${monMonth}`
+          : `${monDay} ${monMonth} — ${friDay} ${friMonth}`;
+
+      // ── Assemble the full message ────────────────────────────────────────
+      let message = `📋 *Your week in review, ${user.firstName}*\n_${dateRange}_\n\n`;
+      message += dayLines.join("\n");
+      message += `\n\n_Logged *${loggedCount}/5* days this week_\n\n${motivationLine}`;
+
+      if (quoteRow) {
+        message += `\n\n——\n\n💬 *Advice from a former IT student*\n\n_"${quoteRow.quote}"_`;
+        if (quoteRow.attribution) {
+          message += `\n— ${quoteRow.attribution}`;
+        }
+      }
+
+      // ── Inline keyboard — one button, text depends on completion ────────
+      const keyboard: Array<Array<{ text: string; callback_data: string }>> =
+        loggedCount === 5
+          ? [[{ text: "📖 See my logs", callback_data: "nav_calendar" }]]
+          : [[{ text: "📝 Fill in missed days", callback_data: "nav_past_log" }]];
+
+      await bot.api.sendMessage(Number(user.telegramId), message, {
+        parse_mode: "Markdown",
+        reply_markup: { inline_keyboard: keyboard },
+      });
+
+      sent++;
+      console.log(`[weekly-recap] Sent recap to user ${user.id} (${loggedCount}/5 days logged)`);
+    } catch (e: unknown) {
+      const isBotBlocked =
+        e instanceof Error && e.message.includes("bot was blocked by the user");
+
+      if (isBotBlocked) {
+        console.warn(`[weekly-recap] User ${user.id} blocked the bot — flagging`);
+        await prisma.user.update({ where: { id: user.id }, data: { botBlocked: true } });
+      } else {
+        console.error(`[weekly-recap] Failed to send recap to user ${user.id}:`, e);
+        captureReplayError(user.telegramId, e, "scheduler:weeklyRecap");
+      }
+      failed++;
+    }
+  }
+
+  console.log(
+    `[weekly-recap] Week ${weekNumber} complete — ${sent} sent, ${failed} failed (${users.length} total onboarded users)`,
+  );
+  return { sent, failed };
+}
+
 export function startScheduler(bot: Bot<BotContext>): void {
   // ── Re-entry locks — prevent overlapping async cron ticks ───────────────
   let reminderCronRunning = false;
@@ -523,6 +695,24 @@ export function startScheduler(bot: Bot<BotContext>): void {
       console.error("[scheduler] Auto-save cron error:", err);
     } finally {
       autoSaveCronRunning = false;
+    }
+  });
+
+  // ── Saturday Weekly Recap — 12PM WAT = 11:00 UTC (0 11 * * 6) ──────────
+  let weeklyRecapCronRunning = false;
+
+  cron.schedule("0 11 * * 6", async () => {
+    if (weeklyRecapCronRunning) {
+      console.log("[scheduler] Weekly recap cron still running from previous tick — skipping");
+      return;
+    }
+    weeklyRecapCronRunning = true;
+    try {
+      await sendWeeklyRecap(bot);
+    } catch (err) {
+      console.error("[scheduler] Weekly recap cron error:", err);
+    } finally {
+      weeklyRecapCronRunning = false;
     }
   });
 

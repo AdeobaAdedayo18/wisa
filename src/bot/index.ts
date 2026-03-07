@@ -193,6 +193,10 @@ bot.callbackQuery("nav_logs", async (ctx) => {
   await ctx.answerCallbackQuery();
   return showViewCalendar(ctx);
 });
+bot.callbackQuery("nav_past_log", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  return showPastLogCalendar(ctx);
+});
 bot.callbackQuery("nav_menu", async (ctx) => {
   await ctx.answerCallbackQuery();
   await ctx.reply("Main menu 👇", { reply_markup: MAIN_MENU_KEYBOARD });
