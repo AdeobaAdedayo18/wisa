@@ -226,7 +226,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
     if (duplicateJobIds.length > 0) {
       await prisma.reminderJob.updateMany({
         where: { id: { in: duplicateJobIds } },
-        data: { status: "sent" },
+        data: { status: "skipped" },
       });
       console.log(`[scheduler] Retired ${duplicateJobIds.length} duplicate due jobs`);
     }
@@ -455,7 +455,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
           where: { id: freshJob.id },
           data: {
             autoNudgeCount: newAutoNudgeCount,
-            ...(newAutoNudgeCount >= 3 && { status: "snoozed" }),
+            ...(newAutoNudgeCount >= 3 && { status: "skipped" }),
           },
         });
 
