@@ -1226,7 +1226,7 @@
 
 <!-- ── Modal ──────────────────────────────────────────────────────── -->
 <div id="modal-overlay" onclick="handleOverlayClick(event)">
-  <div id="modal">
+  <div id="modal" onclick="event.stopPropagation()">
     <div class="modal-head">
       <div class="modal-title" id="modal-title">Details</div>
       <button class="modal-close" onclick="closeModal()">✕</button>
