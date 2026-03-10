@@ -1260,7 +1260,7 @@ const state = {
   currentPanel: 'overview',
   stats: null,
   users: { page: 1, pages: 1, search: '', data: [] },
-  logs: { page: 1, pages: 1, data: [] },
+  logs: { page: 1, pages: 1, data: [], todayData: [] },
   reminders: { page: 1, pages: 1, data: [] },
   charts: { dailyLogs: null, userSplit: null, userGrowth: null },
   refreshTimer: null,
@@ -1760,7 +1760,8 @@ async function loadTodayLogs() {
       wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div>No logs yet today.</div>`;
       return;
     }
-    const rows = data.data.map(l => `
+    state.logs.todayData = data.data;
+    const rows = data.data.map((l, i) => `
       <tr>
         <td>
           <div style="font-weight:500">${escHtml(l.user?.firstName || '—')}</div>
@@ -1770,7 +1771,7 @@ async function loadTodayLogs() {
         <td>${l.isVoice ? '<span class="tag tag-purple">🎤 voice</span>' : '<span class="tag tag-gray">text</span>'}</td>
         <td><span class="truncate">${escHtml(truncate(l.content, 80))}</span></td>
         <td>${l.refinedContent ? '✨' : '—'}</td>
-        <td><button class="btn-sm btn-view" onclick="openLogModal(${JSON.stringify({content:l.content,refined:l.refinedContent,date:l.logDate,user:l.user})})">View</button></td>
+        <td><button class="btn-sm btn-view" onclick="openLogModal(${i}, true)">View</button></td>
       </tr>
     `).join('');
     wrap.innerHTML = `
@@ -1798,12 +1799,13 @@ async function loadAllLogs() {
   try {
     const data = await api(`/logs?${params}`);
     state.logs.pages = data.pages;
+    state.logs.data = data.data;
     if (!data.data.length) {
       wrap.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div>No logs found.</div>`;
       document.getElementById('logs-pagination').style.display = 'none';
       return;
     }
-    const rows = data.data.map(l => `
+    const rows = data.data.map((l, i) => `
       <tr>
         <td>
           <div style="font-weight:500">${escHtml(l.user?.firstName || '—')}</div>
@@ -1814,7 +1816,7 @@ async function loadAllLogs() {
         <td><span class="truncate" style="max-width:300px">${escHtml(truncate(l.content, 90))}</span></td>
         <td>${l.refinedContent ? '✨' : '—'}</td>
         <td>${fmtDateTime(l.createdAt)}</td>
-        <td><button class="btn-sm btn-view" onclick="openLogModal(${JSON.stringify({content:l.content,refined:l.refinedContent,date:l.logDate,user:l.user})})">View</button></td>
+        <td><button class="btn-sm btn-view" onclick="openLogModal(${i})">View</button></td>
       </tr>
     `).join('');
     wrap.innerHTML = `
@@ -1840,19 +1842,21 @@ function clearLogFilters() {
   loadAllLogs();
 }
 
-function openLogModal(log) {
-  const title = `Log — ${log.user?.firstName || 'User'} · ${fmtDate(log.date)}`;
+function openLogModal(idx, isToday = false) {
+  const log = isToday ? state.logs.todayData[idx] : state.logs.data[idx];
+  if (!log) return;
+  const title = `Log — ${log.user?.firstName || 'User'} · ${fmtDate(log.logDate)}`;
   const html = `
     <div class="log-entry" style="margin:0">
       <div class="log-meta">
-        <span>📅 ${fmtDate(log.date)}</span>
+        <span>📅 ${fmtDate(log.logDate)}</span>
         <span>👤 ${escHtml(log.user?.firstName || '?')}${log.user?.username ? ' @'+escHtml(log.user.username) : ''}</span>
       </div>
       <div class="log-content">${escHtml(log.content || '')}</div>
-      ${log.refined ? `
+      ${log.refinedContent ? `
         <div class="log-refined">
           <div class="log-refined-label">✨ AI Refined Version</div>
-          ${escHtml(log.refined)}
+          ${escHtml(log.refinedContent)}
         </div>
       ` : ''}
     </div>
