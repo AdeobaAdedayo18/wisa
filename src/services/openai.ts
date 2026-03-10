@@ -29,14 +29,33 @@ Keep it between 200-400 words. Return only the refined log, no commentary.`,
  * Transcribes an OGG/voice file (local path) using OpenAI Whisper.
  * Optimised prompt for Nigerian SIWES context.
  */
-export async function transcribeVoice(filePath: string): Promise<string> {
+const WHISPER_PROMPT =
+  "This is a Nigerian university student describing their daily industrial training (SIWES) work activities. " +
+  "Transcribe accurately, preserving their descriptions of technical tasks, tools used, and workplace experiences.";
+
+// Whisper hallucination markers — returned when audio is silent/unintelligible
+const HALLUCINATION_PHRASES = [
+  "transcribe accurately",
+  "preserving their descriptions",
+  "nigerian university student",
+  "siwes",
+  "industrial training",
+];
+
+export async function transcribeVoice(filePath: string): Promise<string | null> {
   const fs = await import("fs");
   const transcription = await openai.audio.transcriptions.create({
     file: fs.createReadStream(filePath),
     model: "whisper-1",
-    prompt:
-      "This is a Nigerian university student describing their daily industrial training (SIWES) work activities. " +
-      "Transcribe accurately, preserving their descriptions of technical tasks, tools used, and workplace experiences.",
+    prompt: WHISPER_PROMPT,
   });
-  return transcription.text;
+
+  const text = transcription.text.trim();
+
+  // Detect empty result or Whisper echoing back the prompt (silent/unclear audio)
+  if (!text) return null;
+  const lower = text.toLowerCase();
+  if (HALLUCINATION_PHRASES.some((p) => lower.includes(p))) return null;
+
+  return text;
 }

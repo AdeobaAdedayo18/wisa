@@ -198,6 +198,16 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
     // 3. Transcribe with Whisper
     const transcription = await transcribeVoice(localPath);
 
+    // 3a. Handle silent/unclear audio
+    if (!transcription) {
+      await ctx.api.editMessageText(
+        ctx.chat!.id,
+        processingMsg.message_id,
+        "🎤 I couldn't make out anything from that audio. Please re-record in a quiet environment and speak clearly.",
+      );
+      return;
+    }
+
     // 3b. Decrement free quota for non-Pro users
     if (!dbUser.isPro) {
       await prisma.user.update({ where: { id: dbUser.id }, data: { freeVoiceLogs: { decrement: 1 } } });
