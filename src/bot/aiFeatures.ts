@@ -178,6 +178,13 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
   const voice = ctx.message?.voice;
   if (!voice) return;
 
+  // Log voice message metadata
+  console.log(`[handleVoiceLog] User ${telegramId} sent voice message:`);
+  console.log(`[handleVoiceLog] - file_id: ${voice.file_id}`);
+  console.log(`[handleVoiceLog] - duration: ${voice.duration}s`);
+  console.log(`[handleVoiceLog] - file_size: ${voice.file_size} bytes (${(voice.file_size! / 1024 / 1024).toFixed(2)} MB)`);
+  console.log(`[handleVoiceLog] - mime_type: ${voice.mime_type}`);
+
   const processingMsg = await ctx.reply("🎤 Got your voice note! Transcribing… _(hang tight)_", {
     parse_mode: "Markdown",
   });
@@ -189,17 +196,23 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
     const fileInfo = await ctx.api.getFile(voice.file_id);
     const filePath = fileInfo.file_path!;
     const downloadUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${filePath}`;
+    console.log(`[handleVoiceLog] Downloaded file URL path: ${filePath}`);
 
     // 2. Download OGG to /tmp
     localPath = path.join("/tmp", `${voice.file_id}.ogg`);
     const response = await axios.get<ArrayBuffer>(downloadUrl, { responseType: "arraybuffer" });
     fs.writeFileSync(localPath, Buffer.from(response.data));
+    const downloadedSize = fs.statSync(localPath).size;
+    console.log(`[handleVoiceLog] File downloaded to ${localPath}, size: ${downloadedSize} bytes`);
 
     // 3. Transcribe with Whisper
+    console.log(`[handleVoiceLog] Calling transcribeVoice()...`);
     const transcription = await transcribeVoice(localPath);
+    console.log(`[handleVoiceLog] transcribeVoice returned: ${transcription ? `SUCCESS (${transcription.length} chars)` : 'NULL'}`);
 
     // 3a. Handle silent/unclear audio
     if (!transcription) {
+      console.log(`[handleVoiceLog] ❌ Transcription was null - sending error message to user`);
       await ctx.api.editMessageText(
         ctx.chat!.id,
         processingMsg.message_id,

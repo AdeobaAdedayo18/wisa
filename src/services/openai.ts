@@ -44,6 +44,12 @@ const HALLUCINATION_PHRASES = [
 
 export async function transcribeVoice(filePath: string): Promise<string | null> {
   const fs = await import("fs");
+  
+  // Log file info before transcription
+  const fileStats = fs.statSync(filePath);
+  console.log(`[transcribeVoice] Starting transcription for file: ${filePath}`);
+  console.log(`[transcribeVoice] File size: ${fileStats.size} bytes (${(fileStats.size / 1024 / 1024).toFixed(2)} MB)`);
+  
   const transcription = await openai.audio.transcriptions.create({
     file: fs.createReadStream(filePath),
     model: "whisper-1",
@@ -51,11 +57,23 @@ export async function transcribeVoice(filePath: string): Promise<string | null> 
   });
 
   const text = transcription.text.trim();
+  console.log(`[transcribeVoice] Raw Whisper response length: ${text.length} chars`);
+  console.log(`[transcribeVoice] Raw Whisper response: "${text.substring(0, 200)}${text.length > 200 ? '...' : ''}"}`);
 
   // Detect empty result or Whisper echoing back the prompt (silent/unclear audio)
-  if (!text) return null;
+  if (!text) {
+    console.log(`[transcribeVoice] ❌ Transcription failed: empty result`);
+    return null;
+  }
+  
   const lower = text.toLowerCase();
-  if (HALLUCINATION_PHRASES.some((p) => lower.includes(p))) return null;
+  const matchedPhrase = HALLUCINATION_PHRASES.find((p) => lower.includes(p));
+  if (matchedPhrase) {
+    console.log(`[transcribeVoice] ❌ Hallucination detected: found phrase "${matchedPhrase}" in transcription`);
+    console.log(`[transcribeVoice] Full text that triggered hallucination check: "${text}"}`);
+    return null;
+  }
 
+  console.log(`[transcribeVoice] ✅ Transcription successful: ${text.length} chars`);
   return text;
 }
