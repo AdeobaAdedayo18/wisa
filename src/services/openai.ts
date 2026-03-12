@@ -33,13 +33,12 @@ const WHISPER_PROMPT =
   "This is a Nigerian university student describing their daily industrial training (SIWES) work activities. " +
   "Transcribe accurately, preserving their descriptions of technical tasks, tools used, and workplace experiences.";
 
-// Whisper hallucination markers — returned when audio is silent/unintelligible
+// Whisper hallucination markers — only flag if transcription looks like it's echoing the prompt itself
+// Check for multi-word phrases that are unlikely to appear naturally in user speech
 const HALLUCINATION_PHRASES = [
   "transcribe accurately",
   "preserving their descriptions",
-  "nigerian university student",
-  "siwes",
-  "industrial training",
+  "nigerian university student describing their daily industrial training",
 ];
 
 export async function transcribeVoice(filePath: string): Promise<string | null> {
