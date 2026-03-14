@@ -24,6 +24,13 @@ const quotes: { weekNumber: number; quote: string; attribution?: string }[] = [
     attribution: undefined,
   },
 
+  {
+    weekNumber: 2,
+    quote:
+      "Don't be dead weight, if they are not giving you things to do, find problems and things you can do and then ask to do them and then you deliver on what you say, keep in mind most of these people are very busy so you have to be very persistent",
+    attribution: undefined,
+  },
+
   // ── Add more quotes below as the weeks go on ────────────────────────────
 
   // {
