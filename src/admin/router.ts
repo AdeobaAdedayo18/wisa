@@ -174,6 +174,8 @@ router.get("/api/users", async (req: Request, res: Response): Promise<void> => {
     const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
     const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit ?? "25"), 10)));
     const search = String(req.query.search ?? "").trim();
+    const sortBy = String(req.query.sortBy ?? "createdAt");
+    const sortOrder = String(req.query.sortOrder ?? "desc") === "asc" ? "asc" : "desc";
     const skip = (page - 1) * limit;
 
     const where = search
@@ -185,12 +187,21 @@ router.get("/api/users", async (req: Request, res: Response): Promise<void> => {
         }
       : {};
 
+    let orderBy: any = { createdAt: "desc" };
+    if (sortBy === "logs") {
+      orderBy = { logs: { _count: sortOrder } };
+    } else if (sortBy === "firstName") {
+      orderBy = { firstName: sortOrder };
+    } else {
+      orderBy = { createdAt: sortOrder };
+    }
+
     const [users, total] = await Promise.all([
       prisma.user.findMany({
         where,
         skip,
         take: limit,
-        orderBy: { createdAt: "desc" },
+        orderBy,
         include: {
           subscription: { select: { status: true, endDate: true } },
           _count: { select: { logs: true } },

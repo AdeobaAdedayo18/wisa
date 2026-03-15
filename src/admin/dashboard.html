@@ -1003,8 +1003,18 @@
         <div class="table-card">
           <div class="table-header">
             <h3>All Users</h3>
-            <input type="text" id="user-search" class="search-input" placeholder="Search name or username…" oninput="debounceUserSearch()" />
-            <button class="btn-primary" onclick="loadUsers()">Search</button>
+            <div style="display:flex;gap:10px;margin-left:auto">
+              <select id="user-sort" class="filter-select" onchange="loadUsers()">
+                <option value="createdAt_desc">Newest First</option>
+                <option value="createdAt_asc">Oldest First</option>
+                <option value="logs_desc">Most Logs</option>
+                <option value="logs_asc">Least Logs</option>
+                <option value="firstName_asc">Name A-Z</option>
+                <option value="firstName_desc">Name Z-A</option>
+              </select>
+              <input type="text" id="user-search" class="search-input" placeholder="Search name or username…" oninput="debounceUserSearch()" />
+            </div>
+            <!-- <button class="btn-primary" onclick="loadUsers()">Search</button> -->
           </div>
           <div id="users-table-wrap">
             <div class="loading-row">Loading…</div>
@@ -1640,12 +1650,15 @@ function renderAtRisk(users) {
 // ── USERS ──────────────────────────────────────────────────────────
 async function loadUsers() {
   const search = document.getElementById('user-search')?.value || '';
+  const sortVal = document.getElementById('user-sort')?.value || 'createdAt_desc';
+  const [sortBy, sortOrder] = sortVal.split('_');
+
   state.users.search = search;
   const wrap = document.getElementById('users-table-wrap');
   wrap.innerHTML = `<div class="loading-row">Loading users…</div>`;
 
   try {
-    const data = await api(`/users?page=${state.users.page}&limit=25&search=${encodeURIComponent(search)}`);
+    const data = await api(`/users?page=${state.users.page}&limit=25&search=${encodeURIComponent(search)}&sortBy=${sortBy}&sortOrder=${sortOrder}`);
     state.users.data = data.data;
     state.users.pages = data.pages;
     renderUsersTable(data);
