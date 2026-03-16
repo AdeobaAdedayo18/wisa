@@ -7,22 +7,56 @@ export const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
  * write-up suitable for academic submission.
  */
 export async function refineLog(rawLog: string): Promise<string> {
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o",
-    messages: [
-      {
-        role: "system",
-        content: `You are helping a Nigerian university student refine their SIWES (industrial training) logbook entry. 
-The student did real work today your job is to make their log entry sound professional, well-structured, 
-and impressive to an academic supervisor, while keeping it truthful and grounded in what they actually wrote.
-Expand abbreviations, improve grammar, add professional vocabulary where appropriate, 
-and structure it with a brief intro, body of activities, and a short reflective closing sentence.
-Keep it between 200-400 words. Return only the refined log, no commentary.`,
-      },
-      { role: "user", content: rawLog },
-    ],
-  });
-  return completion.choices[0].message.content ?? rawLog;
+  console.log(`[refineLog] Refining log of length ${rawLog.length}`);
+  const start = Date.now();
+  
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: `You are an expert technical writing assistant for a university student's industrial training (SIWES) logbook. 
+Your task is to rewrite the student's raw daily activity logs into high-quality, professional, and academic entries.
+
+Target Audience: Academic supervisors and industry mentors.
+Tone: Professional, reflective, technical, and action-oriented. First-person ("I").
+Style Constraints:
+- Use active verbs (e.g., "Designed," "Implemented," "Researched," "Collaborated").
+- Focus on *learning outcomes* and *technical details*.
+- Remove informal language, fluff, and filler words.
+- Do NOT use flowery intros like "Today was a productive day..." or "In conclusion...". Start directly with the activities.
+- Ensure the log is concise (typically 30-75 words) but dense with value.
+- Maintain the truthfulness of the original log—do not invent tasks.
+
+See the following examples of A-grade log entries for the desired style:
+
+Input: "learned about fintech users and problems"
+Output: "I learned about the main types of fintech users and the common challenges they face, especially confusion and fear for beginners. This showed me why fintech products must be simple and guide users clearly to encourage adoption."
+
+Input: "meeting with designers, talked about favorite feature, did research on binaries and coinbase"
+Output: "I Attended team briefing to understand the objective and value of the "Favorite" feature for fintech pairs. I then Conducted market research and competitive analysis on similar features in top fintech apps (e.g., Binance, Coinbase). Identified common user expectations such as easy toggling, sorting, and visibility on the home tab."
+
+Input: "working on spring boot, dependency injection, folder structure"
+Output: "My supervisor emphasized the importance of becoming proficient in Spring Boot and Java for backend projects at Quidax. I began by setting up my development environment and explored the standard folder structure to understand how the team organizes backend projects. I delved into advanced concepts such as dependency injection, exploring constructor and setter injection to understand how the IoC container controls object lifecycles."
+
+Input: "videos for app workflow"
+Output: "I was involved in creating detailed workflow videos that demonstrate how various features of the app function. This task required me to understand the app from a user’s perspective and present its key functionalities clearly and logically. It was a collaborative effort involving scripting and screen recording to ensure new users would easily understand how to navigate the app."
+
+Return ONLY the refined log text. Do not add conversational filler.`,
+        },
+        { role: "user", content: rawLog },
+      ],
+      temperature: 0.3,
+    });
+    
+    const refined = completion.choices[0].message.content ?? rawLog;
+    console.log(`[refineLog] Success! Refined length: ${refined.length}. Duration: ${Date.now() - start}ms`);
+    return refined;
+  } catch (error) {
+    console.error("[refineLog] Error calling OpenAI:", error);
+    throw error; // Let the caller handle the UI for errors
+  }
 }
 
 /**
