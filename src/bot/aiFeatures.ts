@@ -7,6 +7,14 @@ import { sendScene } from "../utils/constants";
 import { refineLog, transcribeVoice } from "../services/openai";
 import { captureReplayError } from "../services/replayCapture";
 import type { BotContext } from "./types";
+import {
+  canCreateLog,
+  FREE_LOG_LIMIT,
+  getStorageLimitReachedAfterSaveText,
+  getMonetizationUserByTelegramId,
+  hasActiveStorage,
+  sendStorageWall,
+} from "./monetization";
 
 // ---------------------------------------------------------------------------
 // 8.2 — "✨ Refine with AI" handler
@@ -30,8 +38,17 @@ export async function handleAiRefine(ctx: BotContext): Promise<void> {
   const dbUser = await prisma.user.findUnique({ where: { telegramId } });
   if (!dbUser) return;
 
+  const unlocked = hasActiveStorage({
+    id: dbUser.id,
+    firstName: dbUser.firstName,
+    isPro: dbUser.isPro,
+    storageUnlocked: dbUser.storageUnlocked,
+    logCount: dbUser.logCount,
+    nextRenewalDate: dbUser.nextRenewalDate,
+  });
+
   // ── Gate: free quota check ──────────────────────────────────────────────
-  if (!dbUser.isPro && dbUser.freeAiRefinements <= 0) {
+  if (!unlocked && dbUser.freeAiRefinements <= 0) {
     await ctx.reply(
       `✨ You've used all your free AI refinements!\n\n` +
         `Upgrade to *Pro* to unlock unlimited AI refinements, voice logs, and more 🚀`,
@@ -77,7 +94,7 @@ export async function handleAiRefine(ctx: BotContext): Promise<void> {
     );
 
     // Decrement free quota for non-Pro users
-    if (!dbUser.isPro) {
+    if (!unlocked) {
       await prisma.user.update({
         where: { id: dbUser.id },
         data: { freeAiRefinements: { decrement: 1 } },
@@ -162,8 +179,18 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
   const dbUser = await prisma.user.findUnique({ where: { telegramId } });
   if (!dbUser) return;
 
+  const monetizationUser = await getMonetizationUserByTelegramId(telegramId);
+  if (!monetizationUser) return;
+
+  if (!canCreateLog(monetizationUser)) {
+    await sendStorageWall(ctx, monetizationUser);
+    return;
+  }
+
+  const unlocked = hasActiveStorage(monetizationUser);
+
   // ── Free voice quota check ───────────────────────────────────────────────
-  if (!dbUser.isPro && dbUser.freeVoiceLogs <= 0) {
+  if (!unlocked && dbUser.freeVoiceLogs <= 0) {
     await ctx.reply(
       `🎤 You've used all 3 of your free voice logs!\n\n` +
         `Voice logging is *so* much faster than typing — upgrade to *Pro* for unlimited voice-to-log transcription ✨`,
@@ -222,7 +249,7 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
     }
 
     // 3b. Decrement free quota for non-Pro users
-    if (!dbUser.isPro) {
+    if (!unlocked) {
       await prisma.user.update({ where: { id: dbUser.id }, data: { freeVoiceLogs: { decrement: 1 } } });
       const remaining = dbUser.freeVoiceLogs - 1;
       console.log(`[voice] User ${dbUser.id} used voice log — ${remaining} free use${remaining !== 1 ? "s" : ""} remaining`);
@@ -232,9 +259,9 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
     ctx.session.pendingVoiceTranscription = transcription;
 
     const remainingNote =
-      !dbUser.isPro && dbUser.freeVoiceLogs > 1
+      !unlocked && dbUser.freeVoiceLogs > 1
         ? `\n\n_${dbUser.freeVoiceLogs - 1} free voice log${dbUser.freeVoiceLogs - 1 !== 1 ? "s" : ""} remaining — upgrade to Pro for unlimited 🚀_`
-        : !dbUser.isPro && dbUser.freeVoiceLogs === 1
+        : !unlocked && dbUser.freeVoiceLogs === 1
         ? `\n\n_This was your last free voice log! Upgrade to Pro for unlimited 🚀_`
         : "";
 
@@ -284,18 +311,37 @@ export async function handleVoiceSave(ctx: BotContext): Promise<void> {
   }
 
   const telegramId = BigInt(ctx.from!.id);
-  const dbUser = await prisma.user.findUnique({ where: { telegramId } });
-  if (!dbUser) return;
+  const monetizationUser = await getMonetizationUserByTelegramId(telegramId);
+  if (!monetizationUser) return;
+
+  if (!canCreateLog(monetizationUser)) {
+    await sendStorageWall(ctx, monetizationUser);
+    return;
+  }
 
   try {
-    const savedLog = await prisma.log.create({
-      data: {
-        userId: dbUser.id,
-        content: transcription,
-        logDate: new Date(),
-        isVoice: true,
-      },
-    });
+    const [savedLog, updatedUser] = await prisma.$transaction([
+      prisma.log.create({
+        data: {
+          userId: monetizationUser.id,
+          content: transcription,
+          logDate: new Date(),
+          isVoice: true,
+        },
+      }),
+      prisma.user.update({
+        where: { id: monetizationUser.id },
+        data: { logCount: { increment: 1 } },
+        select: {
+          id: true,
+          firstName: true,
+          isPro: true,
+          storageUnlocked: true,
+          logCount: true,
+          nextRenewalDate: true,
+        },
+      }),
+    ]);
 
     ctx.session.pendingVoiceTranscription = undefined;
 
@@ -306,6 +352,14 @@ export async function handleVoiceSave(ctx: BotContext): Promise<void> {
       "scene8",
       `Log saved! 📖✨\n\nGreat work documenting your day. Keep it up — your future self will thank you 🙌`,
     );
+
+    if (!hasActiveStorage(updatedUser) && updatedUser.logCount === FREE_LOG_LIMIT) {
+      await ctx.reply(getStorageLimitReachedAfterSaveText(), {
+        parse_mode: "Markdown",
+        reply_markup: new InlineKeyboard().text("🔓 Unlock storage - ₦1,000", "go_pro"),
+      });
+      return;
+    }
 
     await ctx.reply("What would you like to do next?", {
       reply_markup: new InlineKeyboard()

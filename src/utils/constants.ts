@@ -73,14 +73,6 @@ export async function sendSceneViaApi(
 }
 
 // ---------------------------------------------------------------------------
-// Pro plan price (in kobo — ₦5,000)
+// Storage plan price (in kobo — ₦1,000)
 // ---------------------------------------------------------------------------
-export const PRO_PLAN_AMOUNT_KOBO = 500_000;
-
-// ---------------------------------------------------------------------------
-// Manual bank-transfer payment details
-// ---------------------------------------------------------------------------
-export const BANK_NAME = "Guaranty Trust Bank";
-export const BANK_ACCOUNT_NUMBER = "0865852964";
-export const BANK_ACCOUNT_NAME = "ADEOBA ADEDAYO JAMES";
-export const BANK_TRANSFER_AMOUNT = "₦5,000";
+export const STORAGE_PLAN_AMOUNT_KOBO = 100_000;

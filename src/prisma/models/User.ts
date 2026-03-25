@@ -29,6 +29,7 @@ export type AggregateUser = {
 export type UserAvgAggregateOutputType = {
   id: number | null
   telegramId: number | null
+  logCount: number | null
   freeAiRefinements: number | null
   freeVoiceLogs: number | null
 }
@@ -36,6 +37,7 @@ export type UserAvgAggregateOutputType = {
 export type UserSumAggregateOutputType = {
   id: number | null
   telegramId: bigint | null
+  logCount: number | null
   freeAiRefinements: number | null
   freeVoiceLogs: number | null
 }
@@ -45,10 +47,14 @@ export type UserMinAggregateOutputType = {
   telegramId: bigint | null
   firstName: string | null
   username: string | null
+  paymentEmail: string | null
   logFrequency: string | null
   reminderTime: string | null
   timezone: string | null
   isPro: boolean | null
+  storageUnlocked: boolean | null
+  logCount: number | null
+  nextRenewalDate: Date | null
   freeAiRefinements: number | null
   freeVoiceLogs: number | null
   onboardingDone: boolean | null
@@ -61,10 +67,14 @@ export type UserMaxAggregateOutputType = {
   telegramId: bigint | null
   firstName: string | null
   username: string | null
+  paymentEmail: string | null
   logFrequency: string | null
   reminderTime: string | null
   timezone: string | null
   isPro: boolean | null
+  storageUnlocked: boolean | null
+  logCount: number | null
+  nextRenewalDate: Date | null
   freeAiRefinements: number | null
   freeVoiceLogs: number | null
   onboardingDone: boolean | null
@@ -77,10 +87,14 @@ export type UserCountAggregateOutputType = {
   telegramId: number
   firstName: number
   username: number
+  paymentEmail: number
   logFrequency: number
   reminderTime: number
   timezone: number
   isPro: number
+  storageUnlocked: number
+  logCount: number
+  nextRenewalDate: number
   freeAiRefinements: number
   freeVoiceLogs: number
   onboardingDone: number
@@ -93,6 +107,7 @@ export type UserCountAggregateOutputType = {
 export type UserAvgAggregateInputType = {
   id?: true
   telegramId?: true
+  logCount?: true
   freeAiRefinements?: true
   freeVoiceLogs?: true
 }
@@ -100,6 +115,7 @@ export type UserAvgAggregateInputType = {
 export type UserSumAggregateInputType = {
   id?: true
   telegramId?: true
+  logCount?: true
   freeAiRefinements?: true
   freeVoiceLogs?: true
 }
@@ -109,10 +125,14 @@ export type UserMinAggregateInputType = {
   telegramId?: true
   firstName?: true
   username?: true
+  paymentEmail?: true
   logFrequency?: true
   reminderTime?: true
   timezone?: true
   isPro?: true
+  storageUnlocked?: true
+  logCount?: true
+  nextRenewalDate?: true
   freeAiRefinements?: true
   freeVoiceLogs?: true
   onboardingDone?: true
@@ -125,10 +145,14 @@ export type UserMaxAggregateInputType = {
   telegramId?: true
   firstName?: true
   username?: true
+  paymentEmail?: true
   logFrequency?: true
   reminderTime?: true
   timezone?: true
   isPro?: true
+  storageUnlocked?: true
+  logCount?: true
+  nextRenewalDate?: true
   freeAiRefinements?: true
   freeVoiceLogs?: true
   onboardingDone?: true
@@ -141,10 +165,14 @@ export type UserCountAggregateInputType = {
   telegramId?: true
   firstName?: true
   username?: true
+  paymentEmail?: true
   logFrequency?: true
   reminderTime?: true
   timezone?: true
   isPro?: true
+  storageUnlocked?: true
+  logCount?: true
+  nextRenewalDate?: true
   freeAiRefinements?: true
   freeVoiceLogs?: true
   onboardingDone?: true
@@ -244,10 +272,14 @@ export type UserGroupByOutputType = {
   telegramId: bigint
   firstName: string
   username: string | null
+  paymentEmail: string | null
   logFrequency: string
   reminderTime: string
   timezone: string
   isPro: boolean
+  storageUnlocked: boolean
+  logCount: number
+  nextRenewalDate: Date | null
   freeAiRefinements: number
   freeVoiceLogs: number
   onboardingDone: boolean
@@ -283,10 +315,14 @@ export type UserWhereInput = {
   telegramId?: Prisma.BigIntFilter<"User"> | bigint | number
   firstName?: Prisma.StringFilter<"User"> | string
   username?: Prisma.StringNullableFilter<"User"> | string | null
+  paymentEmail?: Prisma.StringNullableFilter<"User"> | string | null
   logFrequency?: Prisma.StringFilter<"User"> | string
   reminderTime?: Prisma.StringFilter<"User"> | string
   timezone?: Prisma.StringFilter<"User"> | string
   isPro?: Prisma.BoolFilter<"User"> | boolean
+  storageUnlocked?: Prisma.BoolFilter<"User"> | boolean
+  logCount?: Prisma.IntFilter<"User"> | number
+  nextRenewalDate?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   freeAiRefinements?: Prisma.IntFilter<"User"> | number
   freeVoiceLogs?: Prisma.IntFilter<"User"> | number
   onboardingDone?: Prisma.BoolFilter<"User"> | boolean
@@ -302,10 +338,14 @@ export type UserOrderByWithRelationInput = {
   telegramId?: Prisma.SortOrder
   firstName?: Prisma.SortOrder
   username?: Prisma.SortOrderInput | Prisma.SortOrder
+  paymentEmail?: Prisma.SortOrderInput | Prisma.SortOrder
   logFrequency?: Prisma.SortOrder
   reminderTime?: Prisma.SortOrder
   timezone?: Prisma.SortOrder
   isPro?: Prisma.SortOrder
+  storageUnlocked?: Prisma.SortOrder
+  logCount?: Prisma.SortOrder
+  nextRenewalDate?: Prisma.SortOrderInput | Prisma.SortOrder
   freeAiRefinements?: Prisma.SortOrder
   freeVoiceLogs?: Prisma.SortOrder
   onboardingDone?: Prisma.SortOrder
@@ -324,10 +364,14 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   NOT?: Prisma.UserWhereInput | Prisma.UserWhereInput[]
   firstName?: Prisma.StringFilter<"User"> | string
   username?: Prisma.StringNullableFilter<"User"> | string | null
+  paymentEmail?: Prisma.StringNullableFilter<"User"> | string | null
   logFrequency?: Prisma.StringFilter<"User"> | string
   reminderTime?: Prisma.StringFilter<"User"> | string
   timezone?: Prisma.StringFilter<"User"> | string
   isPro?: Prisma.BoolFilter<"User"> | boolean
+  storageUnlocked?: Prisma.BoolFilter<"User"> | boolean
+  logCount?: Prisma.IntFilter<"User"> | number
+  nextRenewalDate?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   freeAiRefinements?: Prisma.IntFilter<"User"> | number
   freeVoiceLogs?: Prisma.IntFilter<"User"> | number
   onboardingDone?: Prisma.BoolFilter<"User"> | boolean
@@ -343,10 +387,14 @@ export type UserOrderByWithAggregationInput = {
   telegramId?: Prisma.SortOrder
   firstName?: Prisma.SortOrder
   username?: Prisma.SortOrderInput | Prisma.SortOrder
+  paymentEmail?: Prisma.SortOrderInput | Prisma.SortOrder
   logFrequency?: Prisma.SortOrder
   reminderTime?: Prisma.SortOrder
   timezone?: Prisma.SortOrder
   isPro?: Prisma.SortOrder
+  storageUnlocked?: Prisma.SortOrder
+  logCount?: Prisma.SortOrder
+  nextRenewalDate?: Prisma.SortOrderInput | Prisma.SortOrder
   freeAiRefinements?: Prisma.SortOrder
   freeVoiceLogs?: Prisma.SortOrder
   onboardingDone?: Prisma.SortOrder
@@ -367,10 +415,14 @@ export type UserScalarWhereWithAggregatesInput = {
   telegramId?: Prisma.BigIntWithAggregatesFilter<"User"> | bigint | number
   firstName?: Prisma.StringWithAggregatesFilter<"User"> | string
   username?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
+  paymentEmail?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
   logFrequency?: Prisma.StringWithAggregatesFilter<"User"> | string
   reminderTime?: Prisma.StringWithAggregatesFilter<"User"> | string
   timezone?: Prisma.StringWithAggregatesFilter<"User"> | string
   isPro?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
+  storageUnlocked?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
+  logCount?: Prisma.IntWithAggregatesFilter<"User"> | number
+  nextRenewalDate?: Prisma.DateTimeNullableWithAggregatesFilter<"User"> | Date | string | null
   freeAiRefinements?: Prisma.IntWithAggregatesFilter<"User"> | number
   freeVoiceLogs?: Prisma.IntWithAggregatesFilter<"User"> | number
   onboardingDone?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
@@ -382,10 +434,14 @@ export type UserCreateInput = {
   telegramId: bigint | number
   firstName: string
   username?: string | null
+  paymentEmail?: string | null
   logFrequency: string
   reminderTime: string
   timezone?: string
   isPro?: boolean
+  storageUnlocked?: boolean
+  logCount?: number
+  nextRenewalDate?: Date | string | null
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
@@ -401,10 +457,14 @@ export type UserUncheckedCreateInput = {
   telegramId: bigint | number
   firstName: string
   username?: string | null
+  paymentEmail?: string | null
   logFrequency: string
   reminderTime: string
   timezone?: string
   isPro?: boolean
+  storageUnlocked?: boolean
+  logCount?: number
+  nextRenewalDate?: Date | string | null
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
@@ -419,10 +479,14 @@ export type UserUpdateInput = {
   telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
   firstName?: Prisma.StringFieldUpdateOperationsInput | string
   username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
   reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
   isPro?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  storageUnlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  logCount?: Prisma.IntFieldUpdateOperationsInput | number
+  nextRenewalDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -438,10 +502,14 @@ export type UserUncheckedUpdateInput = {
   telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
   firstName?: Prisma.StringFieldUpdateOperationsInput | string
   username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
   reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
   isPro?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  storageUnlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  logCount?: Prisma.IntFieldUpdateOperationsInput | number
+  nextRenewalDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -457,10 +525,14 @@ export type UserCreateManyInput = {
   telegramId: bigint | number
   firstName: string
   username?: string | null
+  paymentEmail?: string | null
   logFrequency: string
   reminderTime: string
   timezone?: string
   isPro?: boolean
+  storageUnlocked?: boolean
+  logCount?: number
+  nextRenewalDate?: Date | string | null
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
@@ -472,10 +544,14 @@ export type UserUpdateManyMutationInput = {
   telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
   firstName?: Prisma.StringFieldUpdateOperationsInput | string
   username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
   reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
   isPro?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  storageUnlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  logCount?: Prisma.IntFieldUpdateOperationsInput | number
+  nextRenewalDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -488,10 +564,14 @@ export type UserUncheckedUpdateManyInput = {
   telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
   firstName?: Prisma.StringFieldUpdateOperationsInput | string
   username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
   reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
   isPro?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  storageUnlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  logCount?: Prisma.IntFieldUpdateOperationsInput | number
+  nextRenewalDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -504,10 +584,14 @@ export type UserCountOrderByAggregateInput = {
   telegramId?: Prisma.SortOrder
   firstName?: Prisma.SortOrder
   username?: Prisma.SortOrder
+  paymentEmail?: Prisma.SortOrder
   logFrequency?: Prisma.SortOrder
   reminderTime?: Prisma.SortOrder
   timezone?: Prisma.SortOrder
   isPro?: Prisma.SortOrder
+  storageUnlocked?: Prisma.SortOrder
+  logCount?: Prisma.SortOrder
+  nextRenewalDate?: Prisma.SortOrder
   freeAiRefinements?: Prisma.SortOrder
   freeVoiceLogs?: Prisma.SortOrder
   onboardingDone?: Prisma.SortOrder
@@ -518,6 +602,7 @@ export type UserCountOrderByAggregateInput = {
 export type UserAvgOrderByAggregateInput = {
   id?: Prisma.SortOrder
   telegramId?: Prisma.SortOrder
+  logCount?: Prisma.SortOrder
   freeAiRefinements?: Prisma.SortOrder
   freeVoiceLogs?: Prisma.SortOrder
 }
@@ -527,10 +612,14 @@ export type UserMaxOrderByAggregateInput = {
   telegramId?: Prisma.SortOrder
   firstName?: Prisma.SortOrder
   username?: Prisma.SortOrder
+  paymentEmail?: Prisma.SortOrder
   logFrequency?: Prisma.SortOrder
   reminderTime?: Prisma.SortOrder
   timezone?: Prisma.SortOrder
   isPro?: Prisma.SortOrder
+  storageUnlocked?: Prisma.SortOrder
+  logCount?: Prisma.SortOrder
+  nextRenewalDate?: Prisma.SortOrder
   freeAiRefinements?: Prisma.SortOrder
   freeVoiceLogs?: Prisma.SortOrder
   onboardingDone?: Prisma.SortOrder
@@ -543,10 +632,14 @@ export type UserMinOrderByAggregateInput = {
   telegramId?: Prisma.SortOrder
   firstName?: Prisma.SortOrder
   username?: Prisma.SortOrder
+  paymentEmail?: Prisma.SortOrder
   logFrequency?: Prisma.SortOrder
   reminderTime?: Prisma.SortOrder
   timezone?: Prisma.SortOrder
   isPro?: Prisma.SortOrder
+  storageUnlocked?: Prisma.SortOrder
+  logCount?: Prisma.SortOrder
+  nextRenewalDate?: Prisma.SortOrder
   freeAiRefinements?: Prisma.SortOrder
   freeVoiceLogs?: Prisma.SortOrder
   onboardingDone?: Prisma.SortOrder
@@ -557,6 +650,7 @@ export type UserMinOrderByAggregateInput = {
 export type UserSumOrderByAggregateInput = {
   id?: Prisma.SortOrder
   telegramId?: Prisma.SortOrder
+  logCount?: Prisma.SortOrder
   freeAiRefinements?: Prisma.SortOrder
   freeVoiceLogs?: Prisma.SortOrder
 }
@@ -592,6 +686,10 @@ export type IntFieldUpdateOperationsInput = {
   decrement?: number
   multiply?: number
   divide?: number
+}
+
+export type NullableDateTimeFieldUpdateOperationsInput = {
+  set?: Date | string | null
 }
 
 export type DateTimeFieldUpdateOperationsInput = {
@@ -644,10 +742,14 @@ export type UserCreateWithoutLogsInput = {
   telegramId: bigint | number
   firstName: string
   username?: string | null
+  paymentEmail?: string | null
   logFrequency: string
   reminderTime: string
   timezone?: string
   isPro?: boolean
+  storageUnlocked?: boolean
+  logCount?: number
+  nextRenewalDate?: Date | string | null
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
@@ -662,10 +764,14 @@ export type UserUncheckedCreateWithoutLogsInput = {
   telegramId: bigint | number
   firstName: string
   username?: string | null
+  paymentEmail?: string | null
   logFrequency: string
   reminderTime: string
   timezone?: string
   isPro?: boolean
+  storageUnlocked?: boolean
+  logCount?: number
+  nextRenewalDate?: Date | string | null
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
@@ -695,10 +801,14 @@ export type UserUpdateWithoutLogsInput = {
   telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
   firstName?: Prisma.StringFieldUpdateOperationsInput | string
   username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
   reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
   isPro?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  storageUnlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  logCount?: Prisma.IntFieldUpdateOperationsInput | number
+  nextRenewalDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -713,10 +823,14 @@ export type UserUncheckedUpdateWithoutLogsInput = {
   telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
   firstName?: Prisma.StringFieldUpdateOperationsInput | string
   username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
   reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
   isPro?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  storageUnlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  logCount?: Prisma.IntFieldUpdateOperationsInput | number
+  nextRenewalDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -730,10 +844,14 @@ export type UserCreateWithoutSubscriptionInput = {
   telegramId: bigint | number
   firstName: string
   username?: string | null
+  paymentEmail?: string | null
   logFrequency: string
   reminderTime: string
   timezone?: string
   isPro?: boolean
+  storageUnlocked?: boolean
+  logCount?: number
+  nextRenewalDate?: Date | string | null
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
@@ -748,10 +866,14 @@ export type UserUncheckedCreateWithoutSubscriptionInput = {
   telegramId: bigint | number
   firstName: string
   username?: string | null
+  paymentEmail?: string | null
   logFrequency: string
   reminderTime: string
   timezone?: string
   isPro?: boolean
+  storageUnlocked?: boolean
+  logCount?: number
+  nextRenewalDate?: Date | string | null
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
@@ -781,10 +903,14 @@ export type UserUpdateWithoutSubscriptionInput = {
   telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
   firstName?: Prisma.StringFieldUpdateOperationsInput | string
   username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
   reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
   isPro?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  storageUnlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  logCount?: Prisma.IntFieldUpdateOperationsInput | number
+  nextRenewalDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -799,10 +925,14 @@ export type UserUncheckedUpdateWithoutSubscriptionInput = {
   telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
   firstName?: Prisma.StringFieldUpdateOperationsInput | string
   username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
   reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
   isPro?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  storageUnlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  logCount?: Prisma.IntFieldUpdateOperationsInput | number
+  nextRenewalDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -816,10 +946,14 @@ export type UserCreateWithoutManualPaymentsInput = {
   telegramId: bigint | number
   firstName: string
   username?: string | null
+  paymentEmail?: string | null
   logFrequency: string
   reminderTime: string
   timezone?: string
   isPro?: boolean
+  storageUnlocked?: boolean
+  logCount?: number
+  nextRenewalDate?: Date | string | null
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
@@ -834,10 +968,14 @@ export type UserUncheckedCreateWithoutManualPaymentsInput = {
   telegramId: bigint | number
   firstName: string
   username?: string | null
+  paymentEmail?: string | null
   logFrequency: string
   reminderTime: string
   timezone?: string
   isPro?: boolean
+  storageUnlocked?: boolean
+  logCount?: number
+  nextRenewalDate?: Date | string | null
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
@@ -867,10 +1005,14 @@ export type UserUpdateWithoutManualPaymentsInput = {
   telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
   firstName?: Prisma.StringFieldUpdateOperationsInput | string
   username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
   reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
   isPro?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  storageUnlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  logCount?: Prisma.IntFieldUpdateOperationsInput | number
+  nextRenewalDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -885,10 +1027,14 @@ export type UserUncheckedUpdateWithoutManualPaymentsInput = {
   telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
   firstName?: Prisma.StringFieldUpdateOperationsInput | string
   username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
   reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
   isPro?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  storageUnlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  logCount?: Prisma.IntFieldUpdateOperationsInput | number
+  nextRenewalDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -943,10 +1089,14 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   telegramId?: boolean
   firstName?: boolean
   username?: boolean
+  paymentEmail?: boolean
   logFrequency?: boolean
   reminderTime?: boolean
   timezone?: boolean
   isPro?: boolean
+  storageUnlocked?: boolean
+  logCount?: boolean
+  nextRenewalDate?: boolean
   freeAiRefinements?: boolean
   freeVoiceLogs?: boolean
   onboardingDone?: boolean
@@ -963,10 +1113,14 @@ export type UserSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   telegramId?: boolean
   firstName?: boolean
   username?: boolean
+  paymentEmail?: boolean
   logFrequency?: boolean
   reminderTime?: boolean
   timezone?: boolean
   isPro?: boolean
+  storageUnlocked?: boolean
+  logCount?: boolean
+  nextRenewalDate?: boolean
   freeAiRefinements?: boolean
   freeVoiceLogs?: boolean
   onboardingDone?: boolean
@@ -979,10 +1133,14 @@ export type UserSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   telegramId?: boolean
   firstName?: boolean
   username?: boolean
+  paymentEmail?: boolean
   logFrequency?: boolean
   reminderTime?: boolean
   timezone?: boolean
   isPro?: boolean
+  storageUnlocked?: boolean
+  logCount?: boolean
+  nextRenewalDate?: boolean
   freeAiRefinements?: boolean
   freeVoiceLogs?: boolean
   onboardingDone?: boolean
@@ -995,10 +1153,14 @@ export type UserSelectScalar = {
   telegramId?: boolean
   firstName?: boolean
   username?: boolean
+  paymentEmail?: boolean
   logFrequency?: boolean
   reminderTime?: boolean
   timezone?: boolean
   isPro?: boolean
+  storageUnlocked?: boolean
+  logCount?: boolean
+  nextRenewalDate?: boolean
   freeAiRefinements?: boolean
   freeVoiceLogs?: boolean
   onboardingDone?: boolean
@@ -1006,7 +1168,7 @@ export type UserSelectScalar = {
   createdAt?: boolean
 }
 
-export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "telegramId" | "firstName" | "username" | "logFrequency" | "reminderTime" | "timezone" | "isPro" | "freeAiRefinements" | "freeVoiceLogs" | "onboardingDone" | "botBlocked" | "createdAt", ExtArgs["result"]["user"]>
+export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "telegramId" | "firstName" | "username" | "paymentEmail" | "logFrequency" | "reminderTime" | "timezone" | "isPro" | "storageUnlocked" | "logCount" | "nextRenewalDate" | "freeAiRefinements" | "freeVoiceLogs" | "onboardingDone" | "botBlocked" | "createdAt", ExtArgs["result"]["user"]>
 export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   logs?: boolean | Prisma.User$logsArgs<ExtArgs>
   subscription?: boolean | Prisma.User$subscriptionArgs<ExtArgs>
@@ -1028,10 +1190,14 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     telegramId: bigint
     firstName: string
     username: string | null
+    paymentEmail: string | null
     logFrequency: string
     reminderTime: string
     timezone: string
     isPro: boolean
+    storageUnlocked: boolean
+    logCount: number
+    nextRenewalDate: Date | null
     freeAiRefinements: number
     freeVoiceLogs: number
     onboardingDone: boolean
@@ -1467,10 +1633,14 @@ export interface UserFieldRefs {
   readonly telegramId: Prisma.FieldRef<"User", 'BigInt'>
   readonly firstName: Prisma.FieldRef<"User", 'String'>
   readonly username: Prisma.FieldRef<"User", 'String'>
+  readonly paymentEmail: Prisma.FieldRef<"User", 'String'>
   readonly logFrequency: Prisma.FieldRef<"User", 'String'>
   readonly reminderTime: Prisma.FieldRef<"User", 'String'>
   readonly timezone: Prisma.FieldRef<"User", 'String'>
   readonly isPro: Prisma.FieldRef<"User", 'Boolean'>
+  readonly storageUnlocked: Prisma.FieldRef<"User", 'Boolean'>
+  readonly logCount: Prisma.FieldRef<"User", 'Int'>
+  readonly nextRenewalDate: Prisma.FieldRef<"User", 'DateTime'>
   readonly freeAiRefinements: Prisma.FieldRef<"User", 'Int'>
   readonly freeVoiceLogs: Prisma.FieldRef<"User", 'Int'>
   readonly onboardingDone: Prisma.FieldRef<"User", 'Boolean'>

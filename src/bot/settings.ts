@@ -2,7 +2,8 @@ import { InlineKeyboard } from "grammy";
 import { type BotContext } from "./types";
 import { prisma } from "../lib/prisma";
 import { captureReplayError } from "../services/replayCapture";
-import { buildTimeKeyboard, createInitialReminderJobs, MAIN_MENU_KEYBOARD } from "./onboarding";
+import { buildTimeKeyboard, createInitialReminderJobs } from "./onboarding";
+import { hasActiveStorage, STORAGE_PRICE_LABEL } from "./monetization";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -129,59 +130,46 @@ export async function handleSettingsSub(ctx: BotContext) {
   await ctx.answerCallbackQuery();
   const telegramId = BigInt(ctx.from!.id);
 
-  const user = await prisma.user.findUnique({
-    where: { telegramId },
-    include: { subscription: true },
-  });
+  const user = await prisma.user.findUnique({ where: { telegramId } });
 
   if (!user) return;
 
-  if (!user.isPro || !user.subscription) {
+  if (!hasActiveStorage(user)) {
     await ctx.reply(
-      `👑 *Subscription Status*\n\n` +
+      `👑 *Storage Plan Status*\n\n` +
         `You're currently on the *Free* plan.\n\n` +
         `Free users get:\n` +
-        `• 3 AI log refinements\n` +
-        `• Text logs only\n\n` +
-        `Upgrade to *Pro* for:\n` +
+        `• 3 AI refinements\n` +
+        `• 3 voice logs\n\n` +
+        `Unlock storage for ${STORAGE_PRICE_LABEL} to get:\n` +
+        `• Unlimited log storage 📦\n` +
         `• Unlimited AI refinements ✨\n` +
-        `• Voice-to-log transcription 🎙️\n` +
-        `• ₦5,000/month`,
+        `• Unlimited voice logs 🎙️`,
       {
         parse_mode: "Markdown",
         reply_markup: new InlineKeyboard()
-          .text("👑 Upgrade to Pro", "go_pro").row()
+          .text("🔓 Unlock storage", "go_pro").row()
           .text("🏠 Menu", "nav_menu"),
       },
     );
     return;
   }
 
-  const sub = user.subscription;
-  const isActive = sub.status === "active" && sub.endDate > new Date();
-  const endStr = sub.endDate.toLocaleDateString("en-NG", {
+  const endStr = user.nextRenewalDate?.toLocaleDateString("en-NG", {
     day: "numeric",
     month: "long",
     year: "numeric",
-  });
-
-  const statusLine = isActive ? "✅ Active" : sub.status === "cancelled" ? "🚫 Cancelled" : "❌ Expired";
+  }) ?? "Not set";
 
   await ctx.reply(
-    `👑 *Subscription Status*\n\n` +
-      `Plan: *Pro*\n` +
-      `Status: ${statusLine}\n` +
-      `${isActive ? "Renews" : "Access until"}: *${endStr}*\n` +
-      `Reference: \`${sub.paystackRef}\``,
+    `👑 *Storage Plan Status*\n\n` +
+      `Plan: *Unlocked*\n` +
+      `Status: ✅ Active\n` +
+      `Renews on: *${endStr}*\n` +
+      `Price: *${STORAGE_PRICE_LABEL}*`,
     {
       parse_mode: "Markdown",
-      reply_markup: isActive
-        ? new InlineKeyboard()
-            .text("❌ Cancel subscription", "settings_cancel_sub").row()
-            .text("🏠 Menu", "nav_menu")
-        : new InlineKeyboard()
-            .text("🔄 Renew Pro", "go_pro").row()
-            .text("🏠 Menu", "nav_menu"),
+      reply_markup: new InlineKeyboard().text("🏠 Menu", "nav_menu"),
     },
   );
 }
@@ -215,6 +203,17 @@ export async function handleCancelSubConfirm(ctx: BotContext) {
     });
   }
 
+  if (user) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        storageUnlocked: false,
+        isPro: false,
+        nextRenewalDate: null,
+      },
+    });
+  }
+
   await ctx.reply(
     `Your Pro subscription has been cancelled 😢\n\n` +
       `You'll retain Pro access until the end of your current billing period. ` +
@@ -237,13 +236,13 @@ export async function handleSettingsHow(ctx: BotContext) {
       `*⏰ Reminders*\n` +
       `Wisa nudges you at your chosen time to write your log. Snooze up to 3 times — on the 3rd you get the final push 😄\n\n` +
       `*✨ AI Refinement*\n` +
-      `After saving a log, tap "Refine with AI" to polish your entry into professional, supervisor-ready language. Free users get 3 refinements; Pro users get unlimited.\n\n` +
-      `*🎙️ Voice logs (Pro only)*\n` +
-      `Send a voice message and Wisa transcribes it and saves it as a log entry.\n\n` +
+      `After saving a log, tap "Refine with AI" to polish your entry into professional, supervisor-ready language. Free users get 3 refinements.\n\n` +
+      `*🎙️ Voice logs*\n` +
+      `Free users get 3 voice logs. Unlock storage to remove limits.\n\n` +
       `*📅 Calendar*\n` +
       `Browse all your logs by day. Tap any marked day to view, edit, delete, or refine a log.\n\n` +
-      `*👑 Pro plan — ₦5,000/month*\n` +
-      `Unlimited AI refinements + voice-to-log transcription.\n\n` +
+      `*🔓 Storage plan — ₦1,000/month*\n` +
+      `Unlocks unlimited storage + unlimited AI refinements + unlimited voice logs.\n\n` +
       `Questions? We're always here 🙏`,
     {
       parse_mode: "Markdown",

@@ -3,7 +3,7 @@ import { replayMiddleware, replayTransformer, captureReplayError } from "../serv
 import { conversations, createConversation } from "@grammyjs/conversations";
 import { PrismaAdapter } from "@grammyjs/storage-prisma";
 import { prisma } from "../lib/prisma";
-import { onboardingConversation, handleStart, handleLetsGo, MAIN_MENU_KEYBOARD } from "./onboarding";
+import { onboardingConversation, handleStart, handleLetsGo, getMainMenuKeyboard } from "./onboarding";
 import { handleSnooze, handleSkip, handleWriteFromReminder, scheduleNextJob } from "./reminders";
 import {
   startLogging,
@@ -42,7 +42,7 @@ import {
   handleManualSent,
   handleAdminApprove,
   handleAdminReject,
-  handlePaymentSenderNameText,
+  handlePaymentEmailText,
 } from "./payments";
 import {
   handleSettings,
@@ -58,6 +58,7 @@ import {
 } from "./settings";
 import { handleFeedback, handleFeedbackText, handleFeedbackCancel } from "./feedback";
 import { type SessionData, type BotContext } from "./types";
+import { getMonetizationUserByTelegramId, hasActiveStorage } from "./monetization";
 
 export type { SessionData, BotContext };
 
@@ -175,8 +176,9 @@ bot.callbackQuery("feedback_cancel", handleFeedbackCancel);
 // Keep-active (10)
 bot.callbackQuery("keepalive", async (ctx) => {
   await ctx.answerCallbackQuery("Thanks for checking in! 👋");
+  const user = await getMonetizationUserByTelegramId(BigInt(ctx.from!.id));
   await ctx.reply("Great to see you! 😊 Keep those logs coming 📝", {
-    reply_markup: MAIN_MENU_KEYBOARD,
+    reply_markup: getMainMenuKeyboard(user ? hasActiveStorage(user) : false),
   });
 });
 
@@ -199,7 +201,10 @@ bot.callbackQuery("nav_past_log", async (ctx) => {
 });
 bot.callbackQuery("nav_menu", async (ctx) => {
   await ctx.answerCallbackQuery();
-  await ctx.reply("Main menu 👇", { reply_markup: MAIN_MENU_KEYBOARD });
+  const user = await getMonetizationUserByTelegramId(BigInt(ctx.from!.id));
+  await ctx.reply("Main menu 👇", {
+    reply_markup: getMainMenuKeyboard(user ? hasActiveStorage(user) : false),
+  });
 });
 
 // ── Voice message handler (8.3) ──────────────────────────────────────────
@@ -209,8 +214,8 @@ bot.on("message:voice", handleVoiceLog);
 bot.on("message:text", async (ctx) => {
   // Feedback capture takes highest priority
   if (await handleFeedbackText(ctx)) return;
-  // Payment sender name capture
-  if (await handlePaymentSenderNameText(ctx)) return;
+  // Payment email capture
+  if (await handlePaymentEmailText(ctx)) return;
   // Edit mode takes priority over log accumulation
   if (await handleEditText(ctx)) return;
   if (await handleLogText(ctx)) return;

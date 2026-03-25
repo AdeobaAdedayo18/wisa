@@ -1,8 +1,9 @@
 import { InlineKeyboard } from "grammy";
 import { type BotContext } from "./types";
 import { clearActiveFlow, startFlow, isFlowExpired } from "./types";
-import { MAIN_MENU_KEYBOARD } from "./onboarding";
+import { getMainMenuKeyboard } from "./onboarding";
 import { captureReplayError } from "../services/replayCapture";
+import { getMonetizationUserByTelegramId, hasActiveStorage } from "./monetization";
 
 // ---------------------------------------------------------------------------
 // Creator Telegram ID — set CREATOR_TELEGRAM_ID in your Railway / .env
@@ -66,13 +67,15 @@ export async function handleFeedbackText(ctx: BotContext): Promise<boolean> {
     console.log(`[feedback] Received feedback from user ${senderId}: ${text}`);
   }
 
+  const user = await getMonetizationUserByTelegramId(BigInt(ctx.from!.id));
+
   await ctx.reply(
     "✅ *Feedback sent!* Thank you so much 🙏\n\n" +
       "Your message is on its way to the creator. " +
       "We read every single one and it helps us make Wisa better for you 💪",
     {
       parse_mode: "Markdown",
-      reply_markup: MAIN_MENU_KEYBOARD,
+      reply_markup: getMainMenuKeyboard(user ? hasActiveStorage(user) : false),
     },
   );
 
@@ -88,5 +91,8 @@ export async function handleFeedbackCancel(ctx: BotContext): Promise<void> {
   clearActiveFlow(ctx.session);
 
   await ctx.editMessageText("No worries! Back to the main menu 😊").catch(() => {});
-  await ctx.reply("Main menu 👇", { reply_markup: MAIN_MENU_KEYBOARD });
+  const user = await getMonetizationUserByTelegramId(BigInt(ctx.from!.id));
+  await ctx.reply("Main menu 👇", {
+    reply_markup: getMainMenuKeyboard(user ? hasActiveStorage(user) : false),
+  });
 }

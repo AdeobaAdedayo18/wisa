@@ -303,9 +303,29 @@ export async function handleDeleteLogConfirm(ctx: BotContext): Promise<void> {
 
   const data = ctx.callbackQuery?.data ?? "";
   const logId = parseInt(data.replace("delete_confirm_", ""), 10);
+  const telegramId = BigInt(ctx.from!.id);
 
   try {
-    await prisma.log.delete({ where: { id: logId } });
+    const dbUser = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } });
+    if (!dbUser) {
+      await ctx.reply("Couldn't find your account. Try /start.");
+      return;
+    }
+
+    const log = await prisma.log.findUnique({ where: { id: logId }, select: { id: true, userId: true } });
+    if (!log || log.userId !== dbUser.id) {
+      await ctx.reply("That log does not exist or does not belong to you.");
+      return;
+    }
+
+    await prisma.$transaction([
+      prisma.log.delete({ where: { id: logId } }),
+      prisma.user.update({
+        where: { id: dbUser.id },
+        data: { logCount: { decrement: 1 } },
+      }),
+    ]);
+
     await ctx.editMessageText("Deleted! 🗑️ Log removed successfully.").catch(() => {});
     await ctx.reply("Log deleted. 👋", {
       reply_markup: new InlineKeyboard()

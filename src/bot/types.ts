@@ -44,6 +44,10 @@ export interface SessionData {
   awaitingFeedback?: boolean;
   /** Paystack payment reference generated for the current payment attempt. */
   pendingPaystackRef?: string;
+  /** True while the bot is waiting for payment email capture. */
+  awaitingPaymentEmail?: boolean;
+  /** Last email entered for payment flow before Paystack initialization. */
+  pendingPaymentEmail?: string;
   /** True while the bot is waiting for the user's bank account sender name for manual payment. */
   awaitingPaymentSenderName?: boolean;
   /** ManualPayment DB id waiting for admin review. */
@@ -77,6 +81,10 @@ export function clearActiveFlow(session: SessionData): void {
   session.awaitingEditText = false;
   session.awaitingFeedback = false;
   session.awaitingPaymentSenderName = false;
+  session.awaitingPaymentEmail = false;
+  session.pendingPaymentEmail = undefined;
+  session.pendingPaystackRef = undefined;
+  session.pendingManualPaymentId = undefined;
   session.pendingVoiceTranscription = undefined;
   session.pendingRefinedContent = undefined;
   session.refiningLogId = undefined;

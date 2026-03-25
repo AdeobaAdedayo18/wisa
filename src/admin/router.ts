@@ -217,13 +217,16 @@ router.get("/api/users", async (req: Request, res: Response): Promise<void> => {
         firstName: u.firstName,
         username: u.username,
         isPro: u.isPro,
+        storageUnlocked: u.storageUnlocked,
+        nextRenewalDate: u.nextRenewalDate,
+        paymentEmail: u.paymentEmail,
         onboardingDone: u.onboardingDone,
         logFrequency: u.logFrequency,
         timezone: u.timezone,
         freeAiRefinements: u.freeAiRefinements,
         freeVoiceLogs: u.freeVoiceLogs,
         createdAt: u.createdAt,
-        logCount: u._count.logs,
+        logCount: u.logCount,
         subscription: u.subscription
           ? { status: u.subscription.status, endDate: u.subscription.endDate }
           : null,
@@ -530,7 +533,11 @@ router.post(
         }),
         prisma.user.update({
           where: { id: payment.userId },
-          data: { isPro: true },
+          data: {
+            isPro: true,
+            storageUnlocked: true,
+            nextRenewalDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          },
         }),
       ]);
 

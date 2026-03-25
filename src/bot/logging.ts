@@ -6,6 +6,14 @@ import { sendScene } from "../utils/constants";
 import { buildCalendarKeyboard, getScheduledDates } from "./calendar";
 import type { BotContext } from "./types";
 import { clearActiveFlow, startFlow, isFlowExpired } from "./types";
+import {
+  canCreateLog,
+  FREE_LOG_LIMIT,
+  getStorageLimitReachedAfterSaveText,
+  getMonetizationUserByTelegramId,
+  hasActiveStorage,
+  sendStorageWall,
+} from "./monetization";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -29,6 +37,17 @@ export async function startLogging(ctx: BotContext, isoDate?: string): Promise<v
   const todayStr = isoDate ?? format(new Date(), "yyyy-MM-dd");
   const isToday = todayStr === format(new Date(), "yyyy-MM-dd");
   const telegramId = BigInt(ctx.from!.id);
+  const monetizationUser = await getMonetizationUserByTelegramId(telegramId);
+  if (!monetizationUser) {
+    await ctx.reply("Couldn't find your account. Try /start.");
+    return;
+  }
+
+  if (!canCreateLog(monetizationUser)) {
+    await sendStorageWall(ctx, monetizationUser);
+    return;
+  }
+
   const dbUser = await prisma.user.findUnique({ where: { telegramId } });
 
   // ── Check for existing log on this date ────────────────────────────────
@@ -137,6 +156,17 @@ export async function handleDoneLogging(ctx: BotContext): Promise<void> {
   }
 
   const telegramId = BigInt(ctx.from!.id);
+  const monetizationUser = await getMonetizationUserByTelegramId(telegramId);
+  if (!monetizationUser) {
+    await ctx.reply("Couldn't find your account. Try /start.");
+    return;
+  }
+
+  if (!canCreateLog(monetizationUser)) {
+    await sendStorageWall(ctx, monetizationUser);
+    return;
+  }
+
   const dbUser = await prisma.user.findUnique({ where: { telegramId } });
   if (!dbUser) {
     await ctx.reply("Couldn't find your account. Try /start.");
@@ -169,14 +199,21 @@ export async function handleDoneLogging(ctx: BotContext): Promise<void> {
     : new Date();
 
   try {
-  const savedLog = await prisma.log.create({
-    data: {
-      userId: dbUser.id,
-      content: fullText,
-      logDate,
-      isVoice: false,
-    },
-  });
+  const [savedLog, updatedUser] = await prisma.$transaction([
+    prisma.log.create({
+      data: {
+        userId: dbUser.id,
+        content: fullText,
+        logDate,
+        isVoice: false,
+      },
+    }),
+    prisma.user.update({
+      where: { id: dbUser.id },
+      data: { logCount: { increment: 1 } },
+      select: { freeVoiceLogs: true, storageUnlocked: true, logCount: true, nextRenewalDate: true },
+    }),
+  ]);
 
   console.log(`[log] User ${dbUser.id} saved log #${savedLog.id} — ${fullText.split(/\s+/).filter(Boolean).length} words`);
 
@@ -192,10 +229,34 @@ export async function handleDoneLogging(ctx: BotContext): Promise<void> {
     `Log saved! 📖✨\n\nGreat work documenting your day. Keep it up — your future self will thank you 🙌`,
   );
 
+  const nowLockedAfterSave = !hasActiveStorage({
+    id: dbUser.id,
+    firstName: dbUser.firstName,
+    isPro: dbUser.isPro,
+    storageUnlocked: updatedUser.storageUnlocked,
+    logCount: updatedUser.logCount,
+    nextRenewalDate: updatedUser.nextRenewalDate,
+  });
+
+  if (nowLockedAfterSave && updatedUser.logCount === FREE_LOG_LIMIT) {
+    await ctx.reply(getStorageLimitReachedAfterSaveText(), {
+      parse_mode: "Markdown",
+      reply_markup: new InlineKeyboard().text("🔓 Unlock storage - ₦1,000", "go_pro"),
+    });
+    return;
+  }
+
   // Voice hint for free users who still have tries left
-  const remainingVoice = dbUser.freeVoiceLogs ?? 3;
+  const remainingVoice = updatedUser.freeVoiceLogs ?? 3;
   const voiceHint =
-    !dbUser.isPro && remainingVoice > 0
+    !hasActiveStorage({
+      id: dbUser.id,
+      firstName: dbUser.firstName,
+      isPro: dbUser.isPro,
+      storageUnlocked: updatedUser.storageUnlocked,
+      logCount: monetizationUser.logCount + 1,
+      nextRenewalDate: updatedUser.nextRenewalDate,
+    }) && remainingVoice > 0
       ? `\n\n💡 *Tip:* Did you know you can send a *voice message* instead of typing? Just hit the mic button and talk — Wisa transcribes it automatically! You have *${remainingVoice} free voice log${remainingVoice === 1 ? "" : "s"}* left 🎤`
       : "";
 
@@ -233,6 +294,17 @@ export async function handleAutoSaveConfirm(ctx: BotContext): Promise<void> {
   // Delegate to the same logic as Done ✅
   // We fake ctx.callbackQuery being answered already, so just call the inner logic
   const telegramId = BigInt(ctx.from!.id);
+  const monetizationUser = await getMonetizationUserByTelegramId(telegramId);
+  if (!monetizationUser) {
+    await ctx.reply("Couldn't find your account. Try /start.");
+    return;
+  }
+
+  if (!canCreateLog(monetizationUser)) {
+    await sendStorageWall(ctx, monetizationUser);
+    return;
+  }
+
   const dbUser = await prisma.user.findUnique({ where: { telegramId } });
   if (!dbUser) {
     await ctx.reply("Couldn't find your account. Try /start.");
@@ -255,9 +327,23 @@ export async function handleAutoSaveConfirm(ctx: BotContext): Promise<void> {
     : new Date();
 
   try {
-    const savedLog = await prisma.log.create({
-      data: { userId: dbUser.id, content: fullText, logDate, isVoice: false },
-    });
+    const [savedLog, updatedUser] = await prisma.$transaction([
+      prisma.log.create({
+        data: { userId: dbUser.id, content: fullText, logDate, isVoice: false },
+      }),
+      prisma.user.update({
+        where: { id: dbUser.id },
+        data: { logCount: { increment: 1 } },
+        select: {
+          id: true,
+          firstName: true,
+          isPro: true,
+          storageUnlocked: true,
+          logCount: true,
+          nextRenewalDate: true,
+        },
+      }),
+    ]);
 
     console.log(`[log] Auto-save confirmed: user ${dbUser.id}, log #${savedLog.id} — ${wordCount} words`);
 
@@ -277,6 +363,14 @@ export async function handleAutoSaveConfirm(ctx: BotContext): Promise<void> {
       "scene8",
       `Log saved! 📖✨\n\nGreat work documenting your day. Keep it up — your future self will thank you 🙌`,
     );
+
+    if (!hasActiveStorage(updatedUser) && updatedUser.logCount === FREE_LOG_LIMIT) {
+      await ctx.reply(getStorageLimitReachedAfterSaveText(), {
+        parse_mode: "Markdown",
+        reply_markup: new InlineKeyboard().text("🔓 Unlock storage - ₦1,000", "go_pro"),
+      });
+      return;
+    }
 
     await ctx.reply(`What would you like to do next?`, {
       parse_mode: "Markdown",

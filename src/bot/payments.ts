@@ -1,315 +1,242 @@
 import { InlineKeyboard } from "grammy";
-import { type BotContext } from "./types";
-import { clearActiveFlow, startFlow, isFlowExpired } from "./types";
+import { type BotContext, clearActiveFlow, startFlow, isFlowExpired } from "./types";
 import { prisma } from "../lib/prisma";
 import { captureReplayError } from "../services/replayCapture";
-import { initializeTransaction } from "../services/paystack";
-import {
-  BANK_NAME,
-  BANK_ACCOUNT_NUMBER,
-  BANK_ACCOUNT_NAME,
-  BANK_TRANSFER_AMOUNT,
-} from "../utils/constants";
+import { initializeTransaction, verifyTransaction } from "../services/paystack";
+import { getMainMenuKeyboard } from "./onboarding";
+import { getMonetizationUserByTelegramId, hasActiveStorage, STORAGE_PRICE_LABEL } from "./monetization";
 
-const ADMIN_ID = process.env.ADMIN_TELEGRAM_ID ?? "";
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
 
-// ── "Go Pro 👑" reply keyboard handler ─────────────────────────────────────
-export async function handleGoPro(ctx: BotContext) {
-  await ctx.reply(
-    `*👑 Wisa Pro — Unlimited Potential*\n\n` +
-      `Here's what Pro unlocks for you:\n\n` +
+export async function activateStorageForUser(userId: number, renewalDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)): Promise<void> {
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      isPro: true,
+      storageUnlocked: true,
+      nextRenewalDate: renewalDate,
+    },
+  });
+}
+
+function unlockKeyboard(url?: string): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  if (url) kb.url("💳 Pay with Paystack", url).row();
+  return kb.text("I've paid ✅", "check_payment").row().text("Maybe later", "nav_menu");
+}
+
+export async function handleGoPro(ctx: BotContext): Promise<void> {
+  const telegramId = BigInt(ctx.from!.id);
+  const user = await getMonetizationUserByTelegramId(telegramId);
+  if (!user) return;
+
+  if (hasActiveStorage(user)) {
+    await ctx.reply("🔓 Your storage is already unlocked. You're all set!", {
+      reply_markup: getMainMenuKeyboard(true),
+    });
+    return;
+  }
+
+  if (!(await prisma.user.findUnique({ where: { id: user.id }, select: { paymentEmail: true } }))?.paymentEmail) {
+    clearActiveFlow(ctx.session);
+    ctx.session.awaitingPaymentEmail = true;
+    startFlow(ctx.session);
+
+    await ctx.reply(
+      `🔓 *Unlock Wisa Storage*\n\n` +
+      `Here's what you get:\n\n` +
+      `📊 *Unlimited log storage* — we've got your back\n\n` +
       `✨ *Unlimited AI refinements* — polish every log entry\n` +
       `🎙️ *Voice logs* — speak your log, we transcribe it\n` +
-      `📊 *Priority support* — we've got your back\n\n` +
-      `*Price: ₦5,000 / month*\n\n` +
+      `${STORAGE_PRICE_LABEL}\n` +
+        `Before payment, we need your email to send your receipt`,
+      { parse_mode: "Markdown" },
+    );
+    return;
+  }
+
+  await ctx.reply(
+    `*👑 Wisa Pro — Unlimited Storage*\n\n` +
+      `Here's what Pro unlocks for you:\n\n` +
+      `📊 *Unlimited log storage* — we've got your back\n\n` +
+      `✨ *Unlimited AI refinements* — polish every log entry\n` +
+      `🎙️ *Voice logs* — speak your log, we transcribe it\n` +
+      `${STORAGE_PRICE_LABEL}\n` +
       `Ready to level up your logbook? 👇`,
     {
       parse_mode: "Markdown",
-      reply_markup: new InlineKeyboard()
-        .text("🏦 Pay via Bank Transfer", "pay_manual")
-        .row()
-        .text("Maybe later 👋", "nav_menu"),
-    }
+      reply_markup: new InlineKeyboard().text("✨ Let's Gooo", "pay_paystack"),
+    },
   );
 }
 
-// ── "Pay with Paystack 💳" callback ─────────────────────────────────────────
-export async function handlePayPaystack(ctx: BotContext) {
+export async function handlePayPaystack(ctx: BotContext): Promise<void> {
   await ctx.answerCallbackQuery();
 
   const telegramId = BigInt(ctx.from!.id);
+  const user = await prisma.user.findUnique({
+    where: { telegramId },
+    select: { id: true, storageUnlocked: true, nextRenewalDate: true, paymentEmail: true },
+  });
 
-  // Check if user is already Pro
-  const user = await prisma.user.findUnique({ where: { telegramId } });
-  if (user?.isPro) {
-    await ctx.reply("You're already on Pro! 👑 Keep slaying those logs 🔥");
+  if (!user) return;
+
+  if (user.storageUnlocked && (!user.nextRenewalDate || user.nextRenewalDate >= new Date())) {
+    await ctx.reply("🔓 Your storage is already unlocked.");
     return;
   }
 
-  await ctx.reply("Generating your payment link, one sec... ⏳");
+  if (!user.paymentEmail) {
+    clearActiveFlow(ctx.session);
+    ctx.session.awaitingPaymentEmail = true;
+    startFlow(ctx.session);
+    await ctx.reply("Before payment, we need your email to send your receipt.");
+    return;
+  }
+
+  await ctx.reply("Generating your secure payment link, one sec...⏳");
 
   try {
-    const { authorization_url, reference } = await initializeTransaction(telegramId);
+    const { authorization_url, reference } = await initializeTransaction(telegramId, user.paymentEmail);
+    ctx.session.pendingPaystackRef = reference;
 
     await ctx.reply(
-      `Here's your secure payment link 🔐\n\nReference: \`${reference}\``,
+      `Paystack link ready ✅\n\nReference: \`${reference}\``,
       {
         parse_mode: "Markdown",
-        reply_markup: new InlineKeyboard()
-          .url("Pay ₦5,000 💳", authorization_url)
-          .row()
-          .text("I've paid ✅", "check_payment")
-          .text("Cancel ❌", "nav_menu"),
-      }
+        reply_markup: unlockKeyboard(authorization_url),
+      },
     );
   } catch (err) {
-    console.error("Paystack initializeTransaction failed:", err);
+    console.error("[payments] initializeTransaction failed:", err);
     captureReplayError(telegramId, err, "handlePayPaystack", ctx.chat?.id);
-    await ctx.reply(
-      "Oops! Couldn't generate a payment link right now. Please try again in a moment 🙏"
-    );
+    await ctx.reply("I couldn't generate a payment link right now. Please try again in a moment.");
   }
 }
 
-// ── "I've paid ✅" callback — manual check nudge ─────────────────────────────
-export async function handleCheckPayment(ctx: BotContext) {
-  await ctx.answerCallbackQuery();
-  const telegramId = BigInt(ctx.from!.id);
-  const user = await prisma.user.findUnique({ where: { telegramId } });
-
-  if (user?.isPro) {
-    await ctx.reply(
-      "You're already Pro! 👑 Your logbook is about to be legendary ✨"
-    );
-  } else {
-    await ctx.reply(
-      "We haven't received your payment confirmation yet 🔄\n\n" +
-        "Paystack will notify us automatically once your payment is confirmed. " +
-        "If you completed the payment, it should reflect within a minute. " +
-        "If you're stuck, reach out for support 🙏"
-    );
-  }
-}
-
-// ── "Pay via Bank Transfer 🏦" callback ──────────────────────────────────────
-export async function handlePayManual(ctx: BotContext) {
+export async function handleCheckPayment(ctx: BotContext): Promise<void> {
   await ctx.answerCallbackQuery();
 
   const telegramId = BigInt(ctx.from!.id);
-  const user = await prisma.user.findUnique({ where: { telegramId } });
+  const user = await prisma.user.findUnique({
+    where: { telegramId },
+    select: { id: true, firstName: true, storageUnlocked: true, nextRenewalDate: true },
+  });
 
-  if (user?.isPro) {
-    await ctx.reply("You're already on Pro! 👑 Keep slaying those logs 🔥");
+  if (!user) return;
+
+  if (user.storageUnlocked && (!user.nextRenewalDate || user.nextRenewalDate >= new Date())) {
+    await ctx.reply("🎉 Payment confirmed. Your storage is already unlocked.");
     return;
   }
 
-  await ctx.reply(
-    `*🏦 Bank Transfer Payment*\n\n` +
-      `Please transfer *${BANK_TRANSFER_AMOUNT}* to the account below:\n\n` +
-      `🏛 *Bank:* ${BANK_NAME}\n` +
-      `💳 *Account Number:* \`${BANK_ACCOUNT_NUMBER}\`\n` +
-      `👤 *Account Name:* ${BANK_ACCOUNT_NAME}\n\n` +
-      `Once you've sent the money, tap the button below and we'll verify it manually ⬇️`,
-    {
-      parse_mode: "Markdown",
-      reply_markup: new InlineKeyboard()
-        .text("✅ I've sent it!", "manual_sent")
-        .row()
-        .text("Cancel ❌", "nav_menu"),
+  const reference = ctx.session.pendingPaystackRef;
+  if (!reference) {
+    await ctx.reply(
+      "I couldn't find a pending payment reference in this chat. Tap Unlock again and complete payment from the new link.",
+    );
+    return;
+  }
+
+  try {
+    const result = await verifyTransaction(reference);
+    if (result.status !== "success") {
+      await ctx.reply(
+        "Payment is not confirmed yet. If you just paid, wait a minute and tap `I've paid` again.",
+      );
+      return;
     }
-  );
-}
 
-// ── "I've sent it!" callback — asks for sender account name before notifying admin ───
-export async function handleManualSent(ctx: BotContext) {
-  await ctx.answerCallbackQuery();
+    await activateStorageForUser(user.id);
 
-  const telegramId = BigInt(ctx.from!.id);
-  const user = await prisma.user.findUnique({ where: { telegramId } });
-
-  if (!user) {
-    await ctx.reply("Something went wrong. Please try again 🙏");
-    return;
-  }
-
-  if (user.isPro) {
-    await ctx.reply("You're already on Pro! 👑");
-    return;
-  }
-
-  // Check if there's already a pending request from this user
-  const existing = await prisma.manualPayment.findFirst({
-    where: { userId: user.id, status: "pending" },
-  });
-
-  if (existing) {
     await ctx.reply(
-      "⏳ Your payment is already being reviewed. We'll notify you once it's approved. Hang tight!"
+      `🎉 *Storage unlocked, ${user.firstName}!*\n\n` +
+        `You're all set for the next 30 days 🔓\n\n` +
+        `Your logs are flowing again - plus you've got unlimited voice logs and AI refinements now. Go make today's log count 💪`,
+      {
+        parse_mode: "Markdown",
+        reply_markup: new InlineKeyboard().text("✍️ Write today's log", "nav_write"),
+      },
     );
-    return;
+
+    await ctx.reply("Main menu updated 👇", {
+      reply_markup: getMainMenuKeyboard(true),
+    });
+  } catch (err) {
+    console.error("[payments] verifyTransaction failed:", err);
+    captureReplayError(telegramId, err, "handleCheckPayment", ctx.chat?.id);
+    await ctx.reply(
+      "I couldn't verify that payment right now. If you paid successfully, Paystack webhook will unlock you automatically shortly.",
+    );
   }
+}
 
-  // Create pending record now so we have an ID ready
-  const payment = await prisma.manualPayment.create({
-    data: { userId: user.id, status: "pending" },
-  });
-
-  // Store in session and ask for sender name
-  clearActiveFlow(ctx.session);
-  ctx.session.pendingManualPaymentId = payment.id;
-  ctx.session.awaitingPaymentSenderName = true;
-  startFlow(ctx.session);
-
+export async function handlePayManual(ctx: BotContext): Promise<void> {
+  await ctx.answerCallbackQuery();
   await ctx.reply(
-    `✅ *Transfer recorded!*\n\n` +
-      `One quick thing — what is the *account name* on the account you sent the money from?\n\n` +
-      `_(e.g. "John Doe")_`,
-    { parse_mode: "Markdown" }
+    "🏦 Bank transfer has been retired. Please use Paystack to unlock storage instantly.",
+    {
+      reply_markup: new InlineKeyboard().text("💳 Pay with Paystack", "pay_paystack"),
+    },
   );
 }
 
-// ── Text handler — captures sender account name, then notifies admin ────────
-// Returns true if the message was consumed by this flow.
-export async function handlePaymentSenderNameText(ctx: BotContext): Promise<boolean> {
-  if (!ctx.session.awaitingPaymentSenderName) return false;
+export async function handleManualSent(ctx: BotContext): Promise<void> {
+  await ctx.answerCallbackQuery();
+  await ctx.reply(
+    "Manual confirmation is no longer supported. Tap below to pay via Paystack.",
+    {
+      reply_markup: new InlineKeyboard().text("💳 Pay with Paystack", "pay_paystack"),
+    },
+  );
+}
+
+export async function handleAdminApprove(ctx: BotContext): Promise<void> {
+  await ctx.answerCallbackQuery("Manual payments are disabled.");
+}
+
+export async function handleAdminReject(ctx: BotContext): Promise<void> {
+  await ctx.answerCallbackQuery("Manual payments are disabled.");
+}
+
+export async function handlePaymentEmailText(ctx: BotContext): Promise<boolean> {
+  if (!ctx.session.awaitingPaymentEmail) return false;
   if (isFlowExpired(ctx.session)) return false;
 
-  ctx.session.awaitingPaymentSenderName = false;
-  const paymentId = ctx.session.pendingManualPaymentId;
-  ctx.session.pendingManualPaymentId = undefined;
-
-  const senderName = ctx.message?.text?.trim() ?? "(not provided)";
-  const telegramId = BigInt(ctx.from!.id);
-  const user = await prisma.user.findUnique({ where: { telegramId } });
-
-  if (!user || !paymentId) {
-    await ctx.reply("Something went wrong. Please try again 🙏");
+  const email = (ctx.message?.text ?? "").trim().toLowerCase();
+  if (!isValidEmail(email)) {
+    await ctx.reply("That email looks invalid. Please send a valid email address.");
     return true;
   }
 
-  // Confirm to user
+  ctx.session.awaitingPaymentEmail = false;
+  ctx.session.pendingPaymentEmail = email;
+
+  const telegramId = BigInt(ctx.from!.id);
+  await prisma.user.update({ where: { telegramId }, data: { paymentEmail: email } });
+
   await ctx.reply(
-    `🙏 *We've got your details!*\n\n` +
-      `Your payment is now being reviewed. ` +
-      `You'll get a message here as soon as it's approved ✅`,
-    { parse_mode: "Markdown" }
+    `✅ Saved! We'll use *${email}* for future payments.`,
+    { parse_mode: "Markdown" },
   );
 
-  // Notify admin
-  if (!ADMIN_ID) {
-    console.warn("[payments] ADMIN_TELEGRAM_ID is not set – skipping admin notification");
-    return true;
-  }
-
-  const userName = user.username ? `@${user.username}` : user.firstName;
   try {
-    await ctx.api.sendMessage(
-      ADMIN_ID,
-      `💰 <b>New Manual Payment Request</b>\n\n` +
-        `👤 <b>User:</b> ${userName} (ID: <code>${user.telegramId}</code>)\n` +
-        `🏦 <b>Sent from account:</b> ${senderName}\n` +
-        `💳 <b>Amount:</b> ${BANK_TRANSFER_AMOUNT}\n` +
-        `🆔 <b>Payment ID:</b> <code>${paymentId}</code>\n\n` +
-        `Did you receive this transfer?`,
+    const { authorization_url, reference } = await initializeTransaction(telegramId, email);
+    ctx.session.pendingPaystackRef = reference;
+    await ctx.reply(
+      `Paystack link ready ✅\n\nReference: \`${reference}\``,
       {
-        parse_mode: "HTML",
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: "✅ Approve", callback_data: `mpay_approve_${paymentId}` },
-              { text: "❌ Reject", callback_data: `mpay_reject_${paymentId}` },
-            ],
-          ],
-        },
-      }
+        parse_mode: "Markdown",
+        reply_markup: unlockKeyboard(authorization_url),
+      },
     );
-    console.log(`[payments] Admin notified for payment ${paymentId} from user ${user.id}`);
   } catch (err) {
-    console.error("[payments] Failed to notify admin:", err);
-    captureReplayError(telegramId, err, "handlePaymentSenderNameText:adminNotify", ctx.chat?.id);
+    console.error("[payments] initializeTransaction after email capture failed:", err);
+    captureReplayError(telegramId, err, "handlePaymentEmailText:init", ctx.chat?.id);
+    await ctx.reply("I couldn't generate a payment link right now. Please try again in a moment.");
   }
 
   return true;
-}
-
-// ── Admin: Approve manual payment ────────────────────────────────────────────
-export async function handleAdminApprove(ctx: BotContext) {
-  await ctx.answerCallbackQuery();
-
-  const data = ctx.callbackQuery?.data ?? "";
-  const paymentId = parseInt(data.replace("mpay_approve_", ""), 10);
-
-  const payment = await prisma.manualPayment.findUnique({
-    where: { id: paymentId },
-    include: { user: true },
-  });
-
-  if (!payment) {
-    await ctx.reply("Payment record not found.");
-    return;
-  }
-
-  if (payment.status !== "pending") {
-    await ctx.reply(`This payment has already been ${payment.status}.`);
-    return;
-  }
-
-  // Activate Pro
-  await prisma.$transaction([
-    prisma.manualPayment.update({ where: { id: paymentId }, data: { status: "approved" } }),
-    prisma.user.update({ where: { id: payment.userId }, data: { isPro: true } }),
-  ]);
-
-  // Notify user
-  await ctx.api.sendMessage(
-    Number(payment.user.telegramId),
-    `🎉 *You're now on Wisa Pro!*\n\n` +
-      `Your bank transfer has been confirmed. Welcome to the Pro club 👑\n\n` +
-      `Enjoy unlimited AI refinements, voice logs, and more!`,
-    { parse_mode: "Markdown" }
-  );
-
-  // Update admin message
-  await ctx.editMessageText(
-    `✅ Approved — ${payment.user.username ? `@${payment.user.username}` : payment.user.firstName} is now Pro.`
-  );
-}
-
-// ── Admin: Reject manual payment ─────────────────────────────────────────────
-export async function handleAdminReject(ctx: BotContext) {
-  await ctx.answerCallbackQuery();
-
-  const data = ctx.callbackQuery?.data ?? "";
-  const paymentId = parseInt(data.replace("mpay_reject_", ""), 10);
-
-  const payment = await prisma.manualPayment.findUnique({
-    where: { id: paymentId },
-    include: { user: true },
-  });
-
-  if (!payment) {
-    await ctx.reply("Payment record not found.");
-    return;
-  }
-
-  if (payment.status !== "pending") {
-    await ctx.reply(`This payment has already been ${payment.status}.`);
-    return;
-  }
-
-  await prisma.manualPayment.update({ where: { id: paymentId }, data: { status: "rejected" } });
-
-  // Notify user
-  await ctx.api.sendMessage(
-    Number(payment.user.telegramId),
-    `❌ *Payment Not Confirmed*\n\n` +
-      `We couldn't verify your transfer of ${BANK_TRANSFER_AMOUNT}.\n\n` +
-      `Please double-check the account details and try again, or reach out if you think this is a mistake 🙏`,
-    { parse_mode: "Markdown" }
-  );
-
-  // Update admin message
-  await ctx.editMessageText(
-    `❌ Rejected — ${payment.user.username ? `@${payment.user.username}` : payment.user.firstName}'s payment was declined.`
-  );
 }

@@ -1,14 +1,15 @@
 import axios from "axios";
+import { STORAGE_PLAN_AMOUNT_KOBO } from "../utils/constants";
 
 const PAYSTACK_BASE = "https://api.paystack.co";
 const headers = { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` };
 
-export async function initializeTransaction(telegramId: bigint) {
+export async function initializeTransaction(telegramId: bigint, email: string) {
   const res = await axios.post(
     `${PAYSTACK_BASE}/transaction/initialize`,
     {
-      amount: 500000, // ₦5,000 in kobo
-      email: `${telegramId}@wisa.app`,
+      amount: STORAGE_PLAN_AMOUNT_KOBO,
+      email,
       metadata: { telegramId: telegramId.toString() },
     },
     { headers }

@@ -7,6 +7,7 @@ import { captureReplayError } from "./replayCapture";
 import { getLocalDayOfWeek } from "../utils/dateHelpers";
 import type { BotContext, SessionData } from "../bot/types";
 import { parseISO } from "date-fns";
+import { canCreateLog, FREE_LOG_LIMIT, getStorageLimitReachedAfterSaveText, getStorageWallText, hasActiveStorage } from "../bot/monetization";
 
 // ---------------------------------------------------------------------------
 // Weekly Recap — exported so the admin router can trigger it on-demand.
@@ -186,6 +187,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
   let autoSnoozeCronRunning = false;
   let onboardingNudgeCronRunning = false;
   let autoSaveCronRunning = false;
+  let renewalCronRunning = false;
 
   // ── 5.1 — Fire due reminders (every minute) ───────────────────────────────
   cron.schedule("* * * * *", async () => {
@@ -539,6 +541,90 @@ export function startScheduler(bot: Bot<BotContext>): void {
     }
   });
 
+  // ── Storage renewal reminder + lapse lock — 8 PM Lagos (19:00 UTC) ─────
+  cron.schedule("0 19 * * *", async () => {
+    if (renewalCronRunning) {
+      console.log("[scheduler] Renewal cron still running — skipping");
+      return;
+    }
+    renewalCronRunning = true;
+
+    try {
+      const lagosToday = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Africa/Lagos",
+      }).format(new Date());
+
+      const yesterday = new Date();
+      yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+      const lagosYesterday = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Africa/Lagos",
+      }).format(yesterday);
+
+      const renewalCandidates = await prisma.user.findMany({
+        where: {
+          onboardingDone: true,
+          botBlocked: false,
+          nextRenewalDate: { not: null },
+        },
+        select: {
+          id: true,
+          telegramId: true,
+          firstName: true,
+          storageUnlocked: true,
+          nextRenewalDate: true,
+          logCount: true,
+        },
+      });
+
+      for (const user of renewalCandidates) {
+        const renewalDate = user.nextRenewalDate;
+        if (!renewalDate) continue;
+        const renewalLocalDate = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Africa/Lagos",
+        }).format(renewalDate);
+
+        if (user.storageUnlocked && renewalLocalDate === lagosToday) {
+          await bot.api.sendMessage(
+            Number(user.telegramId),
+            `Hey ${user.firstName} 👋\n\n` +
+              `Your Wisa storage renews today - just ₦1,000 to keep everything going for another month 🗓️\n\n` +
+              `Your ${user.logCount || ""} logs are still safe. Just tap below to keep the streak alive 🙏`,
+            {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: "🔓 Renew - ₦1,000", callback_data: "go_pro" }]                ],
+              },
+            },
+          ).catch(() => {});
+          continue;
+        }
+
+        if (user.storageUnlocked && renewalLocalDate === lagosYesterday) {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { storageUnlocked: false, isPro: false },
+          });
+
+          await bot.api.sendMessage(
+            Number(user.telegramId),
+            `📦 Hey ${user.firstName}, just a reminder - your Wisa storage expired yesterday.\n\n` +
+              `Your logs are all still there and readable. But new ones can't be saved until you renew 🙏\n\n` +
+              `₦1,000 gets you another full month.`,
+            {
+              reply_markup: {
+                inline_keyboard: [[{ text: "🔓 Renew now", callback_data: "go_pro" }]],
+              },
+            },
+          ).catch(() => {});
+        }
+      }
+    } catch (err) {
+      console.error("[scheduler] Renewal cron error:", err);
+    } finally {
+      renewalCronRunning = false;
+    }
+  });
+
   // ── Replay event cleanup — runs daily at 3:00 AM ──────────────────────────
   cron.schedule("0 3 * * *", async () => {
     try {
@@ -600,6 +686,33 @@ export function startScheduler(bot: Bot<BotContext>): void {
             });
             if (!dbUser) continue;
 
+            if (!canCreateLog(dbUser)) {
+              await bot.api.sendMessage(
+                chatId,
+                getStorageWallText(dbUser),
+                {
+                  parse_mode: "Markdown",
+                  reply_markup: {
+                    inline_keyboard: [[{ text: "🔓 Unlock storage - ₦1,000", callback_data: "go_pro" }]],
+                  },
+                },
+              ).catch(() => {});
+
+              session.awaitingLog = false;
+              session.pendingLogParts = [];
+              session.pendingLogDate = undefined;
+              session.flowStartedAt = undefined;
+              session.lastLogMessageAt = undefined;
+              session.autoSavePromptSent = undefined;
+
+              await prisma.session.update({
+                where: { id: row.id },
+                data: { value: JSON.stringify(session) },
+              });
+
+              continue;
+            }
+
             const fullText = session.pendingLogParts.join("\n\n").trim();
             if (!fullText) continue;
 
@@ -607,14 +720,28 @@ export function startScheduler(bot: Bot<BotContext>): void {
               ? parseISO(session.pendingLogDate)
               : new Date();
 
-            const savedLog = await prisma.log.create({
-              data: {
-                userId: dbUser.id,
-                content: fullText,
-                logDate,
-                isVoice: false,
-              },
-            });
+            const [savedLog, updatedUser] = await prisma.$transaction([
+              prisma.log.create({
+                data: {
+                  userId: dbUser.id,
+                  content: fullText,
+                  logDate,
+                  isVoice: false,
+                },
+              }),
+              prisma.user.update({
+                where: { id: dbUser.id },
+                data: { logCount: { increment: 1 } },
+                select: {
+                  id: true,
+                  firstName: true,
+                  isPro: true,
+                  storageUnlocked: true,
+                  logCount: true,
+                  nextRenewalDate: true,
+                },
+              }),
+            ]);
 
             console.log(
               `[auto-save] Saved log #${savedLog.id} for user ${dbUser.id} (${fullText.split(/\s+/).length} words, idle ${Math.round(idleMs / 60000)}m)`,
@@ -650,6 +777,15 @@ export function startScheduler(bot: Bot<BotContext>): void {
                   },
                 },
               );
+
+              if (!hasActiveStorage(updatedUser) && updatedUser.logCount === FREE_LOG_LIMIT) {
+                await bot.api.sendMessage(chatId, getStorageLimitReachedAfterSaveText(), {
+                  parse_mode: "Markdown",
+                  reply_markup: {
+                    inline_keyboard: [[{ text: "🔓 Unlock storage - ₦1,000", callback_data: "go_pro" }]],
+                  },
+                });
+              }
             } catch (sendErr) {
               console.error(`[auto-save] Failed to notify chat ${chatId}:`, sendErr);
             }

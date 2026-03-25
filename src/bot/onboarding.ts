@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma";
 import { sendScene } from "../utils/constants";
 import { localTimeToUtc, hasLocalTimePassed } from "../utils/dateHelpers";
 import type { BotContext } from "./types";
+import { hasActiveStorage } from "./monetization";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -15,12 +16,24 @@ type OnboardingConversation = Conversation<BotContext, BotContext>;
 // Helpers
 // ---------------------------------------------------------------------------
 
-export const MAIN_MENU_KEYBOARD = new Keyboard()
+const MAIN_MENU_BASE = new Keyboard()
   .text("✍️ Write today's log").row()
   .text("📖 See my logs").text("💬 Leave feedback").row()
   .text("✨ AI Refine").text("⚙️ Settings")
   .resized()
   .persistent();
+
+const MAIN_MENU_WITH_PRO = new Keyboard()
+  .text("✍️ Write today's log").row()
+  .text("📖 See my logs").text("💬 Leave feedback").row()
+  .text("✨ AI Refine").text("👑 Go Pro").row()
+  .text("⚙️ Settings")
+  .resized()
+  .persistent();
+
+export function getMainMenuKeyboard(storageUnlocked: boolean): Keyboard {
+  return storageUnlocked ? MAIN_MENU_BASE : MAIN_MENU_WITH_PRO;
+}
 
 /**
  * Create a SINGLE next ReminderJob for a user.
@@ -144,7 +157,7 @@ export async function onboardingConversation(conversation: OnboardingConversatio
   });
 
   // Render the persistent main menu keyboard
-  await ctx.reply("Your main menu is ready 👇", { reply_markup: MAIN_MENU_KEYBOARD });
+  await ctx.reply("Your main menu is ready 👇", { reply_markup: getMainMenuKeyboard(false) });
 }
 
 // ---------------------------------------------------------------------------
@@ -160,7 +173,9 @@ export async function handleStart(ctx: BotContext) {
   const existing = await prisma.user.findUnique({ where: { telegramId } });
 
   if (existing?.onboardingDone) {
-    await ctx.reply(`Welcome back, ${firstName}! 👋`, { reply_markup: MAIN_MENU_KEYBOARD });
+    await ctx.reply(`Welcome back, ${firstName}! 👋`, {
+      reply_markup: getMainMenuKeyboard(hasActiveStorage(existing)),
+    });
     return;
   }
 

@@ -18,10 +18,14 @@ model User {
   telegramId         BigInt          @unique
   firstName          String
   username           String?
+  paymentEmail       String?
   logFrequency       String          // "daily" | "bi-daily" | "every-3-days" | "weekly"
   reminderTime       String          // "HH:MM" in 24hr format
   timezone           String          @default("Africa/Lagos")
-  isPro              Boolean         @default(false)
+  isPro              Boolean         @default(false) // legacy compatibility flag
+  storageUnlocked    Boolean         @default(false)
+  logCount           Int             @default(0)
+  nextRenewalDate    DateTime?
   freeAiRefinements  Int             @default(3)
   freeVoiceLogs      Int             @default(3)
   onboardingDone     Boolean         @default(false)
