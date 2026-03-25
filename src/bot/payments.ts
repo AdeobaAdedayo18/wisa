@@ -24,7 +24,7 @@ export async function activateStorageForUser(userId: number, renewalDate = new D
 function unlockKeyboard(url?: string): InlineKeyboard {
   const kb = new InlineKeyboard();
   if (url) kb.url("💳 Pay with Paystack", url).row();
-  return kb.text("I've paid ✅", "check_payment").row().text("Maybe later", "nav_menu");
+  return kb;
 }
 
 export async function handleGoPro(ctx: BotContext): Promise<void> {
@@ -47,11 +47,11 @@ export async function handleGoPro(ctx: BotContext): Promise<void> {
     await ctx.reply(
       `🔓 *Unlock Wisa Storage*\n\n` +
       `Here's what you get:\n\n` +
-      `📊 *Unlimited log storage* — we've got your back\n\n` +
+      `📊 *Unlimited log storage* — we've got your back\n` +
       `✨ *Unlimited AI refinements* — polish every log entry\n` +
       `🎙️ *Voice logs* — speak your log, we transcribe it\n` +
-      `${STORAGE_PRICE_LABEL}\n` +
-        `Before payment, we need your email to send your receipt`,
+      `${STORAGE_PRICE_LABEL}\n\n` +
+        `Before payment, we need your email to send your receipt, type and send below`,
       { parse_mode: "Markdown" },
     );
     return;
@@ -152,7 +152,7 @@ export async function handleCheckPayment(ctx: BotContext): Promise<void> {
     await activateStorageForUser(user.id);
 
     await ctx.reply(
-      `🎉 *Storage unlocked, ${user.firstName}!*\n\n` +
+      `👑 *Welcome to the Pro club, ${user.firstName}!*\n\n` +
         `You're all set for the next 30 days 🔓\n\n` +
         `Your logs are flowing again - plus you've got unlimited voice logs and AI refinements now. Go make today's log count 💪`,
       {
@@ -161,7 +161,7 @@ export async function handleCheckPayment(ctx: BotContext): Promise<void> {
       },
     );
 
-    await ctx.reply("Main menu updated 👇", {
+    await ctx.reply("🎉Let's Goo", {
       reply_markup: getMainMenuKeyboard(true),
     });
   } catch (err) {
