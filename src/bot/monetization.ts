@@ -2,7 +2,7 @@ import { InlineKeyboard } from "grammy";
 import { prisma } from "../lib/prisma";
 import type { BotContext } from "./types";
 
-export const FREE_LOG_LIMIT = 20;
+export const FREE_LOG_LIMIT = 15;
 export const STORAGE_PRICE_LABEL = "₦1,000/month";
 
 export type MonetizationUser = {
