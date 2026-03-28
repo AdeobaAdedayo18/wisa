@@ -158,6 +158,7 @@ export async function showViewCalendar(
   ctx: BotContext,
   year?: number,
   month?: number,
+  opts?: { mode?: "auto" | "reply" | "edit" },
 ): Promise<void> {
   const telegramId = BigInt(ctx.from!.id);
   const dbUser = await prisma.user.findUnique({ where: { telegramId } });
@@ -190,11 +191,17 @@ export async function showViewCalendar(
     `🗓️ *${format(new Date(y, m, 1), "MMMM yyyy")}*\n\n` +
     `✅ = has a log  Tap a day to read it.`;
 
+  const mode = opts?.mode ?? "auto";
+  const shouldEdit = mode === "edit" || (mode === "auto" && Boolean(ctx.callbackQuery));
+
   if (ctx.callbackQuery) {
+    await ctx.answerCallbackQuery().catch(() => {});
+  }
+
+  if (shouldEdit) {
     await ctx
       .editMessageText(headerText, { parse_mode: "Markdown", reply_markup: kb })
       .catch(() => ctx.reply(headerText, { parse_mode: "Markdown", reply_markup: kb }));
-    await ctx.answerCallbackQuery();
   } else {
     await ctx.reply(headerText, { parse_mode: "Markdown", reply_markup: kb });
   }

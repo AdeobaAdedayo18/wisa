@@ -191,6 +191,10 @@ bot.callbackQuery("nav_calendar", async (ctx) => {
   await ctx.answerCallbackQuery();
   return showViewCalendar(ctx);
 });
+bot.callbackQuery("weekly_nav_calendar", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  return showViewCalendar(ctx, undefined, undefined, { mode: "reply" });
+});
 bot.callbackQuery("nav_logs", async (ctx) => {
   await ctx.answerCallbackQuery();
   return showViewCalendar(ctx);
@@ -198,6 +202,10 @@ bot.callbackQuery("nav_logs", async (ctx) => {
 bot.callbackQuery("nav_past_log", async (ctx) => {
   await ctx.answerCallbackQuery();
   return showPastLogCalendar(ctx);
+});
+bot.callbackQuery("weekly_nav_past_log", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  return showPastLogCalendar(ctx, undefined, undefined, { mode: "reply" });
 });
 bot.callbackQuery("nav_menu", async (ctx) => {
   await ctx.answerCallbackQuery();

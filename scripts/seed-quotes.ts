@@ -30,7 +30,31 @@ const quotes: { weekNumber: number; quote: string; attribution?: string }[] = [
       "Don't be dead weight, if they are not giving you things to do, find problems and things you can do and then ask to do them and then you deliver on what you say, keep in mind most of these people are very busy so you have to be very persistent",
     attribution: undefined,
   },
-
+   {
+    weekNumber: 3,
+    quote:
+      "Build rapport with your team and make sure you don't act like an intern. Behave like you belong there.",
+    attribution: undefined,
+  },
+  {
+   weekNumber: 4,
+   quote:
+     "Make sure to build good genuine relationships with your team, for me I still talk to my line-manager till today and I did my internship over 6 years ago.",
+   attribution: undefined,
+ },
+   {
+    weekNumber: 5,
+    quote:
+      "Be open to work, but don't overwork yourself, you are just there for 6 months.",
+    attribution: undefined,
+  },
+   {
+    weekNumber: 6,
+    quote:
+      "Some companies might be toxic, learn how to indentify them and know how to manage them.",
+    attribution: undefined,
+  },
+  
   // ── Add more quotes below as the weeks go on ────────────────────────────
 
   // {

@@ -150,8 +150,8 @@ export async function sendWeeklyRecap(bot: Bot<BotContext>): Promise<{ sent: num
       // ── Inline keyboard — one button, text depends on completion ────────
       const keyboard: Array<Array<{ text: string; callback_data: string }>> =
         loggedCount === 5
-          ? [[{ text: "📖 See my logs", callback_data: "nav_calendar" }]]
-          : [[{ text: "📝 Fill in missed days", callback_data: "nav_past_log" }]];
+          ? [[{ text: "📖 See my logs", callback_data: "weekly_nav_calendar" }]]
+          : [[{ text: "📝 Fill in missed days", callback_data: "weekly_nav_past_log" }]];
 
       await bot.api.sendMessage(Number(user.telegramId), message, {
         parse_mode: "Markdown",
