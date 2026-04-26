@@ -91,13 +91,65 @@ export async function handleSettingsTimeSelect(ctx: BotContext) {
 
 export async function handleSettingsFreq(ctx: BotContext) {
   await ctx.answerCallbackQuery();
-  await ctx.reply("📅 How often do you want to log?", {
-    reply_markup: new InlineKeyboard()
-      .text("Every day", "stg_freq_daily")
-      .text("Every 2 days", "stg_freq_bi-daily").row()
-      .text("Every 3 days", "stg_freq_every-3-days")
-      .text("Once a week", "stg_freq_weekly"),
+  const telegramId = BigInt(ctx.from!.id);
+  const user = await prisma.user.findUnique({
+    where: { telegramId },
+    select: { logFrequency: true },
   });
+
+  if (!user) {
+    await ctx.reply("Couldn't find your account. Try /start.");
+    return;
+  }
+
+  const isBiDaily = user.logFrequency === "bi-daily";
+  const nextFreqLabel = isBiDaily ? "Daily" : "Every 2 Days";
+  const nextCallback = isBiDaily ? "set_freq_daily" : "set_freq_2days";
+
+  await ctx.reply(
+    `📅 *Change log frequency*\n\nYou're currently on *${FREQ_LABELS[user.logFrequency] ?? user.logFrequency}*.`,
+    {
+      parse_mode: "Markdown",
+      reply_markup: new InlineKeyboard()
+        .text(`Switch to ${nextFreqLabel}`, nextCallback)
+        .row()
+        .text("⚙️ Back to Settings", "settings_menu")
+        .text("🏠 Menu", "nav_menu"),
+    },
+  );
+}
+
+async function updateFrequencyAndReschedule(
+  ctx: BotContext,
+  logFrequency: "daily" | "bi-daily",
+): Promise<void> {
+  await ctx.answerCallbackQuery();
+  const telegramId = BigInt(ctx.from!.id);
+
+  const user = await prisma.user.update({
+    where: { telegramId },
+    data: { logFrequency },
+  });
+
+  // Replace all pending AND stale sent jobs with a fresh schedule at the same reminder time
+  await prisma.reminderJob.deleteMany({
+    where: { userId: user.id, status: { in: ["pending", "sent"] } },
+  });
+  await createInitialReminderJobs(user.id, telegramId, logFrequency, user.reminderTime, user.timezone);
+
+  const cadenceText = logFrequency === "daily" ? "day" : "2 days";
+  await ctx.reply(
+    `Done! I'll now remind you every ${cadenceText}. 🗓️`,
+    { reply_markup: SETTINGS_BACK_KB },
+  );
+}
+
+export async function handleSettingsFreqDaily(ctx: BotContext): Promise<void> {
+  await updateFrequencyAndReschedule(ctx, "daily");
+}
+
+export async function handleSettingsFreq2Days(ctx: BotContext): Promise<void> {
+  await updateFrequencyAndReschedule(ctx, "bi-daily");
 }
 
 export async function handleSettingsFreqSelect(ctx: BotContext) {
