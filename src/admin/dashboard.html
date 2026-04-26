@@ -236,6 +236,93 @@
     }
     .section-body { max-height: 280px; overflow-y: auto; }
 
+    /* ── Analytics ───────────────────────────────────────────────── */
+    #analytics-view {
+      display: grid;
+      gap: 14px;
+    }
+    .analytics-hero {
+      background: var(--s2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+    }
+    .analytics-hero h2 {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--t1);
+      margin-bottom: 6px;
+    }
+    .analytics-hero p {
+      font-size: 13px;
+      color: var(--t2);
+      max-width: 760px;
+    }
+    .analytics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1rem;
+    }
+    .bucket-card {
+      background: var(--s2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+      display: grid;
+      gap: 10px;
+    }
+    .bucket-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .bucket-icon {
+      font-size: 20px;
+      line-height: 1;
+    }
+    .bucket-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--t1);
+    }
+    .bucket-desc {
+      font-size: 12px;
+      color: var(--t3);
+    }
+    .bucket-metrics {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12px;
+      color: var(--t2);
+      flex-wrap: wrap;
+    }
+    .bucket-metrics strong {
+      color: var(--t1);
+      font-weight: 600;
+    }
+    .bucket-rate {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--t3);
+    }
+    .progress-bar {
+      width: 100%;
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.08);
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.05);
+    }
+    .progress-fill {
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #06b6d4 0%, #7c3aed 100%);
+      transition: width .35s ease;
+    }
+
     .user-row {
       display: flex; align-items: center; gap: 12px;
       padding: 11px 20px;
@@ -894,6 +981,9 @@
       <div class="nav-item active" data-panel="overview" onclick="setPanel('overview')">
         <span class="nav-icon">📊</span> Overview
       </div>
+      <div class="nav-item" data-panel="analytics" onclick="setPanel('analytics')">
+        <span class="nav-icon">📈</span> Analytics
+      </div>
       <div class="nav-item" data-panel="users" onclick="setPanel('users')">
         <span class="nav-icon">👥</span> Users
       </div>
@@ -997,6 +1087,19 @@
         </div>
 
       </div><!-- /panel-overview -->
+
+      <!-- ── ANALYTICS ─────────────────────────────────────────────── -->
+      <div id="panel-analytics" class="panel">
+        <div id="analytics-view">
+          <div class="analytics-hero">
+            <h2>Messaging Strategy Performance</h2>
+            <p>Tracking which psychological triggers and time-of-day buckets get the highest response rate.</p>
+          </div>
+          <div id="analytics-bucket-wrap">
+            <div class="loading-row">Loading…</div>
+          </div>
+        </div>
+      </div><!-- /panel-analytics -->
 
       <!-- ── USERS ──────────────────────────────────────────────────── -->
       <div id="panel-users" class="panel">
@@ -1258,6 +1361,7 @@
 const API = '/admin/api';
 const PANEL_TITLES = {
   overview: 'Overview',
+  analytics: 'Analytics',
   users: 'Users',
   logs: 'Logs',
   payments: 'Payments',
@@ -1311,6 +1415,7 @@ function setPanel(name) {
 async function loadPanel(name) {
   switch (name) {
     case 'overview':  return loadOverview();
+    case 'analytics': return loadAnalytics();
     case 'users':     return loadUsers();
     case 'logs':      return loadLogs();
     case 'payments':  return loadPayments();
@@ -1600,6 +1705,93 @@ function renderStatCards(s) {
       <div class="card-sub">${c.sub}</div>
     </div>
   `).join('');
+}
+
+function renderAnalyticsBucketTable(s) {
+  const wrap = document.getElementById('analytics-bucket-wrap');
+  if (!wrap) return;
+
+  const BUCKET_META = {
+    MORNING: {
+      icon: '🌅',
+      title: 'Morning Motivation',
+      desc: 'Sent 5am - 12pm. Upbeat, active notification.',
+    },
+    AFTERNOON_SILENT: {
+      icon: '🤫',
+      title: 'Afternoon Stealth',
+      desc: 'Sent 12pm - 5pm. Silent, motivational nudge.',
+    },
+    NIGHT: {
+      icon: '🌙',
+      title: 'Night FOMO',
+      desc: 'Sent 5pm+. Active notification using social proof.',
+    },
+    GHOST: {
+      icon: '👻',
+      title: 'Ghost Rescue',
+      desc: "Sent to users who haven't logged in 3+ days.",
+    },
+  };
+
+  const cards = (s?.reminders?.byBucket || []).map((r) => {
+    const meta = BUCKET_META[r.bucket] || {
+      icon: '📦',
+      title: r.bucket,
+      desc: 'Unknown bucket configuration.',
+    };
+    const rate = Math.max(0, Math.min(100, Number(r.conversionRate || 0)));
+
+    return `
+      <article class="bucket-card">
+        <div class="bucket-head">
+          <div class="bucket-icon">${meta.icon}</div>
+          <div class="bucket-title">${escHtml(meta.title)}</div>
+        </div>
+        <p class="bucket-desc">${escHtml(meta.desc)}</p>
+        <div class="bucket-metrics">
+          <div>Delivered: <strong>${fmt(r.sent)}</strong></div>
+          <div>Action Taken: <strong>${fmt(r.converted)}</strong> <span title="Action taken means they clicked 'Write my log'.">(clicked "Write my log")</span></div>
+        </div>
+        <div class="bucket-rate">
+          <span>Success Rate</span>
+          <strong>${rate.toFixed(1)}%</strong>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" style="width:${rate}%"></div>
+        </div>
+      </article>
+    `;
+  }).join('');
+
+  if (!cards) {
+    wrap.innerHTML = `
+      <div class="empty-state" style="padding:18px 0">
+        <div class="empty-icon">📭</div>
+        No bucket conversion data yet.
+      </div>
+    `;
+    return;
+  }
+
+  wrap.innerHTML = `
+    <div class="analytics-grid">${cards}</div>
+  `;
+}
+
+async function loadAnalytics() {
+  const wrap = document.getElementById('analytics-bucket-wrap');
+  wrap.innerHTML = `<div class="loading-row">Loading…</div>`;
+
+  try {
+    const stats = await api('/stats');
+    state.stats = stats;
+    renderAnalyticsBucketTable(stats);
+    markUpdated();
+  } catch (err) {
+    wrap.innerHTML = `<div class="loading-row" style="color:var(--red)">Error: ${escHtml(err.message)}</div>`;
+    toast('Failed to load analytics: ' + err.message, 'error');
+  }
 }
 
 function renderLoggedToday(logs) {
