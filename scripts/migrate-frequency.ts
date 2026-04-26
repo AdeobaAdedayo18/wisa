@@ -17,7 +17,7 @@ function delay(ms: number): Promise<void> {
 
 function buildMessage(firstName?: string | null): string {
   const safeName = firstName?.trim() ? firstName : "there";
-  return `hey ${safeName} 👋
+  return `Hey ${safeName} 👋
 Quick update on how Wisa works!
 
 We've noticed that the students who log the most consistently are on a daily reminder — so we've moved everyone to daily reminders to help you build that habit and keep your logbook as complete as possible 📅
