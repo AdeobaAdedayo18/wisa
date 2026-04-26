@@ -1,4 +1,4 @@
-nimport "dotenv/config";
+import "dotenv/config";
 import { Bot } from "grammy";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/prisma/client";
@@ -50,8 +50,13 @@ async function main(): Promise<void> {
     return;
   }
 
+  const targetsForMessage = users.filter((user) => user.logFrequency !== "daily");
+
   console.log(
     `[migration] Starting frequency migration for ${users.length} user(s). Dry run: ${IS_DRY_RUN ? "yes" : "no"}`,
+  );
+  console.log(
+    `[migration] Found ${users.length} users. ${targetsForMessage.length} need the broadcast.`,
   );
 
   // Update all target users to daily first.
@@ -64,10 +69,10 @@ async function main(): Promise<void> {
   let successCount = 0;
   let failCount = 0;
 
-  for (let i = 0; i < users.length; i++) {
-    const user = users[i];
+  for (let i = 0; i < targetsForMessage.length; i++) {
+    const user = targetsForMessage[i];
     const label = user.firstName?.trim() || "there";
-    const prefix = `[${i + 1}/${users.length}]`;
+    const prefix = `[${i + 1}/${targetsForMessage.length}]`;
 
     try {
       await bot.api.sendMessage(Number(user.telegramId), buildMessage(user.firstName));
@@ -82,7 +87,7 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    `[migration] Complete. Success: ${successCount}, Failed: ${failCount}, Total: ${users.length}`,
+    `[migration] Complete. Success: ${successCount}, Failed: ${failCount}, Broadcast Targets: ${targetsForMessage.length}, Total Synced: ${users.length}`,
   );
 }
 
