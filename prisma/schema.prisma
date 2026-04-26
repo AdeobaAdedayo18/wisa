@@ -68,6 +68,8 @@ model ReminderJob {
   snoozeCount    Int      @default(0)
   autoNudgeCount Int      @default(0)
   logDate        String?  // ISO date "YYYY-MM-DD" the reminder is for (user's local date)
+  bucketSent     String?
+  convertedAt    DateTime?
   createdAt      DateTime @default(now())
 }
 

@@ -4,21 +4,106 @@ import { localTimeToUtc, skipWeekend } from "../utils/dateHelpers";
 import { sendScene } from "../utils/constants";
 import { startLogging } from "./logging";
 import type { BotContext } from "./types";
-
 // ---------------------------------------------------------------------------
-// Reminder message copy (Scene 5 caption)
+// Dynamic Reminder Message Copy (Time & Ghost Aware)
 // ---------------------------------------------------------------------------
-
-const REMINDER_MESSAGES = [
-  `📝 *Time to log your day!*\n\nWhat did you work on today? Even a few sentences counts. Your future self will thank you 🙌`,
-  `✍️ *Log time!*\n\nYour SIWES diary is waiting. What happened at work today?`,
-  `📖 *Hey, logbook check-in!*\n\nDon't let today's wins go unrecorded. Write your log now 🚀`,
-  `🗒️ *Daily log reminder*\n\nTake 2 minutes to capture today's work activities. You've got this 💪`,
+export const MORNING_GREETINGS = [
+  `🌅 *Good morning!* Wishing you a highly productive day at work. You've got this!`,
+  `☀️ *Rise and grind!* Step into today with energy. Have an amazing day!`,
+  `🚀 *Good morning!* Another day to learn, build, and grow. Make it count today!`,
+  `☕️ *Morning!* Get out there and smash your goals today. (And take mental notes for your log later!)`,
+  `🌟 *Good morning!* Go out and be great today. We are rooting for you 🙌`,
+  `💼 *New day, new wins!* Have a fantastic day at work. Don't forget to observe what you do today!`,
+  `🌤 *Good morning!* Walk in there like you own the place. You belong in that office 💪`,
+  `🎒 *Today is another chapter.* Pay attention — the things you learn today are worth writing down tonight.`,
+  `🔋 *Fully charged and ready?* Good. Go show them what you're made of. Big day ahead!`,
+  `🌞 *Morning!* Even if today feels slow, show up fully. The best logs come from the days you least expected.`,
+  `💡 *Good morning!* Ask one question at work today you've been holding back. Then log what you learned 📝`,
+  `🏃 *Up and at it!* The intern that shows up with energy stands out. Go be that person today.`,
 ];
 
-export function getReminderMessage(): string {
-  return REMINDER_MESSAGES[Math.floor(Math.random() * REMINDER_MESSAGES.length)];
+export const MOTIVATIONAL_SHORTS = [
+  `⚡️ *Little drops of water...* One log a day completes your SIWES journey. Let's go!`,
+  `💪 *Consistency is your superpower.* Keep the momentum going and write today's entry!`,
+  `🎯 *You did the work, now claim the credit.* Update your logbook and close out the day strong.`,
+  `📝 *Empty logbooks don't win awards.* Even a single sentence is progress! Just write something.`,
+  `🚀 *Secure the bag!* A consistent logbook is proof of your hard work. Don't leave today blank.`,
+  `🧠 *Memory fades, but databases last forever.* Log your tasks now before you go to sleep!`,
+  `✍️ *Small habits, massive results.* Take exactly 2 minutes to document your day right now.`,
+  `📖 *Your future self is counting on you.* Write the log today so you're not guessing at your defence tomorrow.`,
+  `🏆 *The work already happened.* All you have to do now is write it down. That part is easy.`,
+  `🔒 *Lock it in.* Today's experience is worth keeping. Don't let it slip through the cracks.`,
+  `🌱 *Growth you don't document is growth you can't prove.* Two minutes. Write it down.`,
+  `👀 *Your supervisor wants to see receipts.* A full, consistent logbook is the receipt. Stay consistent.`,
+  `📅 *Don't break the chain.* You've come this far — one more entry keeps the streak alive.`,
+  `⏳ *Before you sleep tonight,* take 2 minutes to tell Wisa what happened today. That's it. That's the whole task.`,
+];
+
+export const NIGHT_FOMO_NUDGES = [
+  `🌍 *Over 100+ people have already updated their logbooks today.* Don't be the only one left behind—join them!`,
+  `🔥 *You're in good company!* 120+ interns just saved their daily logs. Secure your own record right now.`,
+  `⚠️ *Procrastination is a trap!* Write your log now while it's fresh. Future you will be so grateful when submission time comes.`,
+  `📈 *The community is moving!* 100+ interns just saved their daily logs. Tap below to write yours now.`,
+  `🏆 *Top performers don't skip days.* Over 100 people have logged today. Are you one of them?`,
+  `🌙 *The day is almost over.* Most of your fellow IT students have already logged. Don't go to sleep empty-handed.`,
+  `💬 *Right now, hundreds of students are writing their logs.* It takes less time than scrolling Twitter. Join them.`,
+  `😴 *Don't sleep on this.* Literally — log before you sleep. Tomorrow you won't remember the details like you do right now.`,
+  `📲 *Quick check:* did you log today? 100+ students already did. 30 seconds and you're caught up.`,
+  `🕯 *End the day right.* A quick log before bed is all it takes to stay ahead. You're almost there.`,
+];
+
+export const GHOST_CHECK_INS = [
+  `👀 *Long time no see!* Your SIWES logbook is gathering dust. Work getting busy? Drop a quick 1-sentence update so you don't lose your record!`,
+  `👻 *Did you ghost us?* Over 150+ students are keeping their streaks alive. It takes exactly 60 seconds to catch up. Tap below!`,
+  `🚨 *Streak at risk!* You haven't logged in a few days. The longer you wait, the harder it is to remember. Just write one thing you did this week!`,
+  `🫣 *We noticed you've been quiet.* No judgement — IT gets hectic. But your logbook still needs you. One sentence is enough to get back on track.`,
+  `📭 *Your log history has a gap in it.* It's not too late to fill it in. Go back to any missed day and write what you remember before it fades.`,
+  `🔔 *Hey, we miss you!* A lot has probably happened at work since you last logged. Don't let it all disappear — even a quick summary counts.`,
+  `🧩 *Something is missing from your logbook.* That something is you. Come back, even if it's just for today.`,
+  `⏰ *Time check:* every day you don't log is a day you'll have to make up at your defence. The easiest time to write it is always right now.`,
+];
+/**
+ * Returns a dynamic message and a boolean indicating if it should be sent silently.
+ * @param reminderTime Format "HH:mm" (e.g., "08:00")
+ * @param daysSinceLastLog Number of days since the user's last log
+ */
+export function getReminderMessage(
+  localHour: number,
+  daysSinceLastLog: number
+): { text: string; isSilent: boolean; bucket: string } {
+  if (daysSinceLastLog > 3) {
+    // Ghost protocol: Active notification
+    return {
+      text: GHOST_CHECK_INS[Math.floor(Math.random() * GHOST_CHECK_INS.length)],
+      isSilent: false,
+      bucket: "GHOST",
+    };
+  }
+
+  if (localHour >= 5 && localHour < 12) {
+    // Morning: Active notification
+    return {
+      text: MORNING_GREETINGS[Math.floor(Math.random() * MORNING_GREETINGS.length)],
+      isSilent: false,
+      bucket: "MORNING",
+    };
+  } else if (localHour >= 12 && localHour < 17) {
+    // Afternoon: Silent sneak attack
+    return {
+      text: MOTIVATIONAL_SHORTS[Math.floor(Math.random() * MOTIVATIONAL_SHORTS.length)],
+      isSilent: true,
+      bucket: "AFTERNOON_SILENT",
+    };
+  } else {
+    // Night: Active FOMO
+    return {
+      text: NIGHT_FOMO_NUDGES[Math.floor(Math.random() * NIGHT_FOMO_NUDGES.length)],
+      isSilent: false,
+      bucket: "NIGHT",
+    };
+  }
 }
+
 
 // ---------------------------------------------------------------------------
 // Schedule the NEXT ReminderJob for a user after a job fires
@@ -86,11 +171,15 @@ export async function handleSnooze(ctx: BotContext): Promise<void> {
     return;
   }
 
+  const user = await prisma.user.findUnique({
+    where: { id: job.userId },
+    select: { timezone: true },
+  });
+  const userTz = user?.timezone ?? "Africa/Lagos";
+
   // Check if the user already logged today before sending any nudge
-  const todayStart = new Date();
-  todayStart.setUTCHours(0, 0, 0, 0);
-  const tomorrowStart = new Date(todayStart);
-  tomorrowStart.setUTCDate(tomorrowStart.getUTCDate() + 1);
+  const todayStart = localTimeToUtc("00:00", userTz, 0);
+  const tomorrowStart = localTimeToUtc("00:00", userTz, 1);
 
   const todayLog = await prisma.log.findFirst({
     where: { userId: job.userId, logDate: { gte: todayStart, lt: tomorrowStart } },
@@ -131,12 +220,6 @@ export async function handleSnooze(ctx: BotContext): Promise<void> {
     // Create a new job 30 minutes from NOW — only check for nearby pending jobs
     const snoozedUntil = new Date(Date.now() + 30 * 60 * 1000);
 
-    // Mark original job as snoozed (stops auto-nudge too)
-    await prisma.reminderJob.update({
-      where: { id: jobId },
-      data: { snoozeCount: newSnoozeCount, status: "snoozed", autoNudgeCount: 3 },
-    });
-
     // Only check for pending jobs within the next 2 hours to avoid blocking
     // on next-day scheduled jobs. This prevents duplicate snooze jobs
     // while allowing snooze + next-day to coexist.
@@ -149,18 +232,33 @@ export async function handleSnooze(ctx: BotContext): Promise<void> {
       },
     });
 
-    if (!existingNearPending) {
-      await prisma.reminderJob.create({
-        data: {
-          userId: job.userId,
-          telegramId: job.telegramId,
-          scheduledFor: snoozedUntil,
-          status: "pending",
-          snoozeCount: newSnoozeCount,
-          autoNudgeCount: 0, // reset auto-nudge for the new job
-          logDate: job.logDate, // carry forward the original log date
-        },
+    try {
+      // Mark original job as snoozed (stops auto-nudge too)
+      await prisma.reminderJob.update({
+        where: { id: jobId },
+        data: { snoozeCount: newSnoozeCount, status: "snoozed", autoNudgeCount: 3 },
       });
+
+      if (!existingNearPending) {
+        await prisma.reminderJob.create({
+          data: {
+            userId: job.userId,
+            telegramId: job.telegramId,
+            scheduledFor: snoozedUntil,
+            status: "pending",
+            snoozeCount: newSnoozeCount,
+            autoNudgeCount: 0, // reset auto-nudge for the new job
+            logDate: job.logDate, // carry forward the original log date
+          },
+        });
+      }
+    } catch (e) {
+      // Rollback so the user isn't stranded without a reminder
+      await prisma.reminderJob.update({
+        where: { id: jobId },
+        data: { status: "pending" },
+      });
+      throw e;
     }
 
     await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
@@ -209,9 +307,13 @@ export async function handleWriteFromReminder(ctx: BotContext): Promise<void> {
 
   // Mark the job as interacted-with so auto-nudge stops
   try {
+    const job = await prisma.reminderJob.findUnique({ where: { id: jobId } });
     await prisma.reminderJob.update({
       where: { id: jobId },
-      data: { autoNudgeCount: 3 }, // stops auto-nudge; status stays "sent"
+      data: {
+        autoNudgeCount: 3,
+        convertedAt: job?.convertedAt ? undefined : new Date(),
+      }, // stops auto-nudge; status stays "sent"
     });
   } catch {
     // Job might not exist or already be in a different state — that's fine

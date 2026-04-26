@@ -50,6 +50,8 @@ import {
   handleSettingsTime,
   handleSettingsTimeSelect,
   handleSettingsFreq,
+  handleSettingsFreqDaily,
+  handleSettingsFreq2Days,
   handleSettingsFreqSelect,
   handleSettingsSub,
   handleCancelSubPrompt,
@@ -164,6 +166,8 @@ bot.callbackQuery("settings_menu", handleSettingsMenu);
 bot.callbackQuery("settings_time", handleSettingsTime);
 bot.callbackQuery(/^stg_time_\d{2}:\d{2}$/, handleSettingsTimeSelect);
 bot.callbackQuery("settings_freq", handleSettingsFreq);
+bot.callbackQuery("set_freq_daily", handleSettingsFreqDaily);
+bot.callbackQuery("set_freq_2days", handleSettingsFreq2Days);
 bot.callbackQuery(/^stg_freq_/, handleSettingsFreqSelect);
 bot.callbackQuery("settings_sub", handleSettingsSub);
 bot.callbackQuery("settings_cancel_sub", handleCancelSubPrompt);

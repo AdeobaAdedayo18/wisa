@@ -130,6 +130,20 @@ router.get("/api/stats", async (_req: Request, res: Response): Promise<void> => 
       prisma.reminderJob.count({ where: { status: "skipped" } }),
     ]);
 
+    const reminderBucketRows = await prisma.reminderJob.groupBy({
+      by: ["bucketSent"],
+      where: { bucketSent: { not: null } },
+      _count: { _all: true, convertedAt: true },
+      orderBy: { bucketSent: "asc" },
+    });
+
+    const byBucket = reminderBucketRows.map((row) => ({
+      bucket: row.bucketSent!,
+      sent: row._count._all,
+      converted: row._count.convertedAt,
+      conversionRate: row._count._all ? (row._count.convertedAt / row._count._all) * 100 : 0,
+    }));
+
     res.json({
       users: {
         total: totalUsers,
@@ -161,6 +175,7 @@ router.get("/api/stats", async (_req: Request, res: Response): Promise<void> => 
         sent: sentReminders,
         snoozed: snoozedReminders,
         skipped: skippedReminders,
+        byBucket,
       },
     });
   } catch (err) {
