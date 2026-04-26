@@ -4,9 +4,9 @@ import { prisma } from "../lib/prisma";
 import { getReminderMessage, scheduleNextJob } from "../bot/reminders";
 import { sendSceneViaApi } from "../utils/constants";
 import { captureReplayError } from "./replayCapture";
-import { getLocalDayOfWeek } from "../utils/dateHelpers";
+import { getLocalDayOfWeek, localTimeToUtc } from "../utils/dateHelpers";
 import type { BotContext, SessionData } from "../bot/types";
-import { parseISO } from "date-fns";
+import { parseISO, differenceInDays } from "date-fns";
 import { canCreateLog, FREE_LOG_LIMIT, getStorageLimitReachedAfterSaveText, getStorageWallText, hasActiveStorage } from "../bot/monetization";
 
 // ---------------------------------------------------------------------------
@@ -198,121 +198,176 @@ export function startScheduler(bot: Bot<BotContext>): void {
     reminderCronRunning = true;
 
     try {
-    const blockedUserIds = await prisma.user
-      .findMany({ where: { botBlocked: true }, select: { id: true } })
-      .then((rows) => rows.map((r) => r.id));
-
-    const dueJobs = await prisma.reminderJob.findMany({
-      where: {
-        status: "pending",
-        scheduledFor: { lte: new Date() },
-        ...(blockedUserIds.length > 0 && { userId: { notIn: blockedUserIds } }),
-      },
-    });
-
-    // ── Deduplicate: only process ONE job per user (the earliest) ────────
-    const bestJobByUser = new Map<number, (typeof dueJobs)[0]>();
-    const duplicateJobIds: number[] = [];
-
-    for (const job of dueJobs) {
-      const existing = bestJobByUser.get(job.userId);
-      if (!existing || job.scheduledFor < existing.scheduledFor) {
-        if (existing) duplicateJobIds.push(existing.id);
-        bestJobByUser.set(job.userId, job);
-      } else {
-        duplicateJobIds.push(job.id);
-      }
-    }
-
-    // Silently retire all duplicate due-jobs
-    if (duplicateJobIds.length > 0) {
+      // ── Sweeper: Recover orphaned jobs stuck in the atomic lock ────────
+      const staleClaimCutoff = new Date(Date.now() - 10 * 60 * 1000);
       await prisma.reminderJob.updateMany({
-        where: { id: { in: duplicateJobIds } },
-        data: { status: "skipped" },
+        where: {
+          status: "snoozed",
+          autoNudgeCount: 0, // Ensures we don't accidentally revert actual user snoozes
+          scheduledFor: { lte: staleClaimCutoff },
+        },
+        data: { status: "pending" },
       });
-      console.log(`[scheduler] Retired ${duplicateJobIds.length} duplicate due jobs`);
-    }
 
-    for (const [, job] of bestJobByUser) {
-      try {
-        // ── Skip if user already wrote a log today ───────────────────────
-        const todayStart = new Date();
-        todayStart.setUTCHours(0, 0, 0, 0);
-        const tomorrowStart = new Date(todayStart);
-        tomorrowStart.setUTCDate(tomorrowStart.getUTCDate() + 1);
+      const blockedUserIds = await prisma.user
+        .findMany({ where: { botBlocked: true }, select: { id: true } })
+        .then((rows) => rows.map((r) => r.id));
 
-        const todayLog = await prisma.log.findFirst({
-          where: { userId: job.userId, logDate: { gte: todayStart, lt: tomorrowStart } },
-        });
+      const dueJobs = await prisma.reminderJob.findMany({
+        where: {
+          status: "pending",
+          scheduledFor: { lte: new Date() },
+          ...(blockedUserIds.length > 0 && { userId: { notIn: blockedUserIds } }),
+        },
+      });
 
-        if (todayLog) {
-          // Already logged — silently retire this job and queue the next
-          await prisma.reminderJob.update({ where: { id: job.id }, data: { status: "sent" } });
-          await scheduleNextJob(job.userId, job.telegramId);
-          console.log(`[scheduler] Skipped reminder for user ${job.userId} — already logged today`);
-          continue;
-        }
+      // ── Deduplicate: only process ONE job per user (the earliest) ────────
+      const bestJobByUser = new Map<number, (typeof dueJobs)[0]>();
+      const duplicateJobIds: number[] = [];
 
-        // ── Skip if today is a weekend (Sat/Sun) in user's timezone ──────
-        const userForTz = await prisma.user.findUnique({ where: { id: job.userId }, select: { timezone: true } });
-        const userTz = userForTz?.timezone ?? "Africa/Lagos";
-        const localDow = getLocalDayOfWeek(new Date(), userTz);
-        if (localDow === 0 || localDow === 6) {
-          await prisma.reminderJob.update({ where: { id: job.id }, data: { status: "skipped" } });
-          await scheduleNextJob(job.userId, job.telegramId);
-          console.log(`[scheduler] Skipped reminder for user ${job.userId} — weekend (${localDow === 6 ? "Sat" : "Sun"})`);
-          continue;
-        }
-
-        // Compute log date in user's timezone for the "Write my log" button
-        const logDate = job.logDate
-          ?? new Intl.DateTimeFormat("en-CA", { timeZone: userTz }).format(job.scheduledFor);
-
-        await sendSceneViaApi(
-          bot.api,
-          Number(job.telegramId),
-          "scene5",
-          getReminderMessage(),
-          {
-            inline_keyboard: [
-              [{ text: "✍️ Write my log", callback_data: `write_log_${job.id}_${logDate}` }],
-              [{ text: "⏳ Remind me in 30 mins", callback_data: `snooze_${job.id}` }],
-              [{ text: "🙈 Skip today", callback_data: `skip_${job.id}` }],
-            ],
-          },
-        );
-
-        // Store computed logDate on the job for auto-nudge messages later
-        await prisma.reminderJob.update({
-          where: { id: job.id },
-          data: { status: "sent", logDate },
-        });
-
-        // Queue the next scheduled job (guard inside prevents duplicates)
-        await scheduleNextJob(job.userId, job.telegramId);
-      } catch (e: unknown) {
-        // If the user blocked the bot, mark them so and cancel all their pending jobs
-        const isBotBlocked =
-          e instanceof Error &&
-          e.message.includes("bot was blocked by the user");
-
-        if (isBotBlocked) {
-          console.warn(`[scheduler] User ${job.userId} blocked the bot — disabling reminders`);
-          await prisma.user.update({
-            where: { id: job.userId },
-            data: { botBlocked: true },
-          });
-          await prisma.reminderJob.updateMany({
-            where: { userId: job.userId, status: { in: ["pending", "snoozed"] } },
-            data: { status: "skipped" },
-          });
+      for (const job of dueJobs) {
+        const existing = bestJobByUser.get(job.userId);
+        if (!existing || job.scheduledFor < existing.scheduledFor) {
+          if (existing) duplicateJobIds.push(existing.id);
+          bestJobByUser.set(job.userId, job);
         } else {
-          console.error(`[scheduler] Failed to send reminder for job ${job.id}:`, e);
-          captureReplayError(job.telegramId, e, "scheduler:sendReminder");
+          duplicateJobIds.push(job.id);
         }
       }
-    }
 
+      // Silently retire all duplicate due-jobs
+      if (duplicateJobIds.length > 0) {
+        await prisma.reminderJob.updateMany({
+          where: { id: { in: duplicateJobIds } },
+          data: { status: "skipped" },
+        });
+        console.log(`[scheduler] Retired ${duplicateJobIds.length} duplicate due jobs`);
+      }
+
+      for (const [, job] of bestJobByUser) {
+        try {
+          // ── Skip if today is a weekend (Sat/Sun) in user's timezone ──────
+          // *UPDATED: We also fetch reminderTime here for the new getReminderMessage function
+          const userForTz = await prisma.user.findUnique({ 
+            where: { id: job.userId }, 
+            select: { timezone: true, reminderTime: true } 
+          });
+          const userTz = userForTz?.timezone ?? "Africa/Lagos";
+
+          // ── Skip if user already wrote a log today ───────────────────────
+          const todayStart = localTimeToUtc("00:00", userTz, 0);
+          const tomorrowStart = localTimeToUtc("00:00", userTz, 1);
+
+          const todayLog = await prisma.log.findFirst({
+            where: { userId: job.userId, logDate: { gte: todayStart, lt: tomorrowStart } },
+          });
+
+          if (todayLog) {
+            // Already logged — silently retire this job and queue the next
+            await prisma.reminderJob.update({ where: { id: job.id }, data: { status: "sent" } });
+            await scheduleNextJob(job.userId, job.telegramId);
+            console.log(`[scheduler] Skipped reminder for user ${job.userId} — already logged today`);
+            continue;
+          }
+
+          const localDow = getLocalDayOfWeek(new Date(), userTz);
+          if (localDow === 0 || localDow === 6) {
+            await prisma.reminderJob.update({ where: { id: job.id }, data: { status: "skipped" } });
+            await scheduleNextJob(job.userId, job.telegramId);
+            console.log(`[scheduler] Skipped reminder for user ${job.userId} — weekend (${localDow === 6 ? "Sat" : "Sun"})`);
+            continue;
+          }
+
+          // ── GHOST CHECK: Calculate days since last log ───────────────────
+          const lastLog = await prisma.log.findFirst({
+            where: { userId: job.userId },
+            orderBy: { logDate: "desc" },
+          });
+
+          const nowTime = new Date();
+          const daysSinceLastLog = lastLog 
+            ? differenceInDays(nowTime, lastLog.logDate) 
+            : 99; // Default to 99 if they've never logged
+
+          // ── MARKETING STRATEGY: Get dynamic message & silence mode ───────
+          const localHour = Number(
+            new Intl.DateTimeFormat("en-US", {
+              timeZone: userTz,
+              hour: "2-digit",
+              hour12: false,
+            }).format(nowTime),
+          );
+          const { text, isSilent, bucket } = getReminderMessage(localHour, daysSinceLastLog);
+
+          // Compute log date in user's timezone for the "Write my log" button
+          const logDate = job.logDate
+            ?? new Intl.DateTimeFormat("en-CA", { timeZone: userTz }).format(job.scheduledFor);
+
+          const claim = await prisma.reminderJob.updateMany({
+            where: { id: job.id, status: "pending" },
+            data: { status: "snoozed" },
+          });
+          if (claim.count === 0) continue;
+
+          try {
+            await sendSceneViaApi(
+              bot.api,
+              Number(job.telegramId),
+              "scene5",
+              text, // Our new dynamic text
+              {
+                inline_keyboard: [
+                  [{ text: "✍️ Write my log", callback_data: `write_log_${job.id}_${logDate}` }],
+                  [{ text: "⏳ Remind me in 30 mins", callback_data: `snooze_${job.id}` }],
+                  [{ text: "🙈 Skip today", callback_data: `skip_${job.id}` }],
+                ],
+              },
+              isSilent // Passing the silence flag to our helper
+            );
+
+            // Store computed logDate on the job for auto-nudge messages later
+            await prisma.reminderJob.update({
+              where: { id: job.id },
+              data: { status: "sent", logDate, bucketSent: bucket },
+            });
+
+            // Queue the next scheduled job (guard inside prevents duplicates)
+            await scheduleNextJob(job.userId, job.telegramId);
+          } catch (e: unknown) {
+            await prisma.reminderJob.update({
+              where: { id: job.id },
+              data: { status: "pending" },
+            });
+            throw e;
+          }
+        } catch (e: unknown) {
+          // If the user blocked the bot, mark them so and cancel all their pending jobs
+          const isBotBlocked =
+            e instanceof Error &&
+            e.message.includes("bot was blocked by the user");
+
+          if (isBotBlocked) {
+            console.warn(`[scheduler] User ${job.userId} blocked the bot — disabling reminders`);
+            try {
+              await prisma.user.update({
+                where: { id: job.userId },
+                data: { botBlocked: true },
+              });
+              await prisma.reminderJob.updateMany({
+                where: { userId: job.userId, status: { in: ["pending", "snoozed"] } },
+                data: { status: "skipped" },
+              });
+            } catch (dbErr) {
+              console.error("[scheduler] Failed to persist botBlocked state:", dbErr);
+            }
+          } else {
+            console.error(`[scheduler] Failed to send reminder for job ${job.id}:`, e);
+            captureReplayError(job.telegramId, e, "scheduler:sendReminder");
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[scheduler] Reminder cron error:", err);
     } finally {
       reminderCronRunning = false;
     }
@@ -346,146 +401,152 @@ export function startScheduler(bot: Bot<BotContext>): void {
     autoSnoozeCronRunning = true;
 
     try {
-    const now = new Date();
+      const now = new Date();
 
-    // Find "sent" jobs that still have auto-nudges remaining
-    const blockedUserIdsForNudge = await prisma.user
-      .findMany({ where: { botBlocked: true }, select: { id: true } })
-      .then((rows) => rows.map((r) => r.id));
+      // Find "sent" jobs that still have auto-nudges remaining
+      const blockedUserIdsForNudge = await prisma.user
+        .findMany({ where: { botBlocked: true }, select: { id: true } })
+        .then((rows) => rows.map((r) => r.id));
 
-    const sentJobs = await prisma.reminderJob.findMany({
-      where: {
-        status: "sent",
-        autoNudgeCount: { lt: 3 },
-        ...(blockedUserIdsForNudge.length > 0 && { userId: { notIn: blockedUserIdsForNudge } }),
-      },
-    });
-
-    // ── Deduplicate: only process ONE sent job per user (the latest) ─────
-    const bestSentByUser = new Map<number, (typeof sentJobs)[0]>();
-    const extraSentIds: number[] = [];
-
-    for (const job of sentJobs) {
-      const existing = bestSentByUser.get(job.userId);
-      if (!existing || job.scheduledFor > existing.scheduledFor) {
-        if (existing) extraSentIds.push(existing.id);
-        bestSentByUser.set(job.userId, job);
-      } else {
-        extraSentIds.push(job.id);
-      }
-    }
-
-    // Retire duplicate sent jobs
-    if (extraSentIds.length > 0) {
-      await prisma.reminderJob.updateMany({
-        where: { id: { in: extraSentIds } },
-        data: { status: "snoozed", autoNudgeCount: 3 },
+      const sentJobs = await prisma.reminderJob.findMany({
+        where: {
+          status: "sent",
+          autoNudgeCount: { lt: 3 },
+          ...(blockedUserIdsForNudge.length > 0 && { userId: { notIn: blockedUserIdsForNudge } }),
+        },
       });
-      console.log(`[scheduler] Retired ${extraSentIds.length} duplicate sent jobs`);
-    }
 
-    for (const [, job] of bestSentByUser) {
-      try {
-        // Timing check: is the next nudge due?
-        // Nudge N fires at scheduledFor + (N+1)*30 minutes
-        const nextNudgeAt = new Date(
-          job.scheduledFor.getTime() + (job.autoNudgeCount + 1) * 30 * 60 * 1000,
-        );
-        if (now < nextNudgeAt) continue; // not yet time for the next nudge
+      // ── Deduplicate: only process ONE sent job per user (the latest) ─────
+      const bestSentByUser = new Map<number, (typeof sentJobs)[0]>();
+      const extraSentIds: number[] = [];
 
-        // Re-check job status (might have changed since initial query)
-        const freshJob = await prisma.reminderJob.findUnique({ where: { id: job.id } });
-        if (!freshJob || freshJob.status !== "sent" || freshJob.autoNudgeCount >= 3) continue;
-
-        // ── Skip if user already wrote a log today ───────────────────────
-        const todayStart = new Date();
-        todayStart.setUTCHours(0, 0, 0, 0);
-        const tomorrowStart = new Date(todayStart);
-        tomorrowStart.setUTCDate(tomorrowStart.getUTCDate() + 1);
-
-        const todayLog = await prisma.log.findFirst({
-          where: { userId: freshJob.userId, logDate: { gte: todayStart, lt: tomorrowStart } },
-        });
-
-        if (todayLog) {
-          await prisma.reminderJob.update({
-            where: { id: freshJob.id },
-            data: { autoNudgeCount: 3 },
-          });
-          console.log(`[scheduler] Skipped auto-nudge for user ${freshJob.userId} — already logged today`);
-          continue;
-        }
-
-        const nudgeIndex = freshJob.autoNudgeCount; // 0, 1, or 2
-        const nudgeMessage = AUTO_NUDGE_MESSAGES[nudgeIndex];
-        const logDate = freshJob.logDate
-          ?? new Intl.DateTimeFormat("en-CA").format(freshJob.scheduledFor);
-
-        if (nudgeIndex === 2) {
-          // Final nudge — use Scene 6 for visual emphasis
-          await sendSceneViaApi(
-            bot.api,
-            Number(freshJob.telegramId),
-            "scene6",
-            nudgeMessage,
-            {
-              inline_keyboard: [
-                [{ text: "✍️ Write my log", callback_data: `write_log_${freshJob.id}_${logDate}` }],
-                [{ text: "🙈 Skip today", callback_data: `skip_${freshJob.id}` }],
-              ],
-            },
-          );
+      for (const job of sentJobs) {
+        const existing = bestSentByUser.get(job.userId);
+        if (!existing || job.scheduledFor > existing.scheduledFor) {
+          if (existing) extraSentIds.push(existing.id);
+          bestSentByUser.set(job.userId, job);
         } else {
-          // Nudge 1 & 2 — plain text (less intrusive than a photo)
-          await bot.api.sendMessage(
-            Number(freshJob.telegramId),
-            nudgeMessage,
-            {
-              reply_markup: {
+          extraSentIds.push(job.id);
+        }
+      }
+
+      // Retire duplicate sent jobs
+      if (extraSentIds.length > 0) {
+        await prisma.reminderJob.updateMany({
+          where: { id: { in: extraSentIds } },
+          data: { status: "snoozed", autoNudgeCount: 3 },
+        });
+        console.log(`[scheduler] Retired ${extraSentIds.length} duplicate sent jobs`);
+      }
+
+      for (const [, job] of bestSentByUser) {
+        try {
+          // Timing check: is the next nudge due?
+          // Nudge N fires at scheduledFor + (N+1)*30 minutes
+          const nextNudgeAt = new Date(
+            job.scheduledFor.getTime() + (job.autoNudgeCount + 1) * 30 * 60 * 1000,
+          );
+          if (now < nextNudgeAt) continue; // not yet time for the next nudge
+
+          // Re-check job status (might have changed since initial query)
+          const freshJob = await prisma.reminderJob.findUnique({ where: { id: job.id } });
+          if (!freshJob || freshJob.status !== "sent" || freshJob.autoNudgeCount >= 3) continue;
+
+          // ── Skip if user already wrote a log today ───────────────────────
+          const userForTz = await prisma.user.findUnique({
+            where: { id: freshJob.userId },
+            select: { timezone: true },
+          });
+          const userTz = userForTz?.timezone ?? "Africa/Lagos";
+
+          const todayStart = localTimeToUtc("00:00", userTz, 0);
+          const tomorrowStart = localTimeToUtc("00:00", userTz, 1);
+
+          const todayLog = await prisma.log.findFirst({
+            where: { userId: freshJob.userId, logDate: { gte: todayStart, lt: tomorrowStart } },
+          });
+
+          if (todayLog) {
+            await prisma.reminderJob.update({
+              where: { id: freshJob.id },
+              data: { autoNudgeCount: 3 },
+            });
+            console.log(`[scheduler] Skipped auto-nudge for user ${freshJob.userId} — already logged today`);
+            continue;
+          }
+
+          const nudgeIndex = freshJob.autoNudgeCount; // 0, 1, or 2
+          const nudgeMessage = AUTO_NUDGE_MESSAGES[nudgeIndex];
+          const logDate = freshJob.logDate
+            ?? new Intl.DateTimeFormat("en-CA").format(freshJob.scheduledFor);
+
+          if (nudgeIndex === 2) {
+            // Final nudge — use Scene 6 for visual emphasis
+            await sendSceneViaApi(
+              bot.api,
+              Number(freshJob.telegramId),
+              "scene6",
+              nudgeMessage,
+              {
                 inline_keyboard: [
                   [{ text: "✍️ Write my log", callback_data: `write_log_${freshJob.id}_${logDate}` }],
                   [{ text: "🙈 Skip today", callback_data: `skip_${freshJob.id}` }],
                 ],
               },
+            );
+          } else {
+            // Nudge 1 & 2 — plain text (less intrusive than a photo)
+            await bot.api.sendMessage(
+              Number(freshJob.telegramId),
+              nudgeMessage,
+              {
+                reply_markup: {
+                  inline_keyboard: [
+                    [{ text: "✍️ Write my log", callback_data: `write_log_${freshJob.id}_${logDate}` }],
+                    [{ text: "🙈 Skip today", callback_data: `skip_${freshJob.id}` }],
+                  ],
+                },
+              },
+            );
+          }
+
+          // Increment auto-nudge count; retire job after the 3rd nudge
+          const newAutoNudgeCount = freshJob.autoNudgeCount + 1;
+          await prisma.reminderJob.update({
+            where: { id: freshJob.id },
+            data: {
+              autoNudgeCount: newAutoNudgeCount,
+              ...(newAutoNudgeCount >= 3 && { status: "skipped" }),
             },
+          });
+
+          console.log(
+            `[scheduler] Auto-nudge #${newAutoNudgeCount} sent for user ${freshJob.userId} (job ${freshJob.id})`,
           );
-        }
+        } catch (e: unknown) {
+          const isBotBlocked =
+            e instanceof Error &&
+            e.message.includes("bot was blocked by the user");
 
-        // Increment auto-nudge count; retire job after the 3rd nudge
-        const newAutoNudgeCount = freshJob.autoNudgeCount + 1;
-        await prisma.reminderJob.update({
-          where: { id: freshJob.id },
-          data: {
-            autoNudgeCount: newAutoNudgeCount,
-            ...(newAutoNudgeCount >= 3 && { status: "skipped" }),
-          },
-        });
-
-        console.log(
-          `[scheduler] Auto-nudge #${newAutoNudgeCount} sent for user ${freshJob.userId} (job ${freshJob.id})`,
-        );
-      } catch (e: unknown) {
-        const isBotBlocked =
-          e instanceof Error &&
-          e.message.includes("bot was blocked by the user");
-
-        if (isBotBlocked) {
-          console.warn(`[scheduler] User ${job.userId} blocked the bot — disabling reminders (auto-nudge)`);
-          await prisma.user.update({
-            where: { id: job.userId },
-            data: { botBlocked: true },
-          });
-          await prisma.reminderJob.updateMany({
-            where: { userId: job.userId, status: { in: ["pending", "snoozed"] } },
-            data: { status: "skipped" },
-          });
-        } else {
-          console.error(`[scheduler] Auto-nudge failed for job ${job.id}:`, e);
-          captureReplayError(job.telegramId, e, "scheduler:autoNudge");
+          if (isBotBlocked) {
+            console.warn(`[scheduler] User ${job.userId} blocked the bot — disabling reminders (auto-nudge)`);
+            await prisma.user.update({
+              where: { id: job.userId },
+              data: { botBlocked: true },
+            });
+            await prisma.reminderJob.updateMany({
+              where: { userId: job.userId, status: { in: ["pending", "snoozed"] } },
+              data: { status: "skipped" },
+            });
+          } else {
+            console.error(`[scheduler] Auto-nudge failed for job ${job.id}:`, e);
+            captureReplayError(job.telegramId, e, "scheduler:autoNudge");
+          }
         }
       }
-    }
 
+    } catch (err) {
+      console.error("[scheduler] Auto-nudge cron error:", err);
     } finally {
       autoSnoozeCronRunning = false;
     }
@@ -536,6 +597,8 @@ export function startScheduler(bot: Bot<BotContext>): void {
           }
         }
       }
+    } catch (err) {
+      console.error("[scheduler] Onboarding nudge cron error:", err);
     } finally {
       onboardingNudgeCronRunning = false;
     }
