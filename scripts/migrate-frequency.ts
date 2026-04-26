@@ -1,15 +1,19 @@
 import "dotenv/config";
 import { Bot } from "grammy";
-import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../src/prisma/client";
+import { PrismaClient } from "../src/prisma/client"; 
 
-const IS_DRY_RUN = true;
+const IS_DRY_RUN = false; // 🚀 Set to false for the real production run
 const DRY_RUN_TELEGRAM_ID = BigInt("5448700494");
 const SEND_DELAY_MS = 100;
 
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
-const prisma = new PrismaClient({ adapter });
-const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN!);
+// Reverted to clean initialization. Railway will handle this perfectly.
+const prisma = new PrismaClient();
+
+const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN!, {
+  client: {
+    timeout: 30000, 
+  },
+});
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -26,10 +30,12 @@ Don't worry, your logs are safe and nothing else has changed 🙏
 
 If daily feels like too much for you, you can switch to every 2 days anytime from your settings — just tap ⚙️ Settings → Change log frequency
 
-let's keep those logs coming 🚀`;
+Let's keep those logs coming 🚀`;
 }
 
 async function main(): Promise<void> {
+  await prisma.$connect();
+
   const where = IS_DRY_RUN
     ? { telegramId: DRY_RUN_TELEGRAM_ID }
     : undefined;
@@ -59,7 +65,7 @@ async function main(): Promise<void> {
     `[migration] Found ${users.length} users. ${targetsForMessage.length} need the broadcast.`,
   );
 
-  // Update all target users to daily first.
+  // Update all target users to daily.
   const updated = await prisma.user.updateMany({
     ...(where ? { where } : {}),
     data: { logFrequency: "daily" },
