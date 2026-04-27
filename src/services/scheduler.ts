@@ -223,8 +223,10 @@ export function startScheduler(bot: Bot<BotContext>): void {
   let afternoonGreetingCronRunning = false;
 
   // ── Split broadcast greetings ────────────────────────────────────────────
-  // 8:00 AM job: send MORNING greetings to users who were not sent a morning
-  // greeting on their last greeting cycle. Bootstrap sends to 50% of null users.
+  // 8:00 AM job: send MORNING greetings to users whose previous greeting cycle
+  // ended in AFTERNOON (flip-flop). First-week bootstrap: if there are still
+  // zero MORNING users in the DB and no AFTERNOON candidates, seed 50% of
+  // null-history users to preserve the staggered split.
   cron.schedule("0 8 * * *", async () => {
     if (morningGreetingCronRunning) {
       console.log("[scheduler] Morning greeting cron still running — skipping");
@@ -245,22 +247,21 @@ export function startScheduler(bot: Bot<BotContext>): void {
 
       if (totalDailyUsers === 0) return;
 
-      const hasGreetingHistory =
-        (await prisma.user.count({
-          where: {
-            onboardingDone: true,
-            botBlocked: false,
-            logFrequency: "daily",
-            lastGreetingType: { in: [GreetingType.MORNING, GreetingType.AFTERNOON] },
-          },
-        })) > 0;
-
-      const eligibleUsers = await prisma.user.findMany({
+      const morningHistoryCount = await prisma.user.count({
         where: {
           onboardingDone: true,
           botBlocked: false,
           logFrequency: "daily",
-          OR: [{ lastGreetingType: null }, { lastGreetingType: { not: GreetingType.MORNING } }],
+          lastGreetingType: GreetingType.MORNING,
+        },
+      });
+
+      const afternoonCandidates = await prisma.user.findMany({
+        where: {
+          onboardingDone: true,
+          botBlocked: false,
+          logFrequency: "daily",
+          lastGreetingType: GreetingType.AFTERNOON,
           AND: [
             {
               OR: [{ lastGreetingSentAt: null }, { lastGreetingSentAt: { lt: startOfToday } }],
@@ -270,15 +271,36 @@ export function startScheduler(bot: Bot<BotContext>): void {
         select: { id: true, telegramId: true, lastGreetingType: true },
       });
 
-      let usersToMessage = eligibleUsers;
-      if (!hasGreetingHistory) {
-        const nullUsers = eligibleUsers.filter((u) => u.lastGreetingType === null);
-        const targetSize = Math.floor(nullUsers.length / 2);
-        usersToMessage = pickRandomSubset(nullUsers, targetSize);
+      let usersToMessage = afternoonCandidates;
+      let selectionPoolSize = afternoonCandidates.length;
+
+      // Bootstrap exception: before MORNING history exists, if no AFTERNOON
+      // candidates are available yet, seed half of null-history users.
+      if (morningHistoryCount === 0 && afternoonCandidates.length === 0) {
+        const bootstrapCandidates = await prisma.user.findMany({
+          where: {
+            onboardingDone: true,
+            botBlocked: false,
+            logFrequency: "daily",
+            lastGreetingType: null,
+            AND: [
+              {
+                OR: [{ lastGreetingSentAt: null }, { lastGreetingSentAt: { lt: startOfToday } }],
+              },
+            ],
+          },
+          select: { id: true, telegramId: true, lastGreetingType: true },
+        });
+
+        usersToMessage = pickRandomSubset(
+          bootstrapCandidates,
+          Math.floor(bootstrapCandidates.length / 2),
+        );
+        selectionPoolSize = bootstrapCandidates.length;
       }
 
       console.log(
-        `[scheduler] Morning shift: ${usersToMessage.length}/${eligibleUsers.length} eligible daily users selected`,
+        `[scheduler] Morning shift: ${usersToMessage.length}/${selectionPoolSize} users selected`,
       );
 
       for (const user of usersToMessage) {
@@ -290,7 +312,14 @@ export function startScheduler(bot: Bot<BotContext>): void {
               onboardingDone: true,
               botBlocked: false,
               logFrequency: "daily",
-              OR: [{ lastGreetingType: null }, { lastGreetingType: { not: GreetingType.MORNING } }],
+              OR: [
+                { lastGreetingType: GreetingType.AFTERNOON },
+                {
+                  AND: [
+                    { lastGreetingType: null },
+                  ],
+                },
+              ],
               AND: [
                 {
                   OR: [{ lastGreetingSentAt: null }, { lastGreetingSentAt: { lt: startOfToday } }],
@@ -468,9 +497,14 @@ export function startScheduler(bot: Bot<BotContext>): void {
         try {
           // ── Skip if today is a weekend (Sat/Sun) in user's timezone ──────
           // *UPDATED: We also fetch reminderTime here for the new getReminderMessage function
-          const userForTz = await prisma.user.findUnique({ 
-            where: { id: job.userId }, 
-            select: { timezone: true, reminderTime: true } 
+          const userForTz = await prisma.user.findUnique({
+            where: { id: job.userId },
+            select: {
+              timezone: true,
+              reminderTime: true,
+              lastGreetingSentAt: true,
+              lastGreetingType: true,
+            },
           });
           const userTz = userForTz?.timezone ?? "Africa/Lagos";
 
@@ -495,6 +529,23 @@ export function startScheduler(bot: Bot<BotContext>): void {
             await prisma.reminderJob.update({ where: { id: job.id }, data: { status: "skipped" } });
             await scheduleNextJob(job.userId, job.telegramId);
             console.log(`[scheduler] Skipped reminder for user ${job.userId} — weekend (${localDow === 6 ? "Sat" : "Sun"})`);
+            continue;
+          }
+
+          // Prevent reminder collisions with the global 8AM/2PM greeting broadcasts.
+          // If a MORNING/AFTERNOON greeting was sent in the last 4 hours, skip this
+          // custom-time reminder and move the user to their next cycle.
+          const fourHoursAgo = new Date(Date.now() - 4 * 60 * 60 * 1000);
+          const recentlyGreeted = Boolean(
+            userForTz?.lastGreetingSentAt
+            && userForTz.lastGreetingSentAt >= fourHoursAgo
+            && userForTz.lastGreetingType,
+          );
+
+          if (recentlyGreeted) {
+            await prisma.reminderJob.update({ where: { id: job.id }, data: { status: "skipped" } });
+            await scheduleNextJob(job.userId, job.telegramId);
+            console.log(`[scheduler] Skipped reminder for user ${job.userId} — recent ${userForTz?.lastGreetingType} greeting within 4h`);
             continue;
           }
 
