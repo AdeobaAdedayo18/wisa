@@ -9,7 +9,9 @@
 * 🟢 You can import this file directly.
 */
 
+export const GreetingType = {
+  MORNING: 'MORNING',
+  AFTERNOON: 'AFTERNOON'
+} as const
 
-
-// This file is empty because there are no enums in the schema.
-export {}
+export type GreetingType = (typeof GreetingType)[keyof typeof GreetingType]

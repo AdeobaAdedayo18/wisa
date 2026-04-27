@@ -1,13 +1,44 @@
 import cron from "node-cron";
 import { Bot } from "grammy";
+import { GreetingType } from "../prisma/enums";
 import { prisma } from "../lib/prisma";
-import { getReminderMessage, scheduleNextJob } from "../bot/reminders";
+import {
+  getReminderMessage,
+  MORNING_GREETINGS,
+  MOTIVATIONAL_SHORTS,
+  pickRandomMessage,
+  scheduleNextJob,
+} from "../bot/reminders";
 import { sendSceneViaApi } from "../utils/constants";
 import { captureReplayError } from "./replayCapture";
 import { getLocalDayOfWeek, localTimeToUtc } from "../utils/dateHelpers";
 import type { BotContext, SessionData } from "../bot/types";
 import { parseISO, differenceInDays } from "date-fns";
 import { canCreateLog, FREE_LOG_LIMIT, getStorageLimitReachedAfterSaveText, getStorageWallText, hasActiveStorage } from "../bot/monetization";
+
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+const BROADCAST_TIMEZONE = "Africa/Lagos";
+const WAT_OFFSET_MS = 60 * 60 * 1000;
+
+// Lagos is UTC+1 year-round (no DST), so this gives a stable start-of-day boundary.
+function getStartOfTodayInWAT(): Date {
+  const shifted = new Date(Date.now() + WAT_OFFSET_MS);
+  shifted.setUTCHours(0, 0, 0, 0);
+  return new Date(shifted.getTime() - WAT_OFFSET_MS);
+}
+
+function pickRandomSubset<T>(items: T[], size: number): T[] {
+  if (size <= 0 || items.length === 0) return [];
+  if (size >= items.length) return items;
+
+  const shuffled = [...items];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+
+  return shuffled.slice(0, size);
+}
 
 // ---------------------------------------------------------------------------
 // Weekly Recap — exported so the admin router can trigger it on-demand.
@@ -188,6 +219,195 @@ export function startScheduler(bot: Bot<BotContext>): void {
   let onboardingNudgeCronRunning = false;
   let autoSaveCronRunning = false;
   let renewalCronRunning = false;
+  let morningGreetingCronRunning = false;
+  let afternoonGreetingCronRunning = false;
+
+  // ── Split broadcast greetings ────────────────────────────────────────────
+  // 8:00 AM job: send MORNING greetings to users who were not sent a morning
+  // greeting on their last greeting cycle. Bootstrap sends to 50% of null users.
+  cron.schedule("0 8 * * *", async () => {
+    if (morningGreetingCronRunning) {
+      console.log("[scheduler] Morning greeting cron still running — skipping");
+      return;
+    }
+    morningGreetingCronRunning = true;
+
+    try {
+      const startOfToday = getStartOfTodayInWAT();
+
+      const totalDailyUsers = await prisma.user.count({
+        where: {
+          onboardingDone: true,
+          botBlocked: false,
+          logFrequency: "daily",
+        },
+      });
+
+      if (totalDailyUsers === 0) return;
+
+      const hasGreetingHistory =
+        (await prisma.user.count({
+          where: {
+            onboardingDone: true,
+            botBlocked: false,
+            logFrequency: "daily",
+            lastGreetingType: { in: [GreetingType.MORNING, GreetingType.AFTERNOON] },
+          },
+        })) > 0;
+
+      const eligibleUsers = await prisma.user.findMany({
+        where: {
+          onboardingDone: true,
+          botBlocked: false,
+          logFrequency: "daily",
+          OR: [{ lastGreetingType: null }, { lastGreetingType: { not: GreetingType.MORNING } }],
+          AND: [
+            {
+              OR: [{ lastGreetingSentAt: null }, { lastGreetingSentAt: { lt: startOfToday } }],
+            },
+          ],
+        },
+        select: { id: true, telegramId: true, lastGreetingType: true },
+      });
+
+      let usersToMessage = eligibleUsers;
+      if (!hasGreetingHistory) {
+        const nullUsers = eligibleUsers.filter((u) => u.lastGreetingType === null);
+        const targetSize = Math.floor(nullUsers.length / 2);
+        usersToMessage = pickRandomSubset(nullUsers, targetSize);
+      }
+
+      console.log(
+        `[scheduler] Morning shift: ${usersToMessage.length}/${eligibleUsers.length} eligible daily users selected`,
+      );
+
+      for (const user of usersToMessage) {
+        try {
+          const claimedAt = new Date();
+          const claim = await prisma.user.updateMany({
+            where: {
+              id: user.id,
+              onboardingDone: true,
+              botBlocked: false,
+              logFrequency: "daily",
+              OR: [{ lastGreetingType: null }, { lastGreetingType: { not: GreetingType.MORNING } }],
+              AND: [
+                {
+                  OR: [{ lastGreetingSentAt: null }, { lastGreetingSentAt: { lt: startOfToday } }],
+                },
+              ],
+            },
+            data: {
+              lastGreetingSentAt: claimedAt,
+              lastGreetingType: GreetingType.MORNING,
+            },
+          });
+
+          if (claim.count === 0) {
+            continue;
+          }
+
+          const text = pickRandomMessage(MORNING_GREETINGS);
+          if (!text) continue;
+
+          await bot.api.sendMessage(Number(user.telegramId), text, { parse_mode: "Markdown" });
+        } catch (e: unknown) {
+          const isBotBlocked = e instanceof Error && e.message.includes("bot was blocked by the user");
+          if (isBotBlocked) {
+            await prisma.user.update({ where: { id: user.id }, data: { botBlocked: true } });
+          } else {
+            console.error(`[scheduler] Morning greeting failed for user ${user.id}:`, e);
+            captureReplayError(user.telegramId, e, "scheduler:morningGreeting");
+          }
+        }
+
+        await delay(100);
+      }
+    } catch (err) {
+      console.error("[scheduler] Morning greeting cron error:", err);
+    } finally {
+      morningGreetingCronRunning = false;
+    }
+  }, { timezone: BROADCAST_TIMEZONE });
+
+  // 2:00 PM job: sweep users not greeted today and send AFTERNOON greetings.
+  // Day-1/bootstrap safety: for null-history users, only send to 50% randomly.
+  cron.schedule("0 14 * * *", async () => {
+    if (afternoonGreetingCronRunning) {
+      console.log("[scheduler] Afternoon greeting cron still running — skipping");
+      return;
+    }
+    afternoonGreetingCronRunning = true;
+
+    try {
+      const startOfToday = getStartOfTodayInWAT();
+
+      const candidates = await prisma.user.findMany({
+        where: {
+          onboardingDone: true,
+          botBlocked: false,
+          logFrequency: "daily",
+          OR: [{ lastGreetingSentAt: null }, { lastGreetingSentAt: { lt: startOfToday } }],
+        },
+        select: { id: true, telegramId: true, lastGreetingSentAt: true },
+      });
+
+      const nullHistoryUsers = candidates.filter((u) => u.lastGreetingSentAt === null);
+      const previouslyGreetedUsers = candidates.filter((u) => u.lastGreetingSentAt !== null);
+      const nullHistorySelection = pickRandomSubset(
+        nullHistoryUsers,
+        Math.floor(nullHistoryUsers.length / 2),
+      );
+
+      const usersToMessage = [...previouslyGreetedUsers, ...nullHistorySelection];
+
+      console.log(
+        `[scheduler] Afternoon sweep: ${usersToMessage.length}/${candidates.length} daily users selected`,
+      );
+
+      for (const user of usersToMessage) {
+        try {
+          const claimedAt = new Date();
+          const claim = await prisma.user.updateMany({
+            where: {
+              id: user.id,
+              onboardingDone: true,
+              botBlocked: false,
+              logFrequency: "daily",
+              OR: [{ lastGreetingSentAt: null }, { lastGreetingSentAt: { lt: startOfToday } }],
+            },
+            data: {
+              lastGreetingSentAt: claimedAt,
+              lastGreetingType: GreetingType.AFTERNOON,
+            },
+          });
+
+          if (claim.count === 0) {
+            continue;
+          }
+
+          const text = pickRandomMessage(MOTIVATIONAL_SHORTS);
+          if (!text) continue;
+
+          await bot.api.sendMessage(Number(user.telegramId), text, { parse_mode: "Markdown" });
+        } catch (e: unknown) {
+          const isBotBlocked = e instanceof Error && e.message.includes("bot was blocked by the user");
+          if (isBotBlocked) {
+            await prisma.user.update({ where: { id: user.id }, data: { botBlocked: true } });
+          } else {
+            console.error(`[scheduler] Afternoon greeting failed for user ${user.id}:`, e);
+            captureReplayError(user.telegramId, e, "scheduler:afternoonGreeting");
+          }
+        }
+
+        await delay(100);
+      }
+    } catch (err) {
+      console.error("[scheduler] Afternoon greeting cron error:", err);
+    } finally {
+      afternoonGreetingCronRunning = false;
+    }
+  }, { timezone: BROADCAST_TIMEZONE });
 
   // ── 5.1 — Fire due reminders (every minute) ───────────────────────────────
   cron.schedule("* * * * *", async () => {

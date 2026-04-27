@@ -1059,6 +1059,8 @@ export const UserScalarFieldEnum = {
   freeVoiceLogs: 'freeVoiceLogs',
   onboardingDone: 'onboardingDone',
   botBlocked: 'botBlocked',
+  lastGreetingSentAt: 'lastGreetingSentAt',
+  lastGreetingType: 'lastGreetingType',
   createdAt: 'createdAt'
 } as const
 
@@ -1241,6 +1243,20 @@ export type DateTimeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel
  * Reference to a field of type 'DateTime[]'
  */
 export type ListDateTimeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'DateTime[]'>
+    
+
+
+/**
+ * Reference to a field of type 'GreetingType'
+ */
+export type EnumGreetingTypeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'GreetingType'>
+    
+
+
+/**
+ * Reference to a field of type 'GreetingType[]'
+ */
+export type ListEnumGreetingTypeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'GreetingType[]'>
     
 
 

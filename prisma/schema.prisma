@@ -13,6 +13,11 @@ datasource db {
   provider = "postgresql"
 }
 
+enum GreetingType {
+  MORNING
+  AFTERNOON
+}
+
 model User {
   id                 Int             @id @default(autoincrement())
   telegramId         BigInt          @unique
@@ -30,10 +35,15 @@ model User {
   freeVoiceLogs      Int             @default(3)
   onboardingDone     Boolean         @default(false)
   botBlocked         Boolean         @default(false)
+  lastGreetingSentAt DateTime?
+  lastGreetingType   GreetingType?
   createdAt          DateTime        @default(now())
   logs               Log[]
   subscription       Subscription?
   manualPayments     ManualPayment[]
+
+  @@index([logFrequency, onboardingDone, botBlocked, lastGreetingSentAt])
+  @@index([lastGreetingType])
 }
 
 model Log {
