@@ -1003,7 +1003,7 @@
       <div class="nav-label">Finance</div>
       <div class="nav-item" data-panel="payments" onclick="setPanel('payments')">
         <span class="nav-icon">💳</span> Payments
-        <span id="pending-badge" class="nav-badge hidden">0</span>
+        <span id="payments-badge" class="nav-badge hidden">0</span>
       </div>
     </div>
 
@@ -1161,21 +1161,21 @@
       <!-- ── PAYMENTS ───────────────────────────────────────────────── -->
       <div id="panel-payments" class="panel">
 
-        <!-- Pending -->
-        <div class="section-title">Pending Manual Payments</div>
-        <div id="pending-payments-wrap">
-          <div class="loading-row">Loading…</div>
+        <div class="stats-grid" id="payment-stats-grid">
+          <div class="skeleton skeleton-card"></div>
+          <div class="skeleton skeleton-card"></div>
+          <div class="skeleton skeleton-card"></div>
+          <div class="skeleton skeleton-card"></div>
         </div>
 
-        <!-- History -->
         <div class="table-card mt-24">
           <div class="table-header">
-            <h3>Payment History</h3>
+            <h3>Paystack Payment Records</h3>
             <select id="payment-status-filter" class="filter-select" onchange="loadPayments()">
               <option value="">All</option>
-              <option value="pending">Pending</option>
-              <option value="approved">Approved</option>
-              <option value="rejected">Rejected</option>
+              <option value="active">Active</option>
+              <option value="expired">Expired</option>
+              <option value="cancelled">Cancelled</option>
             </select>
           </div>
           <div id="payments-table-wrap">
@@ -1322,9 +1322,9 @@
 
             <!-- Pagination footer -->
             <div style="padding: 7px 16px; background: var(--s1); border-top: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
-              <button class="btn-refresh" id="rv-load-older" onclick="rvLoadOlder()" disabled style="font-size:11px;">↑ Older</button>
+              <button class="btn-refresh" id="rv-load-newer" onclick="rvLoadNewer()" disabled style="font-size:11px;">Newer ←</button>
               <span class="user-meta" id="rv-event-count" style="font-size:11px;"></span>
-              <button class="btn-refresh" id="rv-load-newer" onclick="rvLoadNewer()" disabled style="font-size:11px;">Newer ↓</button>
+              <button class="btn-refresh" id="rv-load-older" onclick="rvLoadOlder()" disabled style="font-size:11px;">Older →</button>
             </div>
 
           </div><!-- /replay-viewer -->
@@ -1631,10 +1631,10 @@ async function loadOverview() {
     ]);
     state.stats = stats;
 
-    // Update pending badge
-    const pb = document.getElementById('pending-badge');
-    if (stats.payments.pending > 0) {
-      pb.textContent = stats.payments.pending;
+    // Update payments badge
+    const pb = document.getElementById('payments-badge');
+    if (stats.payments.total > 0) {
+      pb.textContent = stats.payments.total;
       pb.classList.remove('hidden');
     } else {
       pb.classList.add('hidden');
@@ -1681,9 +1681,9 @@ function renderStatCards(s) {
       icon: '🔄', cls: '',
     },
     {
-      label: 'Pending Payments', value: fmt(s.payments.pending),
-      sub: `${fmt(s.payments.approved)} approved · ${fmt(s.payments.rejected)} rejected`,
-      icon: '💳', cls: s.payments.pending > 0 ? 'card-yellow' : '',
+      label: 'Payment Records', value: fmt(s.payments.total),
+      sub: `${fmt(s.payments.active)} active · ${fmt(s.payments.expired)} expired · ${fmt(s.payments.cancelled)} cancelled`,
+      icon: '💳', cls: s.payments.total > 0 ? 'card-yellow' : '',
     },
     {
       label: 'Total Logs', value: fmt(s.logs.total),
@@ -2072,133 +2072,76 @@ function openLogModal(idx, isToday = false) {
 // ── PAYMENTS ───────────────────────────────────────────────────────
 async function loadPayments() {
   const status = document.getElementById('payment-status-filter')?.value || '';
-
-  // Load pending cards
-  const pendingWrap = document.getElementById('pending-payments-wrap');
-  pendingWrap.innerHTML = `<div class="loading-row">Loading…</div>`;
-
-  // Load table
   const tableWrap = document.getElementById('payments-table-wrap');
   tableWrap.innerHTML = `<div class="loading-row">Loading…</div>`;
+  const statsGrid = document.getElementById('payment-stats-grid');
 
   try {
-    const [pending, filtered] = await Promise.all([
-      api('/manual-payments?status=pending'),
-      status ? api(`/manual-payments?status=${status}`) : api('/manual-payments'),
+    const [paymentsRes, statsRes] = await Promise.all([
+      api(`/payments${status ? `?status=${encodeURIComponent(status)}` : ''}`),
+      api('/stats'),
     ]);
 
-    // Render pending cards
-    if (!pending.data.length) {
-      pendingWrap.innerHTML = `<div class="empty-state" style="padding:24px"><div class="empty-icon">🎉</div>No pending payments.</div>`;
-    } else {
-      pendingWrap.innerHTML = `
-        <div class="payment-cards">
-          ${pending.data.map(p => `
-            <div class="payment-card pending" id="pcard-${p.id}">
-              <div class="payment-user">
-                <div class="user-avatar">${initials(p.user?.firstName)}</div>
-                <div>
-                  <div class="pname">${escHtml(p.user?.firstName || '?')}${p.user?.isPro ? ' <span class="pro-badge">PRO</span>' : ''}</div>
-                  <div class="pusername">${p.user?.username ? '@'+escHtml(p.user.username) : '—'} · TG: ${p.user?.telegramId}</div>
-                </div>
-              </div>
-              <div class="payment-meta">
-                <span class="tag tag-yellow">⏳ Pending</span>
-                <span class="tag tag-gray">#${p.id}</span>
-                <span class="tag tag-gray">${fmtDateTime(p.createdAt)}</span>
-              </div>
-              <div class="payment-actions">
-                <button class="btn-sm btn-approve" onclick="approvePayment(${p.id})">✓ Approve</button>
-                <button class="btn-sm btn-reject"  onclick="rejectPayment(${p.id})">✕ Reject</button>
-              </div>
-            </div>
-          `).join('')}
+    const payments = paymentsRes.data;
+    const ps = statsRes.payments;
+
+    if (statsGrid) {
+      statsGrid.innerHTML = [
+        { label: 'Total Records', value: fmt(ps.total), icon: '💳', cls: ps.total > 0 ? 'card-yellow' : '' },
+        { label: 'Active', value: fmt(ps.active), icon: '✅', cls: 'card-green' },
+        { label: 'Expired', value: fmt(ps.expired), icon: '⏱️', cls: 'card-red' },
+        { label: 'Cancelled', value: fmt(ps.cancelled), icon: '⛔', cls: '' },
+      ].map(c => `
+        <div class="stat-card ${c.cls}">
+          <div class="card-icon">${c.icon}</div>
+          <div class="card-label">${c.label}</div>
+          <div class="card-value">${c.value}</div>
         </div>
-      `;
+      `).join('');
     }
 
     // Update badge
-    const pb = document.getElementById('pending-badge');
-    if (pending.data.length > 0) {
-      pb.textContent = pending.data.length;
+    const pb = document.getElementById('payments-badge');
+    if (ps.total > 0) {
+      pb.textContent = ps.total;
       pb.classList.remove('hidden');
     } else {
       pb.classList.add('hidden');
     }
 
     // Render table
-    if (!filtered.data.length) {
-      tableWrap.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div>No payments found.</div>`;
+    if (!payments.length) {
+      tableWrap.innerHTML = `<div class="empty-state"><div class="empty-icon">💳</div>No payment records found.</div>`;
     } else {
-      const rows = filtered.data.map(p => `
+      const rows = payments.map(p => `
         <tr>
-          <td>#${p.id}</td>
           <td>
             <div style="font-weight:500">${escHtml(p.user?.firstName || '?')}</div>
-            <div class="text-small text-muted">${p.user?.username ? '@'+escHtml(p.user.username) : '—'}</div>
+            <div class="text-small text-muted">${p.user?.username ? '@'+escHtml(p.user.username) : '—'} · TG: ${p.user?.telegramId || '—'}</div>
           </td>
-          <td class="mono muted">${p.user?.telegramId || '—'}</td>
+          <td class="muted">${escHtml(p.user?.paymentEmail || '—')}</td>
+          <td class="mono muted">${escHtml(p.paystackRef || '—')}</td>
+          <td>${escHtml(p.paymentMethod || 'Paystack')}</td>
           <td>${statusTag(p.status)}</td>
+          <td class="muted">${escHtml(p.amountLabel || '—')}</td>
           <td class="muted">${fmtDateTime(p.createdAt)}</td>
-          <td class="muted">${fmtDateTime(p.updatedAt)}</td>
+          <td class="muted">${fmtDateTime(p.endDate)}</td>
           <td>
-            ${p.status === 'pending' ? `
-              <div class="flex gap-8">
-                <button class="btn-sm btn-approve" onclick="approvePayment(${p.id})">✓</button>
-                <button class="btn-sm btn-reject" onclick="rejectPayment(${p.id})">✕</button>
-              </div>
-            ` : '—'}
+            <button class="btn-sm btn-approve" onclick="openReplay('${p.user?.telegramId}')">Session</button>
           </td>
         </tr>
       `).join('');
       tableWrap.innerHTML = `
         <table class="data-table">
-          <thead><tr><th>#</th><th>User</th><th>Telegram ID</th><th>Status</th><th>Created</th><th>Updated</th><th>Actions</th></tr></thead>
+          <thead><tr><th>User</th><th>Email</th><th>Paystack Ref</th><th>Method</th><th>Status</th><th>Amount</th><th>Created</th><th>Renews</th><th>Session</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       `;
     }
     markUpdated();
   } catch (err) {
-    pendingWrap.innerHTML = `<div class="loading-row" style="color:var(--red)">Error: ${escHtml(err.message)}</div>`;
+    tableWrap.innerHTML = `<div class="loading-row" style="color:var(--red)">Error: ${escHtml(err.message)}</div>`;
     toast('Failed to load payments', 'error');
-  }
-}
-
-async function approvePayment(id) {
-  const btns = document.querySelectorAll(`#pcard-${id} button, [onclick*="approvePayment(${id})"], [onclick*="rejectPayment(${id})"]`);
-  btns.forEach(b => b.disabled = true);
-  try {
-    await apiPost(`/manual-payments/${id}/approve`);
-    toast('Payment approved! User upgraded to Pro.', 'success');
-    await loadPayments();
-    // Refresh overview badge
-    if (state.stats) {
-      state.stats.payments.pending = Math.max(0, state.stats.payments.pending - 1);
-      const pb = document.getElementById('pending-badge');
-      if (state.stats.payments.pending > 0) {
-        pb.textContent = state.stats.payments.pending;
-      } else {
-        pb.classList.add('hidden');
-      }
-    }
-  } catch (err) {
-    btns.forEach(b => b.disabled = false);
-    toast('Error: ' + err.message, 'error');
-  }
-}
-
-async function rejectPayment(id) {
-  if (!confirm('Reject this payment? This cannot be undone.')) return;
-  const btns = document.querySelectorAll(`#pcard-${id} button, [onclick*="approvePayment(${id})"], [onclick*="rejectPayment(${id})"]`);
-  btns.forEach(b => b.disabled = true);
-  try {
-    await apiPost(`/manual-payments/${id}/reject`);
-    toast('Payment rejected.', 'info');
-    await loadPayments();
-  } catch (err) {
-    btns.forEach(b => b.disabled = false);
-    toast('Error: ' + err.message, 'error');
   }
 }
 
@@ -2487,7 +2430,7 @@ async function rvLoadEvents() {
     const params = new URLSearchParams({
       page: String(rvPage),
       limit: '150',
-      order: 'asc',
+        order: 'desc',
     });
 
     const res = await fetch(`/admin/api/replay/events/${rvTelegramId}?${params}`);
@@ -2498,7 +2441,7 @@ async function rvLoadEvents() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
-    rvEvents = data.data;
+    rvEvents = [...data.data].reverse();
     rvUser = data.user;
     rvTotalPages = data.pages;
 
@@ -2514,8 +2457,8 @@ async function rvLoadEvents() {
     // Update footer
     document.getElementById('rv-event-count').textContent =
       `${data.total} total · page ${rvPage}/${rvTotalPages}`;
-    document.getElementById('rv-load-older').disabled = rvPage <= 1;
-    document.getElementById('rv-load-newer').disabled = rvPage >= rvTotalPages;
+    document.getElementById('rv-load-newer').disabled = rvPage <= 1;
+    document.getElementById('rv-load-older').disabled = rvPage >= rvTotalPages;
 
     renderReplayEvents();
 
@@ -2699,10 +2642,10 @@ function setReplayFilter(filter, btn) {
 
 // ── Pagination ────────────────────────────────────────────────────────────
 function rvLoadOlder() {
-  if (rvPage > 1) { rvPage--; rvShowLoading(); rvLoadEvents(); }
+  if (rvPage < rvTotalPages) { rvPage++; rvShowLoading(); rvLoadEvents(); }
 }
 function rvLoadNewer() {
-  if (rvPage < rvTotalPages) { rvPage++; rvShowLoading(); rvLoadEvents(); }
+  if (rvPage > 1) { rvPage--; rvShowLoading(); rvLoadEvents(); }
 }
 
 // ── Init ───────────────────────────────────────────────────────────

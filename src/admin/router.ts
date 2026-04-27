@@ -11,6 +11,7 @@ import {
   isValid,
 } from "date-fns";
 import { bot } from "../bot/index";
+import { STORAGE_PRICE_LABEL } from "../bot/monetization";
 import { sendWeeklyRecap } from "../services/scheduler";
 
 const router = Router();
@@ -100,6 +101,11 @@ router.get("/api/stats", async (_req: Request, res: Response): Promise<void> => 
       sentReminders,
       snoozedReminders,
       skippedReminders,
+      totalPayments,
+      activePayments,
+      expiredPayments,
+      cancelledPayments,
+      paymentsThisWeek,
     ] = await Promise.all([
       prisma.user.count(),
       prisma.user.count({ where: { isPro: true } }),
@@ -128,6 +134,11 @@ router.get("/api/stats", async (_req: Request, res: Response): Promise<void> => 
       prisma.reminderJob.count({ where: { status: "sent" } }),
       prisma.reminderJob.count({ where: { status: "snoozed" } }),
       prisma.reminderJob.count({ where: { status: "skipped" } }),
+      prisma.subscription.count(),
+      prisma.subscription.count({ where: { status: "active" } }),
+      prisma.subscription.count({ where: { status: "expired" } }),
+      prisma.subscription.count({ where: { status: "cancelled" } }),
+      prisma.subscription.count({ where: { createdAt: { gte: weekStart } } }),
     ]);
 
     const reminderBucketRows = await prisma.reminderJob.groupBy({
@@ -166,9 +177,12 @@ router.get("/api/stats", async (_req: Request, res: Response): Promise<void> => 
         cancelled: cancelledSubs,
       },
       payments: {
-        pending: pendingPayments,
-        approved: approvedPayments,
-        rejected: rejectedPayments,
+        total: totalPayments,
+        active: activePayments,
+        expired: expiredPayments,
+        cancelled: cancelledPayments,
+        thisWeek: paymentsThisWeek,
+        planLabel: STORAGE_PRICE_LABEL,
       },
       reminders: {
         pending: pendingReminders,
@@ -182,6 +196,88 @@ router.get("/api/stats", async (_req: Request, res: Response): Promise<void> => 
     handleError(res, "/api/stats", err);
   }
 });
+
+// ─── /api/payments ───────────────────────────────────────────────────────────
+router.get(
+  "/api/payments",
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const status = String(req.query.status ?? "").trim();
+      const search = String(req.query.search ?? "").trim().toLowerCase();
+      const page = Math.max(1, parseInt(String(req.query.page ?? "1"), 10));
+      const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit ?? "25"), 10)));
+
+      const subscriptions = await prisma.subscription.findMany({
+        orderBy: { createdAt: "desc" },
+        include: {
+          user: {
+            select: {
+              id: true,
+              firstName: true,
+              username: true,
+              telegramId: true,
+              paymentEmail: true,
+              isPro: true,
+              storageUnlocked: true,
+            },
+          },
+        },
+      });
+
+      const filtered = subscriptions.filter((sub) => {
+        if (status && sub.status !== status) return false;
+
+        if (!search) return true;
+
+        const haystack = [
+          sub.paystackRef,
+          sub.status,
+          sub.user.firstName,
+          sub.user.username ?? "",
+          sub.user.paymentEmail ?? "",
+          sub.user.telegramId.toString(),
+        ]
+          .join(" ")
+          .toLowerCase();
+
+        return haystack.includes(search);
+      });
+
+      const total = filtered.length;
+      const skip = (page - 1) * limit;
+      const pageRows = filtered.slice(skip, skip + limit);
+
+      res.json({
+        data: pageRows.map((s) => ({
+          id: s.id,
+          userId: s.userId,
+          paystackRef: s.paystackRef,
+          status: s.status,
+          startDate: s.startDate,
+          endDate: s.endDate,
+          createdAt: s.createdAt,
+          updatedAt: s.createdAt,
+          paymentMethod: "Paystack",
+          amountLabel: STORAGE_PRICE_LABEL,
+          user: {
+            id: s.user.id,
+            firstName: s.user.firstName,
+            username: s.user.username,
+            telegramId: s.user.telegramId.toString(),
+            paymentEmail: s.user.paymentEmail,
+            isPro: s.user.isPro,
+            storageUnlocked: s.user.storageUnlocked,
+          },
+        })),
+        total,
+        page,
+        pages: Math.ceil(total / limit),
+      });
+    } catch (err) {
+      handleError(res, "/api/payments", err);
+    }
+  },
+);
 
 // ─── /api/users ───────────────────────────────────────────────────────────────
 router.get("/api/users", async (req: Request, res: Response): Promise<void> => {
