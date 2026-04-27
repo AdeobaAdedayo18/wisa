@@ -106,8 +106,7 @@ export async function onboardingConversation(conversation: OnboardingConversatio
   await sendScene(ctx, "scene2", "How often do you want to write your log? 📅");
 
   const freqKeyboard = new InlineKeyboard()
-    .text("Every day", "freq_daily").text("Every 2 days", "freq_bi-daily").row()
-    .text("Every 3 days", "freq_every-3-days").text("Once a week", "freq_weekly");
+    .text("Every day", "freq_daily").text("Every 2 days", "freq_bi-daily");
 
   await ctx.reply("Pick your log frequency:", { reply_markup: freqKeyboard });
 
