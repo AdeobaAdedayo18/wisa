@@ -8,6 +8,7 @@ import express from "express";
 import { prisma } from "./lib/prisma";
 import { adminRouter } from "./admin/router";
 import { flushReplayBuffer, captureReplayError } from "./services/replayCapture";
+import { InlineKeyboard } from "grammy";
 
 const app = express();
 
@@ -83,6 +84,110 @@ app.post("/webhook/paystack", express.raw({ type: "application/json" }), async (
           `You now have unlimited log storage, unlimited voice logs, and unlimited AI refinements.`,
         { parse_mode: "Markdown" },
       );
+
+      // Post-payment UX: if they were blocked mid-log, prompt them to resume.
+      try {
+        const sessionKey = telegramId.toString();
+        const sessionRow = await prisma.session.findUnique({
+          where: { key: sessionKey },
+          select: { key: true, value: true },
+        });
+
+        if (sessionRow?.value) {
+          const now = Date.now();
+          let sessionData: any = null;
+          try {
+            sessionData = JSON.parse(sessionRow.value);
+          } catch {
+            sessionData = null;
+          }
+
+          const action = sessionData?.postPaymentAction;
+          const isFresh =
+            action &&
+            typeof action.createdAt === "number" &&
+            now - action.createdAt < 60 * 60 * 1000; // 1h, aligned with flow expiry
+
+          let shouldPersistSession = false;
+          let sendResumePendingLog = false;
+          let sendResumeStartLogIsoDate: string | null = null;
+
+          if (action && isFresh) {
+            // If there's a draft in progress, keep them in that flow.
+            let hasDraft =
+              sessionData?.awaitingLog === true &&
+              Array.isArray(sessionData?.pendingLogParts) &&
+              sessionData.pendingLogParts.length > 0;
+
+            // If we paused the draft during payment email capture, restore it now.
+            if (!hasDraft && action.type === "resume_pending_log") {
+              const paused = sessionData?.pausedLogDraft;
+              if (
+                paused &&
+                Array.isArray(paused.pendingLogParts) &&
+                paused.pendingLogParts.length > 0
+              ) {
+                sessionData.awaitingLog = true;
+                sessionData.pendingLogParts = paused.pendingLogParts;
+                sessionData.pendingLogDate = paused.pendingLogDate;
+                sessionData.lastLogMessageAt = paused.lastLogMessageAt;
+                sessionData.autoSavePromptSent = paused.autoSavePromptSent;
+                sessionData.flowStartedAt = now;
+                delete sessionData.pausedLogDraft;
+                hasDraft = true;
+                shouldPersistSession = true;
+              }
+            }
+
+            if (action.type === "resume_pending_log" && hasDraft) {
+              sessionData.flowStartedAt = now;
+              shouldPersistSession = true;
+              sendResumePendingLog = true;
+            } else if (action.type === "start_log" && typeof action.isoDate === "string") {
+              sendResumeStartLogIsoDate = action.isoDate;
+            }
+          }
+
+          // Clear even if stale, to avoid surprise resumes later.
+          if (sessionData?.postPaymentAction) {
+            delete sessionData.postPaymentAction;
+            shouldPersistSession = true;
+          }
+
+          if (shouldPersistSession) {
+            await prisma.session.update({
+              where: { key: sessionKey },
+              data: { value: JSON.stringify(sessionData) },
+            });
+          }
+
+          if (sendResumePendingLog) {
+            await bot.api.sendMessage(
+              Number(telegramId),
+              `✅ *Payment confirmed — you're unblocked.*\n\n` +
+                `Keep typing your log, or tap *Done ✅* to save what you've written.`,
+              {
+                parse_mode: "Markdown",
+                reply_markup: new InlineKeyboard().text("Done ✅", "done_log"),
+              },
+            );
+          } else if (sendResumeStartLogIsoDate) {
+            await bot.api.sendMessage(
+              Number(telegramId),
+              `✅ *Payment confirmed!*\n\nYou can now continue writing your log. Tap below to jump right back in 👇`,
+              {
+                parse_mode: "Markdown",
+                reply_markup: new InlineKeyboard().text(
+                  "✍️ Continue writing your log",
+                  `resume_write_log_${sendResumeStartLogIsoDate}`,
+                ),
+              },
+            );
+          }
+        }
+      } catch (err) {
+        console.error("[webhook] post-payment resume check failed:", err);
+      }
 
       await bot.api.sendMessage(Number(telegramId), "Main menu updated 👇", {
         reply_markup: getMainMenuKeyboard(true),

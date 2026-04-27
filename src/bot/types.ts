@@ -59,6 +59,27 @@ export interface SessionData {
   lastLogMessageAt?: number;
   /** True once the "Save what you have?" auto-save prompt has been sent. */
   autoSavePromptSent?: boolean;
+
+  /**
+   * When a user hits the storage wall mid-action, we set this so that after
+   * Paystack success (webhook) we can prompt them to resume what they were doing.
+   * Stored in Prisma-backed session value (no schema changes required).
+   */
+  postPaymentAction?:
+    | { type: "start_log"; isoDate: string; createdAt: number }
+    | { type: "resume_pending_log"; createdAt: number };
+
+  /**
+   * If a user is mid-log and enters the payment flow, we temporarily stash
+   * their draft here so `clearActiveFlow()` doesn't wipe it.
+   */
+  pausedLogDraft?: {
+    pendingLogParts: string[];
+    pendingLogDate?: string;
+    lastLogMessageAt?: number;
+    flowStartedAt?: number;
+    autoSavePromptSent?: boolean;
+  };
 }
 
 export type BotContext = ConversationFlavor<Context & SessionFlavor<SessionData>>;
@@ -91,6 +112,10 @@ export function clearActiveFlow(session: SessionData): void {
   session.flowStartedAt = undefined;
   session.lastLogMessageAt = undefined;
   session.autoSavePromptSent = undefined;
+
+  // NOTE: intentionally does NOT clear `postPaymentAction`.
+  // Payment flows call clearActiveFlow, and we still want to resume the
+  // original user action after payment succeeds.
 }
 
 /**

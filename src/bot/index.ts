@@ -191,6 +191,12 @@ bot.callbackQuery("nav_write", async (ctx) => {
   await ctx.answerCallbackQuery();
   return startLogging(ctx);
 });
+bot.callbackQuery(/^resume_write_log_\d{4}-\d{2}-\d{2}$/, async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const data = ctx.callbackQuery?.data ?? "";
+  const isoDate = data.replace("resume_write_log_", "");
+  return startLogging(ctx, isoDate);
+});
 bot.callbackQuery("nav_calendar", async (ctx) => {
   await ctx.answerCallbackQuery();
   return showViewCalendar(ctx);

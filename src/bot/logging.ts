@@ -34,6 +34,10 @@ export async function startLogging(ctx: BotContext, isoDate?: string): Promise<v
   // Cancel any active flow (feedback, edit, payment, etc.) before starting log
   clearActiveFlow(ctx.session);
 
+  // Starting a fresh attempt overrides any stale post-payment resume intent.
+  ctx.session.postPaymentAction = undefined;
+  ctx.session.pausedLogDraft = undefined;
+
   const todayStr = isoDate ?? format(new Date(), "yyyy-MM-dd");
   const isToday = todayStr === format(new Date(), "yyyy-MM-dd");
   const telegramId = BigInt(ctx.from!.id);
@@ -44,6 +48,9 @@ export async function startLogging(ctx: BotContext, isoDate?: string): Promise<v
   }
 
   if (!canCreateLog(monetizationUser)) {
+    // User explicitly tried to start logging, but got blocked.
+    // After successful payment, prompt them to continue this exact action.
+    ctx.session.postPaymentAction = { type: "start_log", isoDate: todayStr, createdAt: Date.now() };
     await sendStorageWall(ctx, monetizationUser);
     return;
   }
@@ -163,6 +170,9 @@ export async function handleDoneLogging(ctx: BotContext): Promise<void> {
   }
 
   if (!canCreateLog(monetizationUser)) {
+    // They have a draft in-session; after payment, keep them in this flow.
+    ctx.session.postPaymentAction = { type: "resume_pending_log", createdAt: Date.now() };
+    startFlow(ctx.session);
     await sendStorageWall(ctx, monetizationUser);
     return;
   }
@@ -257,7 +267,7 @@ export async function handleDoneLogging(ctx: BotContext): Promise<void> {
       logCount: monetizationUser.logCount + 1,
       nextRenewalDate: updatedUser.nextRenewalDate,
     }) && remainingVoice > 0
-      ? `\n\n💡 *Tip:* Did you know you can send a *voice message* instead of typing? Just hit the mic button and talk — Wisa transcribes it automatically! You have *${remainingVoice} free voice log${remainingVoice === 1 ? "" : "s"}* left 🎤`
+      ? `\n\n💡 *Tip:* Did you know you can send a *voice message* instead of typing? Just hit the mic button and talk — Wisa transcribes it automatically!`
       : "";
 
   await ctx.reply(`What would you like to do next?${voiceHint}`, {
@@ -301,6 +311,10 @@ export async function handleAutoSaveConfirm(ctx: BotContext): Promise<void> {
   }
 
   if (!canCreateLog(monetizationUser)) {
+    // Auto-save tried to persist a draft but storage is locked.
+    // After payment, prompt them to resume and tap Done ✅.
+    ctx.session.postPaymentAction = { type: "resume_pending_log", createdAt: Date.now() };
+    startFlow(ctx.session);
     await sendStorageWall(ctx, monetizationUser);
     return;
   }

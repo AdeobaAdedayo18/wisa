@@ -40,6 +40,18 @@ export async function handleGoPro(ctx: BotContext): Promise<void> {
   }
 
   if (!(await prisma.user.findUnique({ where: { id: user.id }, select: { paymentEmail: true } }))?.paymentEmail) {
+    // If the user was mid-log and got blocked by the storage wall at Done ✅,
+    // don't wipe their draft while we collect payment email.
+    if (ctx.session.awaitingLog && (ctx.session.pendingLogParts?.length ?? 0) > 0) {
+      ctx.session.pausedLogDraft = {
+        pendingLogParts: [...ctx.session.pendingLogParts],
+        pendingLogDate: ctx.session.pendingLogDate,
+        lastLogMessageAt: ctx.session.lastLogMessageAt,
+        flowStartedAt: ctx.session.flowStartedAt,
+        autoSavePromptSent: ctx.session.autoSavePromptSent,
+      };
+    }
+
     clearActiveFlow(ctx.session);
     ctx.session.awaitingPaymentEmail = true;
     startFlow(ctx.session);
