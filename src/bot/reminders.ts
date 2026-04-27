@@ -62,6 +62,14 @@ export const GHOST_CHECK_INS = [
   `🧩 *Something is missing from your logbook.* That something is you. Come back, even if it's just for today.`,
   `⏰ *Time check:* every day you don't log is a day you'll have to make up at your defence. The easiest time to write it is always right now.`,
 ];
+
+export function pickRandomMessage(messages: readonly string[]): string {
+  if (messages.length === 0) {
+    return "";
+  }
+  return messages[Math.floor(Math.random() * messages.length)];
+}
+
 /**
  * Returns a dynamic message and a boolean indicating if it should be sent silently.
  * @param reminderTime Format "HH:mm" (e.g., "08:00")
@@ -74,7 +82,7 @@ export function getReminderMessage(
   if (daysSinceLastLog > 3) {
     // Ghost protocol: Active notification
     return {
-      text: GHOST_CHECK_INS[Math.floor(Math.random() * GHOST_CHECK_INS.length)],
+      text: pickRandomMessage(GHOST_CHECK_INS),
       isSilent: false,
       bucket: "GHOST",
     };
@@ -83,21 +91,21 @@ export function getReminderMessage(
   if (localHour >= 5 && localHour < 12) {
     // Morning: Active notification
     return {
-      text: MORNING_GREETINGS[Math.floor(Math.random() * MORNING_GREETINGS.length)],
+      text: pickRandomMessage(MORNING_GREETINGS),
       isSilent: false,
       bucket: "MORNING",
     };
   } else if (localHour >= 12 && localHour < 17) {
     // Afternoon: Silent sneak attack
     return {
-      text: MOTIVATIONAL_SHORTS[Math.floor(Math.random() * MOTIVATIONAL_SHORTS.length)],
+      text: pickRandomMessage(MOTIVATIONAL_SHORTS),
       isSilent: true,
       bucket: "AFTERNOON_SILENT",
     };
   } else {
     // Night: Active FOMO
     return {
-      text: NIGHT_FOMO_NUDGES[Math.floor(Math.random() * NIGHT_FOMO_NUDGES.length)],
+      text: pickRandomMessage(NIGHT_FOMO_NUDGES),
       isSilent: false,
       bucket: "NIGHT",
     };

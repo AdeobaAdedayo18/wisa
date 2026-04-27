@@ -1,18 +1,17 @@
 import "dotenv/config";
 import { Bot } from "grammy";
-import { PrismaClient } from "../src/prisma/client"; 
+import { PrismaPg } from "@prisma/adapter-pg";
+import { PrismaClient } from "../src/prisma/client";
 
-const IS_DRY_RUN = false; // 🚀 Set to false for the real production run
+const IS_DRY_RUN = false; // 🚀
 const DRY_RUN_TELEGRAM_ID = BigInt("5448700494");
 const SEND_DELAY_MS = 100;
 
-// Reverted to clean initialization. Railway will handle this perfectly.
-const prisma = new PrismaClient();
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
+const prisma = new PrismaClient({ adapter });
 
 const bot = new Bot(process.env.TELEGRAM_BOT_TOKEN!, {
-  client: {
-    timeout: 30000, 
-  },
+  client: { timeout: 30000 },
 });
 
 function delay(ms: number): Promise<void> {
@@ -34,6 +33,7 @@ Let's keep those logs coming 🚀`;
 }
 
 async function main(): Promise<void> {
+  // 1. Check connection first
   await prisma.$connect();
 
   const where = IS_DRY_RUN
