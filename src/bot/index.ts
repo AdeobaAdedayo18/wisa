@@ -1,14 +1,15 @@
-import { Bot, session } from "grammy";
+import { Bot, InlineKeyboard, session } from "grammy";
 import { replayMiddleware, replayTransformer, captureReplayError } from "../services/replayCapture";
 import { conversations, createConversation } from "@grammyjs/conversations";
 import { PrismaAdapter } from "@grammyjs/storage-prisma";
 import { prisma } from "../lib/prisma";
-import { onboardingConversation, handleStart, handleLetsGo, getMainMenuKeyboard } from "./onboarding";
+import { parseISO } from "date-fns";
+import { refineLog } from "../services/openai";
+import { onboardingConversation, handleStart, handleLetsGo, handleMenu, getMainMenuKeyboard } from "./onboarding";
 import { handleSnooze, handleSkip, handleWriteFromReminder, scheduleNextJob } from "./reminders";
 import {
   startLogging,
   handleLogText,
-  handleDoneLogging,
   handleEditLog,
   handleEditText,
   showPastLogCalendar,
@@ -27,13 +28,14 @@ import {
 } from "./calendar";
 import {
   handleAiRefine,
-  handleUseRefined,
-  handleKeepOriginal,
+  handleSaveAiLog,
+  handleSaveRawLog,
   handleVoiceLog,
   handleVoiceSave,
   handleVoiceEdit,
   handleVoiceRerecord,
 } from "./aiFeatures";
+import { showAiComparisonChoice } from "./aiFlow";
 import {
   handleGoPro,
   handlePayPaystack,
@@ -59,8 +61,8 @@ import {
   handleSettingsHow,
 } from "./settings";
 import { handleFeedback, handleFeedbackText, handleFeedbackCancel } from "./feedback";
-import { type SessionData, type BotContext } from "./types";
-import { getMonetizationUserByTelegramId, hasActiveStorage } from "./monetization";
+import { clearActiveFlow, type SessionData, type BotContext } from "./types";
+import { FREE_LOG_LIMIT, getMonetizationUserByTelegramId, getStorageLimitReachedAfterSaveText, hasActiveStorage } from "./monetization";
 
 export type { SessionData, BotContext };
 
@@ -105,6 +107,10 @@ bot.use(async (ctx, next) => {
 
 // ── Command handlers ───────────────────────────────────────────────────────
 bot.command("start", handleStart);
+bot.command("cancel", async (ctx) => {
+  clearActiveFlow(ctx.session);
+  await ctx.reply("Flow cancelled.");
+});
 
 // ── Reply keyboard — main menu ─────────────────────────────────────────────
 // Use regex so emoji encoding changes from formatters don't break matching
@@ -123,7 +129,6 @@ bot.callbackQuery(/^skip_\d+$/, handleSkip);
 // Logging flow
 bot.callbackQuery(/^write_log_\d+_\d{4}-\d{2}-\d{2}$/, handleWriteFromReminder);
 bot.callbackQuery("write_log", (ctx) => startLogging(ctx));
-bot.callbackQuery("done_log", handleDoneLogging);
 bot.callbackQuery("auto_save_confirm", handleAutoSaveConfirm);
 bot.callbackQuery("auto_save_continue", handleAutoSaveContinue);
 bot.callbackQuery(/^edit_log_\d+$/, handleEditLog);
@@ -144,8 +149,8 @@ bot.callbackQuery("delete_cancel", handleDeleteLogCancel);
 
 // AI refinement flow (8.2)
 bot.callbackQuery(/^ai_refine_\d+$/, handleAiRefine);
-bot.callbackQuery(/^ai_use_refined_\d+$/, handleUseRefined);
-bot.callbackQuery(/^ai_keep_original_\d+$/, handleKeepOriginal);
+bot.callbackQuery("save_ai_log", handleSaveAiLog);
+bot.callbackQuery("save_raw_log", handleSaveRawLog);
 
 // Voice log flow (8.3)
 bot.callbackQuery("voice_save", handleVoiceSave);
@@ -219,10 +224,7 @@ bot.callbackQuery("weekly_nav_past_log", async (ctx) => {
 });
 bot.callbackQuery("nav_menu", async (ctx) => {
   await ctx.answerCallbackQuery();
-  const user = await getMonetizationUserByTelegramId(BigInt(ctx.from!.id));
-  await ctx.reply("Main menu 👇", {
-    reply_markup: getMainMenuKeyboard(user ? hasActiveStorage(user) : false),
-  });
+  return handleMenu(ctx);
 });
 
 // ── Voice message handler (8.3) ──────────────────────────────────────────
@@ -236,7 +238,170 @@ bot.on("message:text", async (ctx) => {
   if (await handlePaymentEmailText(ctx)) return;
   // Edit mode takes priority over log accumulation
   if (await handleEditText(ctx)) return;
-  if (await handleLogText(ctx)) return;
+
+  const telegramId = BigInt(ctx.from!.id);
+  const dbUser = await prisma.user.findUnique({
+    where: { telegramId },
+    select: {
+      id: true,
+      firstName: true,
+      isPro: true,
+      storageUnlocked: true,
+      logCount: true,
+      nextRenewalDate: true,
+      freeAiRefinements: true,
+      courseOfStudy: true,
+    },
+  });
+
+  if (ctx.session.awaitingCourse) {
+    const incomingText = ctx.message?.text ?? "";
+    const trimmedText = incomingText.trim();
+
+    if (incomingText.startsWith("/")) {
+      ctx.session.awaitingCourse = false;
+      ctx.session.draftLogForCourse = undefined;
+      return;
+    }
+
+    if (trimmedText.length < 2) {
+      await ctx.reply("Please enter a valid Course of Study so I can personalize your logs!");
+      return;
+    }
+
+    if (!dbUser) return;
+
+    const draft = ctx.session.draftLogForCourse ?? "";
+    if (!draft.trim()) {
+      ctx.session.awaitingCourse = false;
+      ctx.session.draftLogForCourse = undefined;
+      await ctx.reply("Something went wrong picking up your draft. Please start your log again.");
+      return;
+    }
+
+    await prisma.user.update({
+      where: { id: dbUser.id },
+      data: { courseOfStudy: trimmedText },
+    });
+
+    ctx.session.awaitingCourse = false;
+    ctx.session.draftLogForCourse = undefined;
+    ctx.session.awaitingLog = false;
+    ctx.session.pendingLogParts = [];
+    ctx.session.lastLogMessageAt = undefined;
+    ctx.session.autoSavePromptSent = undefined;
+    ctx.session.flowStartedAt = undefined;
+
+    const unlocked = hasActiveStorage(dbUser);
+
+    // ── Gate: AI Quota Check with Graceful Fallback ──
+    if (!unlocked && dbUser.freeAiRefinements <= 0) {
+      // Fallback: Do they still have standard storage space?
+      if (dbUser.logCount < FREE_LOG_LIMIT) {
+        const logDate = ctx.session.pendingLogDate ? parseISO(ctx.session.pendingLogDate) : new Date();
+        await prisma.$transaction([
+          prisma.log.create({
+            data: {
+              userId: dbUser.id,
+              content: draft, // Use the raw text input here
+              logDate,
+              isVoice: false,
+              isAiRefined: false,
+            },
+          }),
+          prisma.user.update({
+            where: { id: dbUser.id },
+            data: { logCount: { increment: 1 } },
+          }),
+        ]);
+
+        ctx.session.awaitingLog = false;
+        ctx.session.pendingLogParts = [];
+        ctx.session.pendingRawText = undefined;
+        ctx.session.pendingRefinedText = undefined;
+        ctx.session.pendingVoiceTranscription = undefined;
+        ctx.session.refiningLogId = undefined;
+
+        // THE PERFECT UI: Combined Message & Keyboard
+        const combinedKeyboard = new InlineKeyboard()
+          .text("👑 Go Pro - ₦1,000", "go_pro")
+          .row()
+          .text("📅 View calendar", "nav_calendar")
+          .text("🏠 Menu", "nav_menu");
+
+        await ctx.reply(
+          `✅ **Original log saved!** 📝\n\n` +
+            `✨ _Heads up: You've used all 3 free AI refinements._\n` +
+            `Upgrade to **Pro** to unlock unlimited AI refinements and keep your logs looking pristine 🚀`,
+          { parse_mode: "Markdown", reply_markup: combinedKeyboard },
+        );
+      } else {
+        // Out of both AI and Storage quotas
+        await ctx.reply(getStorageLimitReachedAfterSaveText(), {
+          parse_mode: "Markdown",
+          reply_markup: new InlineKeyboard().text("🔓 Unlock storage - ₦1,000", "go_pro"),
+        });
+      }
+      return;
+    }
+
+    const loadingMsg = await ctx.reply("✨ Refining your log...", { parse_mode: "Markdown" });
+
+    try {
+      const refinedText = await refineLog(draft, trimmedText);
+      await showAiComparisonChoice(ctx, loadingMsg.message_id, draft, refinedText);
+
+      return;
+    } catch (err) {
+      console.error("[course-interceptor] AI refinement failed:", err);
+      captureReplayError(BigInt(ctx.from!.id), err, "courseInterceptor:refineLog", ctx.chat?.id);
+
+      try {
+        const logDate = ctx.session.pendingLogDate ? new Date(ctx.session.pendingLogDate) : new Date();
+        await prisma.$transaction([
+          prisma.log.create({
+            data: {
+              userId: dbUser.id,
+              content: draft,
+              refinedContent: null,
+              logDate,
+              isVoice: false,
+              isAiRefined: false,
+            },
+          }),
+          prisma.user.update({
+            where: { id: dbUser.id },
+            data: { logCount: { increment: 1 } },
+          }),
+        ]);
+      } catch (saveErr) {
+        console.error("[course-interceptor] Fallback save failed:", saveErr);
+        captureReplayError(BigInt(ctx.from!.id), saveErr, "courseInterceptor:fallbackSave", ctx.chat?.id);
+      }
+
+      ctx.session.pendingRawText = undefined;
+      ctx.session.pendingRefinedText = undefined;
+      ctx.session.pendingRefinedContent = undefined;
+
+      await ctx.api.editMessageText(
+        ctx.chat!.id,
+        loadingMsg.message_id,
+        "Something went wrong while refining your log 😢 The AI is resting, but your original log has been saved safely.",
+      ).catch(() => {});
+      return;
+    }
+  }
+
+  if (ctx.session.awaitingLog && !dbUser?.courseOfStudy) {
+    ctx.session.awaitingCourse = true;
+    ctx.session.draftLogForCourse = ctx.message?.text ?? "";
+    await ctx.reply("✨ I'd love to AI-refine this for you! But to make it perfect for your logbook, what is your Area of Study?");
+    return;
+  }
+
+  if (ctx.session.awaitingLog && dbUser?.courseOfStudy) {
+    if (await handleLogText(ctx, dbUser)) return;
+  }
   // Fall through — other text messages not handled here
 });
 
