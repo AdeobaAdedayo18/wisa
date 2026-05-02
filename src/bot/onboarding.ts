@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma";
 import { sendScene } from "../utils/constants";
 import { localTimeToUtc, hasLocalTimePassed } from "../utils/dateHelpers";
 import type { BotContext } from "./types";
+import { clearActiveFlow } from "./types";
 import { hasActiveStorage } from "./monetization";
 
 // ---------------------------------------------------------------------------
@@ -164,6 +165,8 @@ export async function onboardingConversation(conversation: OnboardingConversatio
 // ---------------------------------------------------------------------------
 
 export async function handleStart(ctx: BotContext) {
+  clearActiveFlow(ctx.session);
+
   const telegramId = BigInt(ctx.from!.id);
   const firstName = ctx.from?.first_name ?? "friend";
   const username = ctx.from?.username;
@@ -204,6 +207,20 @@ export async function handleStart(ctx: BotContext) {
     reply_markup: new InlineKeyboard().text("Let's go! 🚀", "start_onboarding"),
   });
   // The conversation is entered when the user taps "Let's go!" (see handleLetsGo below)
+}
+
+export async function handleMenu(ctx: BotContext) {
+  clearActiveFlow(ctx.session);
+
+  const telegramId = BigInt(ctx.from!.id);
+  const user = await prisma.user.findUnique({
+    where: { telegramId },
+    select: { id: true, firstName: true, isPro: true, storageUnlocked: true, logCount: true, nextRenewalDate: true },
+  });
+
+  await ctx.reply("Main menu 👇", {
+    reply_markup: getMainMenuKeyboard(user ? hasActiveStorage(user) : false),
+  });
 }
 
 /**
