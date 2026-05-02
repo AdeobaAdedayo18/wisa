@@ -129,6 +129,11 @@ export async function sendWeeklyRecap(bot: Bot<BotContext>): Promise<{ sent: num
 
       const loggedCount = logsByDay.size;
 
+      if (loggedCount === 0) {
+        console.log(`[weekly-recap] Skipped user ${user.id} — no logs this week`);
+        continue;
+      }
+
       // ── Per-day recap lines ────────────────────────────────────────────
       const dayLines = DAYS.map((day, i) => {
         const content = logsByDay.get(i);
@@ -500,6 +505,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
           const userForTz = await prisma.user.findUnique({
             where: { id: job.userId },
             select: {
+              createdAt: true,
               timezone: true,
               reminderTime: true,
               lastGreetingSentAt: true,
@@ -549,16 +555,32 @@ export function startScheduler(bot: Bot<BotContext>): void {
             continue;
           }
 
-          // ── GHOST CHECK: Calculate days since last log ───────────────────
+          // ── GHOST CHECK: Calculate days since last log or account creation ──
           const lastLog = await prisma.log.findFirst({
             where: { userId: job.userId },
             orderBy: { logDate: "desc" },
           });
 
           const nowTime = new Date();
-          const daysSinceLastLog = lastLog 
-            ? differenceInDays(nowTime, lastLog.logDate) 
-            : 99; // Default to 99 if they've never logged
+          let daysSinceLastLog: number;
+
+          if (lastLog) {
+            daysSinceLastLog = differenceInDays(nowTime, lastLog.logDate);
+          } else {
+            // Fallback to account creation date if they have no logs yet
+            daysSinceLastLog = userForTz?.createdAt
+              ? differenceInDays(nowTime, userForTz.createdAt)
+              : 0;
+          }
+
+          if (daysSinceLastLog > 14) {
+            await prisma.reminderJob.update({
+              where: { id: job.id },
+              data: { status: "skipped" },
+            });
+            console.log(`[scheduler] Skipped reminder for user ${job.userId} — inactive for ${daysSinceLastLog} days`);
+            continue;
+          }
 
           // ── MARKETING STRATEGY: Get dynamic message & silence mode ───────
           const localHour = Number(
@@ -713,9 +735,9 @@ export function startScheduler(bot: Bot<BotContext>): void {
       for (const [, job] of bestSentByUser) {
         try {
           // Timing check: is the next nudge due?
-          // Nudge N fires at scheduledFor + (N+1)*30 minutes
+          // Nudge N fires at scheduledFor + (N+1)*20 minutes
           const nextNudgeAt = new Date(
-            job.scheduledFor.getTime() + (job.autoNudgeCount + 1) * 30 * 60 * 1000,
+            job.scheduledFor.getTime() + (job.autoNudgeCount + 1) * 20 * 60 * 1000,
           );
           if (now < nextNudgeAt) continue; // not yet time for the next nudge
 
@@ -978,8 +1000,8 @@ export function startScheduler(bot: Bot<BotContext>): void {
 
   // ── Auto-save: rescue unfinished log-writing sessions (every 5 min) ───────
   //
-  // When a user starts writing a log, sends messages (gets 👍 reactions), but
-  // never taps "Done ✅", their work is stuck in the session. This cron reads
+  // When a user starts writing a log and then goes idle, their draft can get
+  // stuck in the session. This cron reads
   // all Session rows from the DB, finds ones with pending log parts that have
   // gone idle, and either:
   //   - After 15 min idle: sends a prompt asking to save or keep writing
@@ -1061,6 +1083,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
                   content: fullText,
                   logDate,
                   isVoice: false,
+                  isAiRefined: false,
                 },
               }),
               prisma.user.update({
@@ -1098,7 +1121,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
             try {
               await bot.api.sendMessage(
                 chatId,
-                `✅ I went ahead and saved your log — it looked like you were done.\n\n📖 ${fullText.length > 150 ? fullText.slice(0, 150) + "…" : fullText}\n\nYou can always edit it later from your calendar 📅`,
+                `✅ I went ahead and saved your log because it looked like you were done.\n\n📖 ${fullText.length > 150 ? fullText.slice(0, 150) + "…" : fullText}\n\nYou can always edit it later from your calendar 📅`,
                 {
                   reply_markup: {
                     inline_keyboard: [
