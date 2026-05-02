@@ -83,6 +83,7 @@ export const UserScalarFieldEnum = {
   firstName: 'firstName',
   username: 'username',
   paymentEmail: 'paymentEmail',
+  courseOfStudy: 'courseOfStudy',
   logFrequency: 'logFrequency',
   reminderTime: 'reminderTime',
   timezone: 'timezone',
@@ -109,6 +110,7 @@ export const LogScalarFieldEnum = {
   refinedContent: 'refinedContent',
   logDate: 'logDate',
   isVoice: 'isVoice',
+  isAiRefined: 'isAiRefined',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'
 } as const

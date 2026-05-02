@@ -2,11 +2,12 @@ import path from "path";
 import fs from "fs";
 import axios from "axios";
 import { InlineKeyboard } from "grammy";
+import { parseISO } from "date-fns";
 import { prisma } from "../lib/prisma";
-import { sendScene } from "../utils/constants";
 import { refineLog, transcribeVoice } from "../services/openai";
 import { captureReplayError } from "../services/replayCapture";
 import type { BotContext } from "./types";
+import { showAiComparisonChoice } from "./aiFlow";
 import {
   canCreateLog,
   FREE_LOG_LIMIT,
@@ -69,29 +70,17 @@ export async function handleAiRefine(ctx: BotContext): Promise<void> {
   console.log(`[ai-refine] User ${dbUser.id} refining log #${logId}`);
 
   // ── Loading message ─────────────────────────────────────────────────────
-  const loadingMsg = await ctx.reply("Let me cook 🍳✨ _(this may take a few seconds…)_", {
+  const loadingMsg = await ctx.reply("✨ Refining your log...", {
     parse_mode: "Markdown",
   });
 
   try {
-    const refined = await refineLog(log.content);
+    const courseOfStudy = dbUser.courseOfStudy ?? "IT";
+    const refined = await refineLog(log.content, courseOfStudy);
 
-    // Store refined content in session so the confirm handler can use it
     ctx.session.refiningLogId = logId;
-    ctx.session.pendingRefinedContent = refined;
 
-    // Replace loading message with the result
-    await ctx.api.editMessageText(
-      ctx.chat!.id,
-      loadingMsg.message_id,
-      `✨ *Here's the refined version:*\n\n${refined}`,
-      {
-        parse_mode: "Markdown",
-        reply_markup: new InlineKeyboard()
-          .text("✅ Use this version", `ai_use_refined_${logId}`)
-          .text("Keep original 📝", `ai_keep_original_${logId}`),
-      },
-    );
+    await showAiComparisonChoice(ctx, loadingMsg.message_id, log.content, refined);
 
     // Decrement free quota for non-Pro users
     if (!unlocked) {
@@ -103,70 +92,195 @@ export async function handleAiRefine(ctx: BotContext): Promise<void> {
   } catch (err) {
     console.error("AI refinement error:", err);
     captureReplayError(telegramId, err, "handleAiRefine", ctx.chat?.id);
+
+    try {
+      await prisma.log.update({
+        where: { id: logId },
+        data: {
+          content: log.content,
+          refinedContent: null,
+          isAiRefined: false,
+        },
+      });
+    } catch (saveErr) {
+      console.error("Fallback save failed after AI error:", saveErr);
+      captureReplayError(telegramId, saveErr, "handleAiRefine:fallbackSave", ctx.chat?.id);
+    }
+
+    ctx.session.pendingRawText = undefined;
+    ctx.session.pendingRefinedText = undefined;
+    ctx.session.pendingRefinedContent = undefined;
+    ctx.session.refiningLogId = undefined;
+
     await ctx.api
       .editMessageText(
         ctx.chat!.id,
         loadingMsg.message_id,
-        "Something went wrong while refining your log 😢 Please try again.",
+        "Something went wrong while refining your log 😢 The AI is resting, but your original log has been saved safely.",
       )
       .catch(() => {});
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Callback: ai_use_refined_<logId>  — user accepts the refined version
-// ---------------------------------------------------------------------------
-
-export async function handleUseRefined(ctx: BotContext): Promise<void> {
-  await ctx.answerCallbackQuery();
-
-  const data = ctx.callbackQuery?.data ?? "";
-  const logId = parseInt(data.replace("ai_use_refined_", ""), 10);
-
-  const refinedContent = ctx.session.pendingRefinedContent;
-  if (!refinedContent || ctx.session.refiningLogId !== logId) {
-    await ctx.reply("Session expired — please tap ✨ Refine again.");
     return;
   }
-
-  try {
-    await prisma.log.update({
-      where: { id: logId },
-      data: { refinedContent },
-    });
-
-    // Clear session
-    ctx.session.pendingRefinedContent = undefined;
-    ctx.session.refiningLogId = undefined;
-
-    await ctx.editMessageText(
-      `✅ *Refined version saved!* Your log is looking legendary 👑\n\n${refinedContent}`,
-      { parse_mode: "Markdown" },
-    ).catch(() => {});
-
-    await ctx.reply("Refined log saved! 💾", {
-      reply_markup: new InlineKeyboard()
-        .text("📅 View calendar", "nav_calendar")
-        .text("🏠 Menu", "nav_menu"),
-    });
-  } catch (err) {
-    console.error("Error saving refined log:", err);
-    await ctx.reply("Couldn't save the refined log. Please try again. 😢");
-  }
 }
 
 // ---------------------------------------------------------------------------
-// Callback: ai_keep_original_<logId>  — user rejects the refined version
+// Callback: save_ai_log — store the refined version after comparison
 // ---------------------------------------------------------------------------
 
-export async function handleKeepOriginal(ctx: BotContext): Promise<void> {
-  await ctx.answerCallbackQuery("Original kept ✅");
+export async function handleSaveAiLog(ctx: BotContext): Promise<void> {
+  await ctx.answerCallbackQuery().catch(() => {});
 
-  // Clear session
+  const rawText = ctx.session.pendingRawText;
+  const refinedText = ctx.session.pendingRefinedText;
+  const logId = ctx.session.refiningLogId;
+
+  // Clear immediately to prevent double-tap races from reusing staged state.
+  ctx.session.pendingRawText = undefined;
+  ctx.session.pendingRefinedText = undefined;
   ctx.session.pendingRefinedContent = undefined;
   ctx.session.refiningLogId = undefined;
 
-  await ctx.editMessageText("Okay, keeping the original! 📝 Your words, your style 💪").catch(() => {});
+  if (!rawText || !refinedText) {
+    await ctx.reply("Session expired — please refine again.");
+    return;
+  }
+
+  const navKeyboard = new InlineKeyboard()
+    .text("📅 View calendar", "nav_calendar")
+    .text("🏠 Menu", "nav_menu");
+
+  try {
+    const telegramId = BigInt(ctx.from!.id);
+    const dbUser = await prisma.user.findUnique({ where: { telegramId } });
+    if (!dbUser) {
+      await ctx.reply("Couldn't find your account. Try /start.");
+      return;
+    }
+
+    if (logId) {
+      await prisma.log.update({
+        where: { id: logId },
+        data: {
+          content: refinedText,
+          refinedContent: rawText,
+          isAiRefined: true,
+        },
+      });
+    } else {
+      const logDate = ctx.session.pendingLogDate ? parseISO(ctx.session.pendingLogDate) : new Date();
+      await prisma.$transaction([
+        prisma.log.create({
+          data: {
+            userId: dbUser.id,
+            content: refinedText,
+            refinedContent: rawText,
+            logDate,
+            isVoice: false,
+            isAiRefined: true,
+          },
+        }),
+        prisma.user.update({
+          where: { id: dbUser.id },
+          data: { logCount: { increment: 1 } },
+        }),
+      ]);
+    }
+
+    try {
+      await ctx.editMessageText("✅ **Refined log saved!** 💾", {
+        parse_mode: "Markdown",
+        reply_markup: navKeyboard,
+      });
+    } catch (editErr) {
+      const message = String((editErr as { message?: string })?.message ?? editErr);
+      if (!message.includes("Message is not modified")) {
+        console.error("Error editing AI save confirmation:", editErr);
+      }
+    }
+  } catch (err) {
+    console.error("Error saving AI refined log:", err);
+    await ctx.reply("Couldn't save the log. Please try again.");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Callback: save_raw_log — store the original version after comparison
+// ---------------------------------------------------------------------------
+
+export async function handleSaveRawLog(ctx: BotContext): Promise<void> {
+  await ctx.answerCallbackQuery().catch(() => {});
+
+  const rawText = ctx.session.pendingRawText;
+  const refinedText = ctx.session.pendingRefinedText;
+  const logId = ctx.session.refiningLogId;
+
+  // Clear immediately to prevent double-tap races from reusing staged state.
+  ctx.session.pendingRawText = undefined;
+  ctx.session.pendingRefinedText = undefined;
+  ctx.session.pendingRefinedContent = undefined;
+  ctx.session.refiningLogId = undefined;
+
+  if (!rawText || !refinedText) {
+    await ctx.reply("Session expired — please refine again.");
+    return;
+  }
+
+  const navKeyboard = new InlineKeyboard()
+    .text("📅 View calendar", "nav_calendar")
+    .text("🏠 Menu", "nav_menu");
+
+  try {
+    const telegramId = BigInt(ctx.from!.id);
+    const dbUser = await prisma.user.findUnique({ where: { telegramId } });
+    if (!dbUser) {
+      await ctx.reply("Couldn't find your account. Try /start.");
+      return;
+    }
+
+    if (logId) {
+      await prisma.log.update({
+        where: { id: logId },
+        data: {
+          content: rawText,
+          refinedContent: refinedText,
+          isAiRefined: false,
+        },
+      });
+    } else {
+      const logDate = ctx.session.pendingLogDate ? parseISO(ctx.session.pendingLogDate) : new Date();
+      await prisma.$transaction([
+        prisma.log.create({
+          data: {
+            userId: dbUser.id,
+            content: rawText,
+            refinedContent: refinedText,
+            logDate,
+            isVoice: false,
+            isAiRefined: false,
+          },
+        }),
+        prisma.user.update({
+          where: { id: dbUser.id },
+          data: { logCount: { increment: 1 } },
+        }),
+      ]);
+    }
+
+    try {
+      await ctx.editMessageText("✅ **Original log saved!** 📝", {
+        parse_mode: "Markdown",
+        reply_markup: navKeyboard,
+      });
+    } catch (editErr) {
+      const message = String((editErr as { message?: string })?.message ?? editErr);
+      if (!message.includes("Message is not modified")) {
+        console.error("Error editing raw save confirmation:", editErr);
+      }
+    }
+  } catch (err) {
+    console.error("Error saving raw log:", err);
+    await ctx.reply("Couldn't save the log. Please try again.");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -240,23 +354,15 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
     // 3a. Handle silent/unclear audio
     if (!transcription) {
       console.log(`[handleVoiceLog] ❌ Transcription was null - sending error message to user`);
-      await ctx.api.editMessageText(
-        ctx.chat!.id,
-        processingMsg.message_id,
-        "🎤 I couldn't make out anything from that audio. Please re-record in a quiet environment and speak clearly.",
-      );
+      await ctx.api
+        .editMessageText(
+          ctx.chat!.id,
+          processingMsg.message_id,
+          "🎤 I couldn't make out anything from that audio. Please re-record in a quiet environment and speak clearly.",
+        )
+        .catch(() => {});
       return;
     }
-
-    // 3b. Decrement free quota for non-Pro users
-    if (!unlocked) {
-      await prisma.user.update({ where: { id: dbUser.id }, data: { freeVoiceLogs: { decrement: 1 } } });
-      const remaining = dbUser.freeVoiceLogs - 1;
-      console.log(`[voice] User ${dbUser.id} used voice log — ${remaining} free use${remaining !== 1 ? "s" : ""} remaining`);
-    }
-
-    // 4. Store in session for save/edit callbacks
-    ctx.session.pendingVoiceTranscription = transcription;
 
     const remainingNote =
       !unlocked && dbUser.freeVoiceLogs > 1
@@ -265,11 +371,16 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
         ? `\n\n_This was your last free voice log! Upgrade to Pro for unlimited 🚀_`
         : "";
 
+    // 4. Store in session for save/edit callbacks
+    ctx.session.pendingVoiceTranscription = transcription;
+
     // 5. Show result with action buttons
     await ctx.api.editMessageText(
       ctx.chat!.id,
       processingMsg.message_id,
-      `🎤 *Here's what I heard:*\n\n${transcription}${remainingNote}`,
+      `🎤 *Here's what I heard:*
+
+${transcription}${remainingNote}`,
       {
         parse_mode: "Markdown",
         reply_markup: new InlineKeyboard()
@@ -305,6 +416,10 @@ export async function handleVoiceSave(ctx: BotContext): Promise<void> {
   await ctx.answerCallbackQuery();
 
   const transcription = ctx.session.pendingVoiceTranscription;
+
+  // Clear immediately to prevent double-tap races from reusing staged state.
+  ctx.session.pendingVoiceTranscription = undefined;
+
   if (!transcription) {
     await ctx.reply("Session expired — please send your voice message again.");
     return;
@@ -327,6 +442,7 @@ export async function handleVoiceSave(ctx: BotContext): Promise<void> {
           content: transcription,
           logDate: new Date(),
           isVoice: true,
+          isAiRefined: false,
         },
       }),
       prisma.user.update({
@@ -343,15 +459,7 @@ export async function handleVoiceSave(ctx: BotContext): Promise<void> {
       }),
     ]);
 
-    ctx.session.pendingVoiceTranscription = undefined;
-
     await ctx.editMessageText("Saving your voice log\u2026 🎙️").catch(() => {});
-
-    await sendScene(
-      ctx,
-      "scene8",
-      `Log saved! 📖✨\n\nGreat work documenting your day. Keep it up — your future self will thank you 🙌`,
-    );
 
     if (!hasActiveStorage(updatedUser) && updatedUser.logCount === FREE_LOG_LIMIT) {
       await ctx.reply(getStorageLimitReachedAfterSaveText(), {
@@ -388,16 +496,17 @@ export async function handleVoiceEdit(ctx: BotContext): Promise<void> {
     return;
   }
 
-  // Reuse the normal log-accumulation session so the Done ✅ button works
+  // Clear the voice session, but open the text logging session
   ctx.session.awaitingLog = true;
-  ctx.session.pendingLogParts = [transcription];
   ctx.session.pendingVoiceTranscription = undefined;
+  
+  // Make sure we clear out any old draft arrays just to be safe
+  ctx.session.pendingLogParts = [];
 
   await ctx.reply(
-    `✏️ Here's your transcription pre-filled. You can send additional messages to add more, then tap *Done ✅* when you're ready.`,
+    `✏️ To edit, just **copy** the text above, make your changes, and send it back to me. I'll automatically refine the new version! ✨`,
     {
       parse_mode: "Markdown",
-      reply_markup: new InlineKeyboard().text("Done ✅", "done_log"),
     },
   );
 }

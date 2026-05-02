@@ -48,6 +48,7 @@ export type UserMinAggregateOutputType = {
   firstName: string | null
   username: string | null
   paymentEmail: string | null
+  courseOfStudy: string | null
   logFrequency: string | null
   reminderTime: string | null
   timezone: string | null
@@ -70,6 +71,7 @@ export type UserMaxAggregateOutputType = {
   firstName: string | null
   username: string | null
   paymentEmail: string | null
+  courseOfStudy: string | null
   logFrequency: string | null
   reminderTime: string | null
   timezone: string | null
@@ -92,6 +94,7 @@ export type UserCountAggregateOutputType = {
   firstName: number
   username: number
   paymentEmail: number
+  courseOfStudy: number
   logFrequency: number
   reminderTime: number
   timezone: number
@@ -132,6 +135,7 @@ export type UserMinAggregateInputType = {
   firstName?: true
   username?: true
   paymentEmail?: true
+  courseOfStudy?: true
   logFrequency?: true
   reminderTime?: true
   timezone?: true
@@ -154,6 +158,7 @@ export type UserMaxAggregateInputType = {
   firstName?: true
   username?: true
   paymentEmail?: true
+  courseOfStudy?: true
   logFrequency?: true
   reminderTime?: true
   timezone?: true
@@ -176,6 +181,7 @@ export type UserCountAggregateInputType = {
   firstName?: true
   username?: true
   paymentEmail?: true
+  courseOfStudy?: true
   logFrequency?: true
   reminderTime?: true
   timezone?: true
@@ -285,6 +291,7 @@ export type UserGroupByOutputType = {
   firstName: string
   username: string | null
   paymentEmail: string | null
+  courseOfStudy: string | null
   logFrequency: string
   reminderTime: string
   timezone: string
@@ -330,6 +337,7 @@ export type UserWhereInput = {
   firstName?: Prisma.StringFilter<"User"> | string
   username?: Prisma.StringNullableFilter<"User"> | string | null
   paymentEmail?: Prisma.StringNullableFilter<"User"> | string | null
+  courseOfStudy?: Prisma.StringNullableFilter<"User"> | string | null
   logFrequency?: Prisma.StringFilter<"User"> | string
   reminderTime?: Prisma.StringFilter<"User"> | string
   timezone?: Prisma.StringFilter<"User"> | string
@@ -355,6 +363,7 @@ export type UserOrderByWithRelationInput = {
   firstName?: Prisma.SortOrder
   username?: Prisma.SortOrderInput | Prisma.SortOrder
   paymentEmail?: Prisma.SortOrderInput | Prisma.SortOrder
+  courseOfStudy?: Prisma.SortOrderInput | Prisma.SortOrder
   logFrequency?: Prisma.SortOrder
   reminderTime?: Prisma.SortOrder
   timezone?: Prisma.SortOrder
@@ -383,6 +392,7 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   firstName?: Prisma.StringFilter<"User"> | string
   username?: Prisma.StringNullableFilter<"User"> | string | null
   paymentEmail?: Prisma.StringNullableFilter<"User"> | string | null
+  courseOfStudy?: Prisma.StringNullableFilter<"User"> | string | null
   logFrequency?: Prisma.StringFilter<"User"> | string
   reminderTime?: Prisma.StringFilter<"User"> | string
   timezone?: Prisma.StringFilter<"User"> | string
@@ -408,6 +418,7 @@ export type UserOrderByWithAggregationInput = {
   firstName?: Prisma.SortOrder
   username?: Prisma.SortOrderInput | Prisma.SortOrder
   paymentEmail?: Prisma.SortOrderInput | Prisma.SortOrder
+  courseOfStudy?: Prisma.SortOrderInput | Prisma.SortOrder
   logFrequency?: Prisma.SortOrder
   reminderTime?: Prisma.SortOrder
   timezone?: Prisma.SortOrder
@@ -438,6 +449,7 @@ export type UserScalarWhereWithAggregatesInput = {
   firstName?: Prisma.StringWithAggregatesFilter<"User"> | string
   username?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
   paymentEmail?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
+  courseOfStudy?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
   logFrequency?: Prisma.StringWithAggregatesFilter<"User"> | string
   reminderTime?: Prisma.StringWithAggregatesFilter<"User"> | string
   timezone?: Prisma.StringWithAggregatesFilter<"User"> | string
@@ -459,6 +471,7 @@ export type UserCreateInput = {
   firstName: string
   username?: string | null
   paymentEmail?: string | null
+  courseOfStudy?: string | null
   logFrequency: string
   reminderTime: string
   timezone?: string
@@ -484,6 +497,7 @@ export type UserUncheckedCreateInput = {
   firstName: string
   username?: string | null
   paymentEmail?: string | null
+  courseOfStudy?: string | null
   logFrequency: string
   reminderTime: string
   timezone?: string
@@ -508,6 +522,7 @@ export type UserUpdateInput = {
   firstName?: Prisma.StringFieldUpdateOperationsInput | string
   username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  courseOfStudy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
   reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
@@ -533,6 +548,7 @@ export type UserUncheckedUpdateInput = {
   firstName?: Prisma.StringFieldUpdateOperationsInput | string
   username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  courseOfStudy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
   reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
@@ -558,6 +574,7 @@ export type UserCreateManyInput = {
   firstName: string
   username?: string | null
   paymentEmail?: string | null
+  courseOfStudy?: string | null
   logFrequency: string
   reminderTime: string
   timezone?: string
@@ -579,6 +596,7 @@ export type UserUpdateManyMutationInput = {
   firstName?: Prisma.StringFieldUpdateOperationsInput | string
   username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  courseOfStudy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
   reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
@@ -601,6 +619,7 @@ export type UserUncheckedUpdateManyInput = {
   firstName?: Prisma.StringFieldUpdateOperationsInput | string
   username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  courseOfStudy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
   reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
@@ -623,6 +642,7 @@ export type UserCountOrderByAggregateInput = {
   firstName?: Prisma.SortOrder
   username?: Prisma.SortOrder
   paymentEmail?: Prisma.SortOrder
+  courseOfStudy?: Prisma.SortOrder
   logFrequency?: Prisma.SortOrder
   reminderTime?: Prisma.SortOrder
   timezone?: Prisma.SortOrder
@@ -653,6 +673,7 @@ export type UserMaxOrderByAggregateInput = {
   firstName?: Prisma.SortOrder
   username?: Prisma.SortOrder
   paymentEmail?: Prisma.SortOrder
+  courseOfStudy?: Prisma.SortOrder
   logFrequency?: Prisma.SortOrder
   reminderTime?: Prisma.SortOrder
   timezone?: Prisma.SortOrder
@@ -675,6 +696,7 @@ export type UserMinOrderByAggregateInput = {
   firstName?: Prisma.SortOrder
   username?: Prisma.SortOrder
   paymentEmail?: Prisma.SortOrder
+  courseOfStudy?: Prisma.SortOrder
   logFrequency?: Prisma.SortOrder
   reminderTime?: Prisma.SortOrder
   timezone?: Prisma.SortOrder
@@ -791,6 +813,7 @@ export type UserCreateWithoutLogsInput = {
   firstName: string
   username?: string | null
   paymentEmail?: string | null
+  courseOfStudy?: string | null
   logFrequency: string
   reminderTime: string
   timezone?: string
@@ -815,6 +838,7 @@ export type UserUncheckedCreateWithoutLogsInput = {
   firstName: string
   username?: string | null
   paymentEmail?: string | null
+  courseOfStudy?: string | null
   logFrequency: string
   reminderTime: string
   timezone?: string
@@ -854,6 +878,7 @@ export type UserUpdateWithoutLogsInput = {
   firstName?: Prisma.StringFieldUpdateOperationsInput | string
   username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  courseOfStudy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
   reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
@@ -878,6 +903,7 @@ export type UserUncheckedUpdateWithoutLogsInput = {
   firstName?: Prisma.StringFieldUpdateOperationsInput | string
   username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  courseOfStudy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
   reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
@@ -901,6 +927,7 @@ export type UserCreateWithoutSubscriptionInput = {
   firstName: string
   username?: string | null
   paymentEmail?: string | null
+  courseOfStudy?: string | null
   logFrequency: string
   reminderTime: string
   timezone?: string
@@ -925,6 +952,7 @@ export type UserUncheckedCreateWithoutSubscriptionInput = {
   firstName: string
   username?: string | null
   paymentEmail?: string | null
+  courseOfStudy?: string | null
   logFrequency: string
   reminderTime: string
   timezone?: string
@@ -964,6 +992,7 @@ export type UserUpdateWithoutSubscriptionInput = {
   firstName?: Prisma.StringFieldUpdateOperationsInput | string
   username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  courseOfStudy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
   reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
@@ -988,6 +1017,7 @@ export type UserUncheckedUpdateWithoutSubscriptionInput = {
   firstName?: Prisma.StringFieldUpdateOperationsInput | string
   username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  courseOfStudy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
   reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1011,6 +1041,7 @@ export type UserCreateWithoutManualPaymentsInput = {
   firstName: string
   username?: string | null
   paymentEmail?: string | null
+  courseOfStudy?: string | null
   logFrequency: string
   reminderTime: string
   timezone?: string
@@ -1035,6 +1066,7 @@ export type UserUncheckedCreateWithoutManualPaymentsInput = {
   firstName: string
   username?: string | null
   paymentEmail?: string | null
+  courseOfStudy?: string | null
   logFrequency: string
   reminderTime: string
   timezone?: string
@@ -1074,6 +1106,7 @@ export type UserUpdateWithoutManualPaymentsInput = {
   firstName?: Prisma.StringFieldUpdateOperationsInput | string
   username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  courseOfStudy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
   reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1098,6 +1131,7 @@ export type UserUncheckedUpdateWithoutManualPaymentsInput = {
   firstName?: Prisma.StringFieldUpdateOperationsInput | string
   username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  courseOfStudy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
   reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
   timezone?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1162,6 +1196,7 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   firstName?: boolean
   username?: boolean
   paymentEmail?: boolean
+  courseOfStudy?: boolean
   logFrequency?: boolean
   reminderTime?: boolean
   timezone?: boolean
@@ -1188,6 +1223,7 @@ export type UserSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   firstName?: boolean
   username?: boolean
   paymentEmail?: boolean
+  courseOfStudy?: boolean
   logFrequency?: boolean
   reminderTime?: boolean
   timezone?: boolean
@@ -1210,6 +1246,7 @@ export type UserSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   firstName?: boolean
   username?: boolean
   paymentEmail?: boolean
+  courseOfStudy?: boolean
   logFrequency?: boolean
   reminderTime?: boolean
   timezone?: boolean
@@ -1232,6 +1269,7 @@ export type UserSelectScalar = {
   firstName?: boolean
   username?: boolean
   paymentEmail?: boolean
+  courseOfStudy?: boolean
   logFrequency?: boolean
   reminderTime?: boolean
   timezone?: boolean
@@ -1248,7 +1286,7 @@ export type UserSelectScalar = {
   createdAt?: boolean
 }
 
-export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "telegramId" | "firstName" | "username" | "paymentEmail" | "logFrequency" | "reminderTime" | "timezone" | "isPro" | "storageUnlocked" | "logCount" | "nextRenewalDate" | "freeAiRefinements" | "freeVoiceLogs" | "onboardingDone" | "botBlocked" | "lastGreetingSentAt" | "lastGreetingType" | "createdAt", ExtArgs["result"]["user"]>
+export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "telegramId" | "firstName" | "username" | "paymentEmail" | "courseOfStudy" | "logFrequency" | "reminderTime" | "timezone" | "isPro" | "storageUnlocked" | "logCount" | "nextRenewalDate" | "freeAiRefinements" | "freeVoiceLogs" | "onboardingDone" | "botBlocked" | "lastGreetingSentAt" | "lastGreetingType" | "createdAt", ExtArgs["result"]["user"]>
 export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   logs?: boolean | Prisma.User$logsArgs<ExtArgs>
   subscription?: boolean | Prisma.User$subscriptionArgs<ExtArgs>
@@ -1271,6 +1309,7 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     firstName: string
     username: string | null
     paymentEmail: string | null
+    courseOfStudy: string | null
     logFrequency: string
     reminderTime: string
     timezone: string
@@ -1716,6 +1755,7 @@ export interface UserFieldRefs {
   readonly firstName: Prisma.FieldRef<"User", 'String'>
   readonly username: Prisma.FieldRef<"User", 'String'>
   readonly paymentEmail: Prisma.FieldRef<"User", 'String'>
+  readonly courseOfStudy: Prisma.FieldRef<"User", 'String'>
   readonly logFrequency: Prisma.FieldRef<"User", 'String'>
   readonly reminderTime: Prisma.FieldRef<"User", 'String'>
   readonly timezone: Prisma.FieldRef<"User", 'String'>

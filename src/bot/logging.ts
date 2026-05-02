@@ -3,9 +3,11 @@ import { format, startOfMonth, endOfMonth, parseISO } from "date-fns";
 import { prisma } from "../lib/prisma";
 import { captureReplayError } from "../services/replayCapture";
 import { sendScene } from "../utils/constants";
+import { refineLog } from "../services/openai";
 import { buildCalendarKeyboard, getScheduledDates } from "./calendar";
 import type { BotContext } from "./types";
 import { clearActiveFlow, startFlow, isFlowExpired } from "./types";
+import { showAiComparisonChoice } from "./aiFlow";
 import {
   canCreateLog,
   FREE_LOG_LIMIT,
@@ -107,14 +109,11 @@ export async function startLogging(ctx: BotContext, isoDate?: string): Promise<v
   await sendScene(
     ctx,
     "scene7",
-    `I'm listening 👂\n\nTell me what you worked on${dateLabel}. Send as many messages as you like — I'll put it all together.\n\nTap *Done ✅* when you're finished.\n
-    You can also send a voice message instead of typing! Just hit the mic button and talk — Wisa transcribes it automatically 🎤,
+    `I'm listening 👂\n\nTell me what you worked on${dateLabel}. Send your log and I'll refine it automatically.\n\nYou can also send a voice message instead of typing! Just hit the mic button and talk — Wisa transcribes it automatically 🎤,
     `,
   );
 
-  await ctx.reply("Go ahead — I'm all ears 👇", {
-    reply_markup: new InlineKeyboard().text("Done ✅", "done_log"),
-  });
+  await ctx.reply("Go ahead — I'm all ears 👇");
 }
 
 // ---------------------------------------------------------------------------
@@ -125,31 +124,109 @@ export async function startLogging(ctx: BotContext, isoDate?: string): Promise<v
  * Call this from a `bot.on("message:text")` handler.
  * Returns `true` if the message was consumed (session was in log-writing mode).
  */
-export async function handleLogText(ctx: BotContext): Promise<boolean> {
+export async function handleLogText(
+  ctx: BotContext,
+  dbUser: {
+    id: number;
+    firstName: string;
+    isPro: boolean;
+    storageUnlocked: boolean;
+    logCount: number;
+    nextRenewalDate: Date | null;
+    courseOfStudy: string | null;
+  },
+  options?: { react?: boolean },
+): Promise<boolean> {
   if (!ctx.session.awaitingLog) return false;
   if (isFlowExpired(ctx.session)) return false;
 
   const text = ctx.message?.text ?? "";
   if (!text.trim()) return true; // ignore blank messages but still consume them
 
-  ctx.session.pendingLogParts.push(text);
-  ctx.session.lastLogMessageAt = Date.now();
+  if (!dbUser.courseOfStudy) return false;
 
-  // Reset auto-save prompt if user resumed typing after being prompted
-  if (ctx.session.autoSavePromptSent) {
-    ctx.session.autoSavePromptSent = false;
+  ctx.session.awaitingLog = false;
+  ctx.session.pendingLogParts = [];
+  ctx.session.lastLogMessageAt = undefined;
+  ctx.session.autoSavePromptSent = undefined;
+  ctx.session.flowStartedAt = undefined;
+
+  if (options?.react !== false) {
+    await ctx.react("👍").catch(() => {
+      // react may not be available if the client is old — silently skip
+    });
   }
 
-  // Acknowledge without sending a new Done button each time
-  await ctx.react("👍").catch(() => {
-    // react may not be available if the client is old — silently skip
+  const loadingMsg = await ctx.reply("✨ Refining your log...", {
+    parse_mode: "Markdown",
   });
+
+  try {
+    const refinedText = await refineLog(text, dbUser.courseOfStudy);
+    await showAiComparisonChoice(ctx, loadingMsg.message_id, text, refinedText);
+  } catch (err) {
+    console.error("[log] immediate refine error:", err);
+    captureReplayError(BigInt(ctx.from!.id), err, "handleLogText:refineLog", ctx.chat?.id);
+
+    try {
+      const logDate = ctx.session.pendingLogDate ? parseISO(ctx.session.pendingLogDate) : new Date();
+      const [savedLog, updatedUser] = await prisma.$transaction([
+        prisma.log.create({
+          data: {
+            userId: dbUser.id,
+            content: text,
+            logDate,
+            isVoice: false,
+            isAiRefined: false,
+          },
+        }),
+        prisma.user.update({
+          where: { id: dbUser.id },
+          data: { logCount: { increment: 1 } },
+          select: {
+            id: true,
+            firstName: true,
+            isPro: true,
+            storageUnlocked: true,
+            logCount: true,
+            nextRenewalDate: true,
+          },
+        }),
+      ]);
+
+      ctx.session.pendingRawText = undefined;
+      ctx.session.pendingRefinedText = undefined;
+      ctx.session.pendingRefinedContent = undefined;
+      ctx.session.refiningLogId = undefined;
+
+      if (!hasActiveStorage(updatedUser) && updatedUser.logCount === FREE_LOG_LIMIT) {
+        await ctx.reply(getStorageLimitReachedAfterSaveText(), {
+          parse_mode: "Markdown",
+          reply_markup: new InlineKeyboard().text("🔓 Unlock storage - ₦1,000", "go_pro"),
+        });
+        return true;
+      }
+
+      await ctx.reply("What would you like to do next?", {
+        parse_mode: "Markdown",
+        reply_markup: new InlineKeyboard()
+          .text("✨ Refine with AI", `ai_refine_${savedLog.id}`)
+          .row()
+          .text("📖 View logs", "nav_calendar")
+          .text("🏠 Menu", "nav_menu"),
+      });
+    } catch (saveErr) {
+      console.error("[log] fallback save after refine error failed:", saveErr);
+      captureReplayError(BigInt(ctx.from!.id), saveErr, "handleLogText:fallbackSave", ctx.chat?.id);
+      await ctx.reply("Something went wrong saving your log. Please try again 😢");
+    }
+  }
 
   return true;
 }
 
 // ---------------------------------------------------------------------------
-// 6.2 — "Done ✅" callback: assemble, validate, and save
+// 6.2 — Legacy completion callback: assemble, validate, and save
 // ---------------------------------------------------------------------------
 
 export async function handleDoneLogging(ctx: BotContext): Promise<void> {
@@ -186,10 +263,9 @@ export async function handleDoneLogging(ctx: BotContext): Promise<void> {
   let fullText = ctx.session.pendingLogParts.join("\n\n").trim();
 
   if (!fullText) {
-    await ctx.reply(
-      "You haven't written anything yet! Send me your log first, then tap *Done ✅*.",
-      { parse_mode: "Markdown" },
-    );
+    await ctx.reply("You haven't written anything yet! Send me your log first.", {
+      parse_mode: "Markdown",
+    });
     return;
   }
 
@@ -216,6 +292,7 @@ export async function handleDoneLogging(ctx: BotContext): Promise<void> {
         content: fullText,
         logDate,
         isVoice: false,
+        isAiRefined: false,
       },
     }),
     prisma.user.update({
@@ -232,12 +309,6 @@ export async function handleDoneLogging(ctx: BotContext): Promise<void> {
   ctx.session.pendingLogParts = [];
   ctx.session.pendingLogDate = undefined;
   ctx.session.flowStartedAt = undefined;
-
-  await sendScene(
-    ctx,
-    "scene8",
-    `Log saved! 📖✨\n\nGreat work documenting your day. Keep it up — your future self will thank you 🙌`,
-  );
 
   const nowLockedAfterSave = !hasActiveStorage({
     id: dbUser.id,
@@ -301,8 +372,7 @@ export async function handleAutoSaveConfirm(ctx: BotContext): Promise<void> {
     return;
   }
 
-  // Delegate to the same logic as Done ✅
-  // We fake ctx.callbackQuery being answered already, so just call the inner logic
+  // Delegate to the same logic as the legacy completion callback.
   const telegramId = BigInt(ctx.from!.id);
   const monetizationUser = await getMonetizationUserByTelegramId(telegramId);
   if (!monetizationUser) {
@@ -312,7 +382,7 @@ export async function handleAutoSaveConfirm(ctx: BotContext): Promise<void> {
 
   if (!canCreateLog(monetizationUser)) {
     // Auto-save tried to persist a draft but storage is locked.
-    // After payment, prompt them to resume and tap Done ✅.
+    // After payment, prompt them to resume writing.
     ctx.session.postPaymentAction = { type: "resume_pending_log", createdAt: Date.now() };
     startFlow(ctx.session);
     await sendStorageWall(ctx, monetizationUser);
@@ -343,7 +413,7 @@ export async function handleAutoSaveConfirm(ctx: BotContext): Promise<void> {
   try {
     const [savedLog, updatedUser] = await prisma.$transaction([
       prisma.log.create({
-        data: { userId: dbUser.id, content: fullText, logDate, isVoice: false },
+        data: { userId: dbUser.id, content: fullText, logDate, isVoice: false, isAiRefined: false },
       }),
       prisma.user.update({
         where: { id: dbUser.id },
@@ -371,12 +441,6 @@ export async function handleAutoSaveConfirm(ctx: BotContext): Promise<void> {
 
     // Remove prompt buttons
     await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } }).catch(() => {});
-
-    await sendScene(
-      ctx,
-      "scene8",
-      `Log saved! 📖✨\n\nGreat work documenting your day. Keep it up — your future self will thank you 🙌`,
-    );
 
     if (!hasActiveStorage(updatedUser) && updatedUser.logCount === FREE_LOG_LIMIT) {
       await ctx.reply(getStorageLimitReachedAfterSaveText(), {
@@ -422,9 +486,8 @@ export async function handleAutoSaveContinue(ctx: BotContext): Promise<void> {
   // Remove prompt buttons
   await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } }).catch(() => {});
 
-  await ctx.reply("No problem, take your time! 😊 Tap *Done ✅* when you're finished.", {
+  await ctx.reply("No problem, take your time! 😊 Keep typing when you're ready.", {
     parse_mode: "Markdown",
-    reply_markup: new InlineKeyboard().text("Done ✅", "done_log"),
   });
 }
 

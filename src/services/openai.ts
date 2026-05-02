@@ -6,7 +6,7 @@ export const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
  * Refines a raw SIWES logbook entry into a professional, well-structured
  * write-up suitable for academic submission.
  */
-export async function refineLog(rawLog: string): Promise<string> {
+export async function refineLog(rawLog: string, courseOfStudy: string = "IT"): Promise<string> {
   console.log(`[refineLog] Refining log of length ${rawLog.length}`);
   const start = Date.now();
   
@@ -16,34 +16,20 @@ export async function refineLog(rawLog: string): Promise<string> {
       messages: [
         {
           role: "system",
-          content: `You are an expert technical writing assistant for a university student's industrial training (SIWES) logbook. 
-Your task is to rewrite the student's raw daily activity logs into high-quality, professional, and academic entries.
+          content: `You are an expert academic advisor helping a university student write their daily SIWES (Industrial Training) logbook.
+The student is studying: ${courseOfStudy}.
+Rewrite their raw log to be professional, accurate, and relevant to their course of study.
+CRITICAL CONSTRAINTS (YOU MUST OBEY THESE):
 
-Target Audience: Academic supervisors and industry mentors.
-Tone: Professional, reflective, technical, and action-oriented. First-person ("I").
-Style Constraints:
-- Use active verbs (e.g., "Designed," "Implemented," "Researched," "Collaborated").
-- Focus on *learning outcomes* and *technical details*.
-- Remove informal language, fluff, and filler words.
-- Do NOT use flowery intros like "Today was a productive day..." or "In conclusion...". Start directly with the activities.
-- Ensure the log is concise (typically 30-75 words) but dense with value.
-- Maintain the truthfulness of the original log—do not invent tasks.
+Keep it strictly under 40 words.
 
-See the following examples of A-grade log entries for the desired style:
+Use simple, natural, everyday English. Sound like a real student, not a robot.
 
-Input: "learned about fintech users and problems"
-Output: "I learned about the main types of fintech users and the common challenges they face, especially confusion and fear for beginners. This showed me why fintech products must be simple and guide users clearly to encourage adoption."
+DO NOT use overly complex AI words. NEVER use words like: delve, orchestrate, seamless, foster, testament, utilize, or navigate.
 
-Input: "meeting with designers, talked about favorite feature, did research on binaries and coinbase"
-Output: "I Attended team briefing to understand the objective and value of the "Favorite" feature for fintech pairs. I then Conducted market research and competitive analysis on similar features in top fintech apps (e.g., Binance, Coinbase). Identified common user expectations such as easy toggling, sorting, and visibility on the home tab."
+Focus purely on the task performed and what was learned.
 
-Input: "working on spring boot, dependency injection, folder structure"
-Output: "My supervisor emphasized the importance of becoming proficient in Spring Boot and Java for backend projects at Quidax. I began by setting up my development environment and explored the standard folder structure to understand how the team organizes backend projects. I delved into advanced concepts such as dependency injection, exploring constructor and setter injection to understand how the IoC container controls object lifecycles."
-
-Input: "videos for app workflow"
-Output: "I was involved in creating detailed workflow videos that demonstrate how various features of the app function. This task required me to understand the app from a user’s perspective and present its key functionalities clearly and logically. It was a collaborative effort involving scripting and screen recording to ensure new users would easily understand how to navigate the app."
-
-Return ONLY the refined log text. Do not add conversational filler.`,
+Return ONLY the rewritten text. No introductions, no quotes, no explanations.`,
         },
         { role: "user", content: rawLog },
       ],

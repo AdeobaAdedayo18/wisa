@@ -4,7 +4,7 @@ import { type ConversationFlavor } from "@grammyjs/conversations";
 export interface SessionData {
   /** True while the bot is collecting text parts for a new log entry. */
   awaitingLog: boolean;
-  /** Accumulated message chunks before the user taps Done ✅. */
+  /** Current text bucket for the active log-writing flow. */
   pendingLogParts: string[];
   /**
    * Unix timestamp (ms) of when the current awaiting flow was started.
@@ -40,6 +40,14 @@ export interface SessionData {
    * it as a log entry.
    */
   pendingVoiceTranscription?: string;
+  /** True while the bot is waiting for the user's course of study. */
+  awaitingCourse?: boolean;
+  /** Draft log text temporarily held while the user provides their course. */
+  draftLogForCourse?: string;
+  /** Raw text staged for the Compare & Choose AI save flow. */
+  pendingRawText?: string;
+  /** Refined text staged for the Compare & Choose AI save flow. */
+  pendingRefinedText?: string;
   /** True while the bot is waiting for a feedback message from the user. */
   awaitingFeedback?: boolean;
   /** Paystack payment reference generated for the current payment attempt. */
@@ -107,6 +115,10 @@ export function clearActiveFlow(session: SessionData): void {
   session.pendingPaystackRef = undefined;
   session.pendingManualPaymentId = undefined;
   session.pendingVoiceTranscription = undefined;
+  session.awaitingCourse = undefined;
+  session.draftLogForCourse = undefined;
+  session.pendingRawText = undefined;
+  session.pendingRefinedText = undefined;
   session.pendingRefinedContent = undefined;
   session.refiningLogId = undefined;
   session.flowStartedAt = undefined;

@@ -129,6 +129,11 @@ export async function sendWeeklyRecap(bot: Bot<BotContext>): Promise<{ sent: num
 
       const loggedCount = logsByDay.size;
 
+      if (loggedCount === 0) {
+        console.log(`[weekly-recap] Skipped user ${user.id} — no logs this week`);
+        continue;
+      }
+
       // ── Per-day recap lines ────────────────────────────────────────────
       const dayLines = DAYS.map((day, i) => {
         const content = logsByDay.get(i);
@@ -227,15 +232,24 @@ export function startScheduler(bot: Bot<BotContext>): void {
   // ended in AFTERNOON (flip-flop). First-week bootstrap: if there are still
   // zero MORNING users in the DB and no AFTERNOON candidates, seed 50% of
   // null-history users to preserve the staggered split.
-  cron.schedule("0 8 * * *", async () => {
-    if (morningGreetingCronRunning) {
-      console.log("[scheduler] Morning greeting cron still running — skipping");
+ cron.schedule("0 8 * * *", async () => {
+  if (morningGreetingCronRunning) {
+    console.log("[scheduler] Morning greeting cron still running — skipping");
+    return;
+  }
+  morningGreetingCronRunning = true;
+
+  try {
+    // ── ADD THIS CHECK HERE ──
+    const dayOfWeek = new Date().getDay();
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      console.log("[scheduler] Skipping morning greeting: It's the weekend! 😴");
       return;
     }
-    morningGreetingCronRunning = true;
+    // ─────────────────────────
 
-    try {
-      const startOfToday = getStartOfTodayInWAT();
+    const startOfToday = getStartOfTodayInWAT();
+    // ... rest of the code
 
       const totalDailyUsers = await prisma.user.count({
         where: {
@@ -361,15 +375,22 @@ export function startScheduler(bot: Bot<BotContext>): void {
 
   // 2:00 PM job: sweep users not greeted today and send AFTERNOON greetings.
   // Day-1/bootstrap safety: for null-history users, only send to 50% randomly.
-  cron.schedule("0 14 * * *", async () => {
-    if (afternoonGreetingCronRunning) {
-      console.log("[scheduler] Afternoon greeting cron still running — skipping");
+  // 2:00 PM job: sweep users not greeted today and send AFTERNOON greetings.
+cron.schedule("0 14 * * *", async () => {
+  if (afternoonGreetingCronRunning) return;
+  afternoonGreetingCronRunning = true;
+
+  try {
+    // ── ADD THIS CHECK HERE ──
+    const dayOfWeek = new Date().getDay();
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      console.log("[scheduler] Skipping afternoon sweep: Weekend mode. 😴");
       return;
     }
-    afternoonGreetingCronRunning = true;
-
-    try {
-      const startOfToday = getStartOfTodayInWAT();
+    // ─────────────────────────
+    
+    const startOfToday = getStartOfTodayInWAT();
+  
 
       const candidates = await prisma.user.findMany({
         where: {
@@ -500,6 +521,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
           const userForTz = await prisma.user.findUnique({
             where: { id: job.userId },
             select: {
+              createdAt: true,
               timezone: true,
               reminderTime: true,
               lastGreetingSentAt: true,
@@ -549,16 +571,32 @@ export function startScheduler(bot: Bot<BotContext>): void {
             continue;
           }
 
-          // ── GHOST CHECK: Calculate days since last log ───────────────────
+          // ── GHOST CHECK: Calculate days since last log or account creation ──
           const lastLog = await prisma.log.findFirst({
             where: { userId: job.userId },
             orderBy: { logDate: "desc" },
           });
 
           const nowTime = new Date();
-          const daysSinceLastLog = lastLog 
-            ? differenceInDays(nowTime, lastLog.logDate) 
-            : 99; // Default to 99 if they've never logged
+          let daysSinceLastLog: number;
+
+          if (lastLog) {
+            daysSinceLastLog = differenceInDays(nowTime, lastLog.logDate);
+          } else {
+            // Fallback to account creation date if they have no logs yet
+            daysSinceLastLog = userForTz?.createdAt
+              ? differenceInDays(nowTime, userForTz.createdAt)
+              : 0;
+          }
+
+          if (daysSinceLastLog > 14) {
+            await prisma.reminderJob.update({
+              where: { id: job.id },
+              data: { status: "skipped" },
+            });
+            console.log(`[scheduler] Skipped reminder for user ${job.userId} — inactive for ${daysSinceLastLog} days`);
+            continue;
+          }
 
           // ── MARKETING STRATEGY: Get dynamic message & silence mode ───────
           const localHour = Number(
@@ -713,9 +751,9 @@ export function startScheduler(bot: Bot<BotContext>): void {
       for (const [, job] of bestSentByUser) {
         try {
           // Timing check: is the next nudge due?
-          // Nudge N fires at scheduledFor + (N+1)*30 minutes
+          // Nudge N fires at scheduledFor + (N+1)*20 minutes
           const nextNudgeAt = new Date(
-            job.scheduledFor.getTime() + (job.autoNudgeCount + 1) * 30 * 60 * 1000,
+            job.scheduledFor.getTime() + (job.autoNudgeCount + 1) * 20 * 60 * 1000,
           );
           if (now < nextNudgeAt) continue; // not yet time for the next nudge
 
@@ -978,8 +1016,8 @@ export function startScheduler(bot: Bot<BotContext>): void {
 
   // ── Auto-save: rescue unfinished log-writing sessions (every 5 min) ───────
   //
-  // When a user starts writing a log, sends messages (gets 👍 reactions), but
-  // never taps "Done ✅", their work is stuck in the session. This cron reads
+  // When a user starts writing a log and then goes idle, their draft can get
+  // stuck in the session. This cron reads
   // all Session rows from the DB, finds ones with pending log parts that have
   // gone idle, and either:
   //   - After 15 min idle: sends a prompt asking to save or keep writing
@@ -1061,6 +1099,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
                   content: fullText,
                   logDate,
                   isVoice: false,
+                  isAiRefined: false,
                 },
               }),
               prisma.user.update({
@@ -1098,7 +1137,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
             try {
               await bot.api.sendMessage(
                 chatId,
-                `✅ I went ahead and saved your log — it looked like you were done.\n\n📖 ${fullText.length > 150 ? fullText.slice(0, 150) + "…" : fullText}\n\nYou can always edit it later from your calendar 📅`,
+                `✅ I went ahead and saved your log because it looked like you were done.\n\n📖 ${fullText.length > 150 ? fullText.slice(0, 150) + "…" : fullText}\n\nYou can always edit it later from your calendar 📅`,
                 {
                   reply_markup: {
                     inline_keyboard: [

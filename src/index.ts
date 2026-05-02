@@ -165,10 +165,9 @@ app.post("/webhook/paystack", express.raw({ type: "application/json" }), async (
             await bot.api.sendMessage(
               Number(telegramId),
               `✅ *Payment confirmed — you're unblocked.*\n\n` +
-                `Keep typing your log, or tap *Done ✅* to save what you've written.`,
+                `Keep writing your log and I'll refine it automatically as soon as you send it.`,
               {
                 parse_mode: "Markdown",
-                reply_markup: new InlineKeyboard().text("Done ✅", "done_log"),
               },
             );
           } else if (sendResumeStartLogIsoDate) {

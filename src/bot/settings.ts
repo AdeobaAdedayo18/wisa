@@ -284,7 +284,7 @@ export async function handleSettingsHow(ctx: BotContext) {
     `❓ *How Wisa Works*\n\n` +
       `Wisa is your personal SIWES logbook assistant 📓\n\n` +
       `*✍️ Writing logs*\n` +
-      `Tap "Write today's log", type your work activities (send as many messages as you like), then tap *Done ✅*. Wisa saves everything automatically.\n\n` +
+      `Tap "Write today's log", send your log, and Wisa will refine it automatically.\n\n` +
       `*⏰ Reminders*\n` +
       `Wisa nudges you at your chosen time to write your log. Snooze up to 3 times — on the 3rd you get the final push 😄\n\n` +
       `*✨ AI Refinement*\n` +

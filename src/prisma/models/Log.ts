@@ -43,6 +43,7 @@ export type LogMinAggregateOutputType = {
   refinedContent: string | null
   logDate: Date | null
   isVoice: boolean | null
+  isAiRefined: boolean | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -54,6 +55,7 @@ export type LogMaxAggregateOutputType = {
   refinedContent: string | null
   logDate: Date | null
   isVoice: boolean | null
+  isAiRefined: boolean | null
   createdAt: Date | null
   updatedAt: Date | null
 }
@@ -65,6 +67,7 @@ export type LogCountAggregateOutputType = {
   refinedContent: number
   logDate: number
   isVoice: number
+  isAiRefined: number
   createdAt: number
   updatedAt: number
   _all: number
@@ -88,6 +91,7 @@ export type LogMinAggregateInputType = {
   refinedContent?: true
   logDate?: true
   isVoice?: true
+  isAiRefined?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -99,6 +103,7 @@ export type LogMaxAggregateInputType = {
   refinedContent?: true
   logDate?: true
   isVoice?: true
+  isAiRefined?: true
   createdAt?: true
   updatedAt?: true
 }
@@ -110,6 +115,7 @@ export type LogCountAggregateInputType = {
   refinedContent?: true
   logDate?: true
   isVoice?: true
+  isAiRefined?: true
   createdAt?: true
   updatedAt?: true
   _all?: true
@@ -208,6 +214,7 @@ export type LogGroupByOutputType = {
   refinedContent: string | null
   logDate: Date
   isVoice: boolean
+  isAiRefined: boolean
   createdAt: Date
   updatedAt: Date
   _count: LogCountAggregateOutputType | null
@@ -242,6 +249,7 @@ export type LogWhereInput = {
   refinedContent?: Prisma.StringNullableFilter<"Log"> | string | null
   logDate?: Prisma.DateTimeFilter<"Log"> | Date | string
   isVoice?: Prisma.BoolFilter<"Log"> | boolean
+  isAiRefined?: Prisma.BoolFilter<"Log"> | boolean
   createdAt?: Prisma.DateTimeFilter<"Log"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Log"> | Date | string
   user?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
@@ -254,6 +262,7 @@ export type LogOrderByWithRelationInput = {
   refinedContent?: Prisma.SortOrderInput | Prisma.SortOrder
   logDate?: Prisma.SortOrder
   isVoice?: Prisma.SortOrder
+  isAiRefined?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   user?: Prisma.UserOrderByWithRelationInput
@@ -269,6 +278,7 @@ export type LogWhereUniqueInput = Prisma.AtLeast<{
   refinedContent?: Prisma.StringNullableFilter<"Log"> | string | null
   logDate?: Prisma.DateTimeFilter<"Log"> | Date | string
   isVoice?: Prisma.BoolFilter<"Log"> | boolean
+  isAiRefined?: Prisma.BoolFilter<"Log"> | boolean
   createdAt?: Prisma.DateTimeFilter<"Log"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Log"> | Date | string
   user?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
@@ -281,6 +291,7 @@ export type LogOrderByWithAggregationInput = {
   refinedContent?: Prisma.SortOrderInput | Prisma.SortOrder
   logDate?: Prisma.SortOrder
   isVoice?: Prisma.SortOrder
+  isAiRefined?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
   _count?: Prisma.LogCountOrderByAggregateInput
@@ -300,6 +311,7 @@ export type LogScalarWhereWithAggregatesInput = {
   refinedContent?: Prisma.StringNullableWithAggregatesFilter<"Log"> | string | null
   logDate?: Prisma.DateTimeWithAggregatesFilter<"Log"> | Date | string
   isVoice?: Prisma.BoolWithAggregatesFilter<"Log"> | boolean
+  isAiRefined?: Prisma.BoolWithAggregatesFilter<"Log"> | boolean
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"Log"> | Date | string
   updatedAt?: Prisma.DateTimeWithAggregatesFilter<"Log"> | Date | string
 }
@@ -309,6 +321,7 @@ export type LogCreateInput = {
   refinedContent?: string | null
   logDate: Date | string
   isVoice?: boolean
+  isAiRefined?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
   user: Prisma.UserCreateNestedOneWithoutLogsInput
@@ -321,6 +334,7 @@ export type LogUncheckedCreateInput = {
   refinedContent?: string | null
   logDate: Date | string
   isVoice?: boolean
+  isAiRefined?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -330,6 +344,7 @@ export type LogUpdateInput = {
   refinedContent?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   isVoice?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  isAiRefined?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   user?: Prisma.UserUpdateOneRequiredWithoutLogsNestedInput
@@ -342,6 +357,7 @@ export type LogUncheckedUpdateInput = {
   refinedContent?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   isVoice?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  isAiRefined?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -353,6 +369,7 @@ export type LogCreateManyInput = {
   refinedContent?: string | null
   logDate: Date | string
   isVoice?: boolean
+  isAiRefined?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -362,6 +379,7 @@ export type LogUpdateManyMutationInput = {
   refinedContent?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   isVoice?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  isAiRefined?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -373,6 +391,7 @@ export type LogUncheckedUpdateManyInput = {
   refinedContent?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   isVoice?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  isAiRefined?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -394,6 +413,7 @@ export type LogCountOrderByAggregateInput = {
   refinedContent?: Prisma.SortOrder
   logDate?: Prisma.SortOrder
   isVoice?: Prisma.SortOrder
+  isAiRefined?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -410,6 +430,7 @@ export type LogMaxOrderByAggregateInput = {
   refinedContent?: Prisma.SortOrder
   logDate?: Prisma.SortOrder
   isVoice?: Prisma.SortOrder
+  isAiRefined?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -421,6 +442,7 @@ export type LogMinOrderByAggregateInput = {
   refinedContent?: Prisma.SortOrder
   logDate?: Prisma.SortOrder
   isVoice?: Prisma.SortOrder
+  isAiRefined?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   updatedAt?: Prisma.SortOrder
 }
@@ -477,6 +499,7 @@ export type LogCreateWithoutUserInput = {
   refinedContent?: string | null
   logDate: Date | string
   isVoice?: boolean
+  isAiRefined?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -487,6 +510,7 @@ export type LogUncheckedCreateWithoutUserInput = {
   refinedContent?: string | null
   logDate: Date | string
   isVoice?: boolean
+  isAiRefined?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -527,6 +551,7 @@ export type LogScalarWhereInput = {
   refinedContent?: Prisma.StringNullableFilter<"Log"> | string | null
   logDate?: Prisma.DateTimeFilter<"Log"> | Date | string
   isVoice?: Prisma.BoolFilter<"Log"> | boolean
+  isAiRefined?: Prisma.BoolFilter<"Log"> | boolean
   createdAt?: Prisma.DateTimeFilter<"Log"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Log"> | Date | string
 }
@@ -537,6 +562,7 @@ export type LogCreateManyUserInput = {
   refinedContent?: string | null
   logDate: Date | string
   isVoice?: boolean
+  isAiRefined?: boolean
   createdAt?: Date | string
   updatedAt?: Date | string
 }
@@ -546,6 +572,7 @@ export type LogUpdateWithoutUserInput = {
   refinedContent?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   isVoice?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  isAiRefined?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -556,6 +583,7 @@ export type LogUncheckedUpdateWithoutUserInput = {
   refinedContent?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   isVoice?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  isAiRefined?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -566,6 +594,7 @@ export type LogUncheckedUpdateManyWithoutUserInput = {
   refinedContent?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   logDate?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   isVoice?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  isAiRefined?: Prisma.BoolFieldUpdateOperationsInput | boolean
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
@@ -579,6 +608,7 @@ export type LogSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = ru
   refinedContent?: boolean
   logDate?: boolean
   isVoice?: boolean
+  isAiRefined?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
@@ -591,6 +621,7 @@ export type LogSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extension
   refinedContent?: boolean
   logDate?: boolean
   isVoice?: boolean
+  isAiRefined?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
@@ -603,6 +634,7 @@ export type LogSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extension
   refinedContent?: boolean
   logDate?: boolean
   isVoice?: boolean
+  isAiRefined?: boolean
   createdAt?: boolean
   updatedAt?: boolean
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
@@ -615,11 +647,12 @@ export type LogSelectScalar = {
   refinedContent?: boolean
   logDate?: boolean
   isVoice?: boolean
+  isAiRefined?: boolean
   createdAt?: boolean
   updatedAt?: boolean
 }
 
-export type LogOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "content" | "refinedContent" | "logDate" | "isVoice" | "createdAt" | "updatedAt", ExtArgs["result"]["log"]>
+export type LogOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "userId" | "content" | "refinedContent" | "logDate" | "isVoice" | "isAiRefined" | "createdAt" | "updatedAt", ExtArgs["result"]["log"]>
 export type LogInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   user?: boolean | Prisma.UserDefaultArgs<ExtArgs>
 }
@@ -642,6 +675,7 @@ export type $LogPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
     refinedContent: string | null
     logDate: Date
     isVoice: boolean
+    isAiRefined: boolean
     createdAt: Date
     updatedAt: Date
   }, ExtArgs["result"]["log"]>
@@ -1074,6 +1108,7 @@ export interface LogFieldRefs {
   readonly refinedContent: Prisma.FieldRef<"Log", 'String'>
   readonly logDate: Prisma.FieldRef<"Log", 'DateTime'>
   readonly isVoice: Prisma.FieldRef<"Log", 'Boolean'>
+  readonly isAiRefined: Prisma.FieldRef<"Log", 'Boolean'>
   readonly createdAt: Prisma.FieldRef<"Log", 'DateTime'>
   readonly updatedAt: Prisma.FieldRef<"Log", 'DateTime'>
 }

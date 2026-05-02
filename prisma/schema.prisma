@@ -24,6 +24,7 @@ model User {
   firstName          String
   username           String?
   paymentEmail       String?
+  courseOfStudy      String?
   logFrequency       String          // "daily" | "bi-daily" | "every-3-days" | "weekly"
   reminderTime       String          // "HH:MM" in 24hr format
   timezone           String          @default("Africa/Lagos")
@@ -54,6 +55,7 @@ model Log {
   refinedContent  String?
   logDate         DateTime
   isVoice         Boolean  @default(false)
+  isAiRefined     Boolean  @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }
