@@ -232,15 +232,24 @@ export function startScheduler(bot: Bot<BotContext>): void {
   // ended in AFTERNOON (flip-flop). First-week bootstrap: if there are still
   // zero MORNING users in the DB and no AFTERNOON candidates, seed 50% of
   // null-history users to preserve the staggered split.
-  cron.schedule("0 8 * * *", async () => {
-    if (morningGreetingCronRunning) {
-      console.log("[scheduler] Morning greeting cron still running — skipping");
+ cron.schedule("0 8 * * *", async () => {
+  if (morningGreetingCronRunning) {
+    console.log("[scheduler] Morning greeting cron still running — skipping");
+    return;
+  }
+  morningGreetingCronRunning = true;
+
+  try {
+    // ── ADD THIS CHECK HERE ──
+    const dayOfWeek = new Date().getDay();
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      console.log("[scheduler] Skipping morning greeting: It's the weekend! 😴");
       return;
     }
-    morningGreetingCronRunning = true;
+    // ─────────────────────────
 
-    try {
-      const startOfToday = getStartOfTodayInWAT();
+    const startOfToday = getStartOfTodayInWAT();
+    // ... rest of the code
 
       const totalDailyUsers = await prisma.user.count({
         where: {
@@ -366,15 +375,22 @@ export function startScheduler(bot: Bot<BotContext>): void {
 
   // 2:00 PM job: sweep users not greeted today and send AFTERNOON greetings.
   // Day-1/bootstrap safety: for null-history users, only send to 50% randomly.
-  cron.schedule("0 14 * * *", async () => {
-    if (afternoonGreetingCronRunning) {
-      console.log("[scheduler] Afternoon greeting cron still running — skipping");
+  // 2:00 PM job: sweep users not greeted today and send AFTERNOON greetings.
+cron.schedule("0 14 * * *", async () => {
+  if (afternoonGreetingCronRunning) return;
+  afternoonGreetingCronRunning = true;
+
+  try {
+    // ── ADD THIS CHECK HERE ──
+    const dayOfWeek = new Date().getDay();
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      console.log("[scheduler] Skipping afternoon sweep: Weekend mode. 😴");
       return;
     }
-    afternoonGreetingCronRunning = true;
-
-    try {
-      const startOfToday = getStartOfTodayInWAT();
+    // ─────────────────────────
+    
+    const startOfToday = getStartOfTodayInWAT();
+  
 
       const candidates = await prisma.user.findMany({
         where: {
