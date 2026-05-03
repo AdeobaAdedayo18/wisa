@@ -249,7 +249,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
     // ─────────────────────────
 
     const startOfToday = getStartOfTodayInWAT();
-    // ... rest of the code
+    
 
       const totalDailyUsers = await prisma.user.count({
         where: {
