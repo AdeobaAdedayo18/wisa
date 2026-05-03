@@ -395,7 +395,7 @@ bot.on("message:text", async (ctx) => {
   if (ctx.session.awaitingLog && !dbUser?.courseOfStudy) {
     ctx.session.awaitingCourse = true;
     ctx.session.draftLogForCourse = ctx.message?.text ?? "";
-    await ctx.reply("✨ I'd love to AI-refine this for you! But to make it perfect for your logbook, what is your Area of Study?");
+    await ctx.reply("✨ I'd love to refine this for you! But to make it perfect for your logbook, what is your Area of Study?");
     return;
   }
 
