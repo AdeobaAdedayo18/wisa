@@ -40,10 +40,12 @@ export interface SessionData {
    * it as a log entry.
    */
   pendingVoiceTranscription?: string;
-  /** True while the bot is waiting for the user's course of study. */
+  /** True while the bot is waiting for the user's course of study (for text logs). */
   awaitingCourse?: boolean;
-  /** Draft log text temporarily held while the user provides their course. */
+  /** Draft log text temporarily held while the user provides their course (for text logs). */
   draftLogForCourse?: string;
+  /** True while the bot is waiting for the user's course of study specifically during a Voice Log flow. */
+  awaitingCourseForVoice?: boolean;
   /** Raw text staged for the Compare & Choose AI save flow. */
   pendingRawText?: string;
   /** Refined text staged for the Compare & Choose AI save flow. */
@@ -117,6 +119,7 @@ export function clearActiveFlow(session: SessionData): void {
   session.pendingVoiceTranscription = undefined;
   session.awaitingCourse = undefined;
   session.draftLogForCourse = undefined;
+  session.awaitingCourseForVoice = undefined; // 👈 Clears the new voice guard
   session.pendingRawText = undefined;
   session.pendingRefinedText = undefined;
   session.pendingRefinedContent = undefined;

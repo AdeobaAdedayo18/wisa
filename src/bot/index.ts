@@ -31,9 +31,7 @@ import {
   handleSaveAiLog,
   handleSaveRawLog,
   handleVoiceLog,
-  handleVoiceSave,
-  handleVoiceEdit,
-  handleVoiceRerecord,
+  continueVoiceRefinementAfterCourse,
 } from "./aiFeatures";
 import { showAiComparisonChoice } from "./aiFlow";
 import {
@@ -153,9 +151,7 @@ bot.callbackQuery("save_ai_log", handleSaveAiLog);
 bot.callbackQuery("save_raw_log", handleSaveRawLog);
 
 // Voice log flow (8.3)
-bot.callbackQuery("voice_save", handleVoiceSave);
-bot.callbackQuery("voice_edit", handleVoiceEdit);
-bot.callbackQuery("voice_rerecord", handleVoiceRerecord);
+
 
 // Payments / Pro upgrade flow (9.2)
 bot.callbackQuery("go_pro", handleGoPro);
@@ -238,6 +234,12 @@ bot.on("message:text", async (ctx) => {
   if (await handlePaymentEmailText(ctx)) return;
   // Edit mode takes priority over log accumulation
   if (await handleEditText(ctx)) return;
+
+  // ── Voice Course Interceptor ──
+  if (ctx.session.awaitingCourseForVoice) {
+    if (!ctx.message.text) return;
+    return continueVoiceRefinementAfterCourse(ctx, ctx.message.text);
+  }
 
   const telegramId = BigInt(ctx.from!.id);
   const dbUser = await prisma.user.findUnique({

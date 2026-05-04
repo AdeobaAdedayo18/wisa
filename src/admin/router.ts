@@ -75,17 +75,22 @@ function handleError(res: Response, label: string, err: unknown): void {
 // ─── /api/stats ───────────────────────────────────────────────────────────────
 router.get("/api/stats", async (req: Request, res: Response): Promise<void> => {
   try {
-    // 1. Grab date from URL query (if it exists) to support the Analytics Date Picker
-    const dateQuery = String(req.query.date ?? "");
-    let targetDate = new Date();
-    if (dateQuery) {
-      const parsed = parseISO(dateQuery);
-      if (isValid(parsed)) targetDate = parsed;
-    }
+    const now = new Date();
+    const dayStart = startOfDay(now);
+    const dayEnd = endOfDay(now);
+    const weekStart = subDays(now, 7);
 
-    const dayStart = startOfDay(targetDate);
-    const dayEnd = endOfDay(targetDate);
-    const weekStart = subDays(targetDate, 7);
+    // 1. Determine Timeframe for Messaging Strategy (Analytics)
+    const timeframe = String(req.query.timeframe ?? "today"); // Options: all, today, week, month
+    const bucketWhere: any = { bucketSent: { not: null } };
+    
+    if (timeframe === "today") {
+      bucketWhere.scheduledFor = { gte: dayStart, lte: dayEnd };
+    } else if (timeframe === "week") {
+      bucketWhere.scheduledFor = { gte: weekStart, lte: dayEnd };
+    } else if (timeframe === "month") {
+      bucketWhere.scheduledFor = { gte: subDays(now, 30), lte: dayEnd };
+    } // If "all", we leave bucketWhere as is (no date constraints)
 
     const [
       totalUsers,
@@ -98,6 +103,8 @@ router.get("/api/stats", async (req: Request, res: Response): Promise<void> => {
       usersLoggedTodayRaw,
       voiceLogs,
       logsThisWeek,
+      aiRefinedLogs,    // 👈 Counting AI saves
+      rawOriginalLogs,  // 👈 Counting Raw saves
       activeSubs,
       expiredSubs,
       cancelledSubs,
@@ -131,6 +138,8 @@ router.get("/api/stats", async (req: Request, res: Response): Promise<void> => {
       }),
       prisma.log.count({ where: { isVoice: true } }),
       prisma.log.count({ where: { logDate: { gte: weekStart } } }),
+      prisma.log.count({ where: { isAiRefined: true } }),  // 👈 AI Query
+      prisma.log.count({ where: { isAiRefined: false } }), // 👈 Raw Query
       prisma.subscription.count({ where: { status: "active" } }),
       prisma.subscription.count({ where: { status: "expired" } }),
       prisma.subscription.count({ where: { status: "cancelled" } }),
@@ -148,13 +157,10 @@ router.get("/api/stats", async (req: Request, res: Response): Promise<void> => {
       prisma.subscription.count({ where: { createdAt: { gte: weekStart } } }),
     ]);
 
-    // 2. Fetch buckets heavily filtered by the requested specific day
+    // 2. Fetch buckets heavily filtered by the requested timeframe
     const reminderBucketRows = await prisma.reminderJob.groupBy({
       by: ["bucketSent"],
-      where: { 
-        bucketSent: { not: null },
-        scheduledFor: { gte: dayStart, lte: dayEnd } // 👈 The Daily Analytics Fix
-      },
+      where: bucketWhere,
       _count: { _all: true, convertedAt: true },
       orderBy: { bucketSent: "asc" },
     });
@@ -181,6 +187,8 @@ router.get("/api/stats", async (req: Request, res: Response): Promise<void> => {
         usersLoggedToday: usersLoggedTodayRaw.length,
         voice: voiceLogs,
         thisWeek: logsThisWeek,
+        aiRefined: aiRefinedLogs,     // 👈 Exporting to frontend
+        rawOriginal: rawOriginalLogs, // 👈 Exporting to frontend
       },
       subscriptions: {
         active: activeSubs,
@@ -287,7 +295,7 @@ router.get(
     } catch (err) {
       handleError(res, "/api/payments", err);
     }
-  },
+  }
 );
 
 // ─── /api/users ───────────────────────────────────────────────────────────────
@@ -398,7 +406,7 @@ router.get(
     } catch (err) {
       handleError(res, "/api/users/:id/logs", err);
     }
-  },
+  }
 );
 
 // ─── /api/logs/today ─────────────────────────────────────────────────────────
@@ -422,7 +430,7 @@ router.get(
     } catch (err) {
       handleError(res, "/api/logs/today", err);
     }
-  },
+  }
 );
 
 // ─── /api/logs ────────────────────────────────────────────────────────────────
@@ -513,7 +521,7 @@ router.get(
     } catch (err) {
       handleError(res, "/api/at-risk-users", err);
     }
-  },
+  }
 );
 
 // ─── /api/chart/daily-logs ────────────────────────────────────────────────────
@@ -546,7 +554,7 @@ router.get(
     } catch (err) {
       handleError(res, "/api/chart/daily-logs", err);
     }
-  },
+  }
 );
 
 // ─── /api/chart/user-growth ───────────────────────────────────────────────────
@@ -581,7 +589,7 @@ router.get(
     } catch (err) {
       handleError(res, "/api/chart/user-growth", err);
     }
-  },
+  }
 );
 
 // ─── /api/manual-payments ─────────────────────────────────────────────────────
@@ -617,7 +625,7 @@ router.get(
     } catch (err) {
       handleError(res, "/api/manual-payments", err);
     }
-  },
+  }
 );
 
 // ─── POST /api/manual-payments/:id/approve ───────────────────────────────────
@@ -670,7 +678,7 @@ router.post(
     } catch (err) {
       handleError(res, "/api/manual-payments/:id/approve", err);
     }
-  },
+  }
 );
 
 // ─── POST /api/manual-payments/:id/reject ────────────────────────────────────
@@ -708,7 +716,7 @@ router.post(
     } catch (err) {
       handleError(res, "/api/manual-payments/:id/reject", err);
     }
-  },
+  }
 );
 
 // ─── /api/reminders ───────────────────────────────────────────────────────────
@@ -756,7 +764,7 @@ router.get(
     } catch (err) {
       handleError(res, "/api/reminders", err);
     }
-  },
+  }
 );
 
 // ─── /api/replay/sessions — list all user sessions ────────────────────────
@@ -877,7 +885,7 @@ router.get(
     } catch (err) {
       handleError(res, "/api/replay/sessions", err);
     }
-  },
+  }
 );
 
 // ─── /api/replay/events/:telegramId — get events for replay ──────────────
@@ -958,7 +966,7 @@ router.get(
     } catch (err) {
       handleError(res, "/api/replay/events/:telegramId", err);
     }
-  },
+  }
 );
 
 // ─── /api/replay/stats — replay system stats ─────────────────────────────
@@ -991,7 +999,7 @@ router.get(
     } catch (err) {
       handleError(res, "/api/replay/stats", err);
     }
-  },
+  }
 );
 
 // ─── POST /api/trigger-recap — manually fire the Saturday weekly recap ──────
@@ -1005,7 +1013,7 @@ router.post(
     } catch (err) {
       handleError(res, "trigger-recap", err);
     }
-  },
+  }
 );
 
 export { router as adminRouter };
