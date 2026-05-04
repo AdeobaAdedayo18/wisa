@@ -2,6 +2,7 @@ import path from "path";
 import fs from "fs";
 import axios from "axios";
 import { InlineKeyboard } from "grammy";
+import os from "os";
 import { parseISO } from "date-fns";
 import { prisma } from "../lib/prisma";
 import { refineLog, transcribeVoice } from "../services/openai";
@@ -18,16 +19,9 @@ import {
 } from "./monetization";
 
 // ---------------------------------------------------------------------------
-// 8.2 — "✨ Refine with AI" handler
-// Callback data: ai_refine_<logId>
+// 8.2 — "✨ Refine with AI" handler (For text logs)
 // ---------------------------------------------------------------------------
 
-/**
- * Entry point for AI refinement.
- * - Checks free refinement quota (or Pro status)
- * - Sends a loading message, calls OpenAI, then replaces with the result
- * - Presents [✅ Use this version] [Keep original 📝]
- */
 export async function handleAiRefine(ctx: BotContext): Promise<void> {
   await ctx.answerCallbackQuery();
 
@@ -48,7 +42,6 @@ export async function handleAiRefine(ctx: BotContext): Promise<void> {
     nextRenewalDate: dbUser.nextRenewalDate,
   });
 
-  // ── Gate: free quota check ──────────────────────────────────────────────
   if (!unlocked && dbUser.freeAiRefinements <= 0) {
     await ctx.reply(
       `✨ You've used all your free AI refinements!\n\n` +
@@ -69,7 +62,6 @@ export async function handleAiRefine(ctx: BotContext): Promise<void> {
 
   console.log(`[ai-refine] User ${dbUser.id} refining log #${logId}`);
 
-  // ── Loading message ─────────────────────────────────────────────────────
   const loadingMsg = await ctx.reply("✨ Refining your log...", {
     parse_mode: "Markdown",
   });
@@ -78,11 +70,13 @@ export async function handleAiRefine(ctx: BotContext): Promise<void> {
     const courseOfStudy = dbUser.courseOfStudy ?? "IT";
     const refined = await refineLog(log.content, courseOfStudy);
 
+    // 👇 GUARANTEE SESSION STATE 👇
+    ctx.session.pendingRawText = log.content;
+    ctx.session.pendingRefinedText = refined;
     ctx.session.refiningLogId = logId;
 
     await showAiComparisonChoice(ctx, loadingMsg.message_id, log.content, refined);
 
-    // Decrement free quota for non-Pro users
     if (!unlocked) {
       await prisma.user.update({
         where: { id: dbUser.id },
@@ -133,12 +127,15 @@ export async function handleSaveAiLog(ctx: BotContext): Promise<void> {
   const rawText = ctx.session.pendingRawText;
   const refinedText = ctx.session.pendingRefinedText;
   const logId = ctx.session.refiningLogId;
+  const wasVoice = !!ctx.session.pendingVoiceTranscription; 
 
   // SRE FIX: Clear immediately to prevent double-tap races from reusing staged state.
   ctx.session.pendingRawText = undefined;
   ctx.session.pendingRefinedText = undefined;
   ctx.session.pendingRefinedContent = undefined;
   ctx.session.refiningLogId = undefined;
+  ctx.session.pendingVoiceTranscription = undefined; 
+  ctx.session.awaitingLog = false; 
 
   if (!rawText || !refinedText) {
     await ctx.reply("Session expired — please refine again.");
@@ -161,8 +158,8 @@ export async function handleSaveAiLog(ctx: BotContext): Promise<void> {
       await prisma.log.update({
         where: { id: logId },
         data: {
-          content: refinedText, // ✅ The chosen AI text becomes the main log
-          refinedContent: null, // ✅ Clear this so the dashboard doesn't show the raw text incorrectly
+          content: refinedText, 
+          refinedContent: null, 
           isAiRefined: true,
         },
       });
@@ -172,10 +169,10 @@ export async function handleSaveAiLog(ctx: BotContext): Promise<void> {
         prisma.log.create({
           data: {
             userId: dbUser.id,
-            content: refinedText, // ✅ The chosen AI text becomes the main log
-            refinedContent: null, // ✅ Clear this so the dashboard doesn't show the raw text incorrectly
+            content: refinedText, 
+            refinedContent: null, 
             logDate,
-            isVoice: false,
+            isVoice: wasVoice, 
             isAiRefined: true,
           },
         }),
@@ -213,12 +210,15 @@ export async function handleSaveRawLog(ctx: BotContext): Promise<void> {
   const rawText = ctx.session.pendingRawText;
   const refinedText = ctx.session.pendingRefinedText;
   const logId = ctx.session.refiningLogId;
+  const wasVoice = !!ctx.session.pendingVoiceTranscription; 
 
   // SRE FIX: Clear immediately to prevent double-tap races from reusing staged state.
   ctx.session.pendingRawText = undefined;
   ctx.session.pendingRefinedText = undefined;
   ctx.session.pendingRefinedContent = undefined;
   ctx.session.refiningLogId = undefined;
+  ctx.session.pendingVoiceTranscription = undefined;
+  ctx.session.awaitingLog = false; 
 
   if (!rawText || !refinedText) {
     await ctx.reply("Session expired — please refine again.");
@@ -241,8 +241,8 @@ export async function handleSaveRawLog(ctx: BotContext): Promise<void> {
       await prisma.log.update({
         where: { id: logId },
         data: {
-          content: rawText,             // ✅ The original messy text stays as the main log
-          refinedContent: refinedText,  // ✅ The AI version gets saved in the background
+          content: rawText,             
+          refinedContent: refinedText,  
           isAiRefined: false,
         },
       });
@@ -252,10 +252,10 @@ export async function handleSaveRawLog(ctx: BotContext): Promise<void> {
         prisma.log.create({
           data: {
             userId: dbUser.id,
-            content: rawText,             // ✅ The original messy text stays as the main log
-            refinedContent: refinedText,  // ✅ The AI version gets saved in the background
+            content: rawText,             
+            refinedContent: refinedText,  
             logDate,
-            isVoice: false,
+            isVoice: wasVoice, 
             isAiRefined: false,
           },
         }),
@@ -284,11 +284,18 @@ export async function handleSaveRawLog(ctx: BotContext): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// 8.3 — Voice log handler (Pro only)
-// Triggered on ctx.message.voice
+// 8.3 — Voice log handler (Direct to Auto-Refine)
 // ---------------------------------------------------------------------------
 
 export async function handleVoiceLog(ctx: BotContext): Promise<void> {
+  if (!ctx.session.awaitingLog) {
+    await ctx.reply(
+      "🎤 You sent a voice note, but you aren't currently writing a log!\n\nTo use voice logging, tap **✍️ Write my log** from the menu or a reminder first.",
+      { parse_mode: "Markdown" }
+    );
+    return;
+  }
+
   const telegramId = BigInt(ctx.from!.id);
   const dbUser = await prisma.user.findUnique({ where: { telegramId } });
   if (!dbUser) return;
@@ -303,7 +310,6 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
 
   const unlocked = hasActiveStorage(monetizationUser);
 
-  // ── Free voice quota check ───────────────────────────────────────────────
   if (!unlocked && dbUser.freeVoiceLogs <= 0) {
     await ctx.reply(
       `🎤 You've used all 3 of your free voice logs!\n\n` +
@@ -319,13 +325,6 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
   const voice = ctx.message?.voice;
   if (!voice) return;
 
-  // Log voice message metadata
-  console.log(`[handleVoiceLog] User ${telegramId} sent voice message:`);
-  console.log(`[handleVoiceLog] - file_id: ${voice.file_id}`);
-  console.log(`[handleVoiceLog] - duration: ${voice.duration}s`);
-  console.log(`[handleVoiceLog] - file_size: ${voice.file_size} bytes (${(voice.file_size! / 1024 / 1024).toFixed(2)} MB)`);
-  console.log(`[handleVoiceLog] - mime_type: ${voice.mime_type}`);
-
   const processingMsg = await ctx.reply("🎤 Got your voice note! Transcribing… _(hang tight)_", {
     parse_mode: "Markdown",
   });
@@ -333,27 +332,22 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
   let localPath: string | null = null;
 
   try {
-    // 1. Resolve download URL via Telegram API
     const fileInfo = await ctx.api.getFile(voice.file_id);
     const filePath = fileInfo.file_path!;
     const downloadUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${filePath}`;
-    console.log(`[handleVoiceLog] Downloaded file URL path: ${filePath}`);
 
-    // 2. Download OGG to /tmp
-    localPath = path.join("/tmp", `${voice.file_id}.ogg`);
+    const tempDir = os.tmpdir();
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    localPath = path.join(tempDir, `${voice.file_id}.ogg`);
+
     const response = await axios.get<ArrayBuffer>(downloadUrl, { responseType: "arraybuffer" });
     fs.writeFileSync(localPath, Buffer.from(response.data));
-    const downloadedSize = fs.statSync(localPath).size;
-    console.log(`[handleVoiceLog] File downloaded to ${localPath}, size: ${downloadedSize} bytes`);
 
-    // 3. Transcribe with Whisper
-    console.log(`[handleVoiceLog] Calling transcribeVoice()...`);
     const transcription = await transcribeVoice(localPath);
-    console.log(`[handleVoiceLog] transcribeVoice returned: ${transcription ? `SUCCESS (${transcription.length} chars)` : 'NULL'}`);
 
-    // 3a. Handle silent/unclear audio
     if (!transcription) {
-      console.log(`[handleVoiceLog] ❌ Transcription was null - sending error message to user`);
       await ctx.api
         .editMessageText(
           ctx.chat!.id,
@@ -364,163 +358,106 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
       return;
     }
 
-    const remainingNote =
-      !unlocked && dbUser.freeVoiceLogs > 1
-        ? `\n\n_${dbUser.freeVoiceLogs - 1} free voice log${dbUser.freeVoiceLogs - 1 !== 1 ? "s" : ""} remaining — upgrade to Pro for unlimited 🚀_`
-        : !unlocked && dbUser.freeVoiceLogs === 1
-        ? `\n\n_This was your last free voice log! Upgrade to Pro for unlimited 🚀_`
-        : "";
-
-    // 4. Store in session for save/edit callbacks
     ctx.session.pendingVoiceTranscription = transcription;
 
-    // 5. Show result with action buttons
+    if (!dbUser.courseOfStudy) {
+      ctx.session.awaitingCourseForVoice = true; 
+      await ctx.api.editMessageText(
+        ctx.chat!.id,
+        processingMsg.message_id,
+        "🎤 Transcription complete!\n\nBefore I refine this into a professional log, what is your **Course of Study**? (e.g., Computer Science, Accounting)\n\n_Please type it below:_",
+        { parse_mode: "Markdown" }
+      ).catch(() => {});
+      return;
+    }
+
     await ctx.api.editMessageText(
       ctx.chat!.id,
       processingMsg.message_id,
-      `🎤 *Here's what I heard:*
+      "🎤 Voice transcribed! ✨ Refining your log...",
+    ).catch(() => {});
 
-${transcription}${remainingNote}`,
-      {
-        parse_mode: "Markdown",
-        reply_markup: new InlineKeyboard()
-          .text("✅ Save this log", "voice_save")
-          .row()
-          .text("✏️ Edit before saving", "voice_edit")
-          .text("🔄 Re-record", "voice_rerecord"),
-      },
-    );
+    const refined = await refineLog(transcription, dbUser.courseOfStudy);
+
+    if (!unlocked) {
+      await prisma.user.update({
+        where: { id: dbUser.id },
+        data: { freeVoiceLogs: { decrement: 1 } },
+      });
+    }
+
+    // 👇 EXPLICITLY MAP SESSION STATE FOR SAVE HANDLERS 👇
+    ctx.session.pendingRawText = transcription;
+    ctx.session.pendingRefinedText = refined;
+    ctx.session.refiningLogId = undefined;
+    // 👆 ────────────────────────────────────────────── 👆
+
+    await showAiComparisonChoice(ctx, processingMsg.message_id, transcription, refined);
+
   } catch (err) {
-    console.error("Voice transcription error:", err);
+    console.error("Voice transcription/refinement error:", err);
     captureReplayError(telegramId, err, "handleVoiceLog", ctx.chat?.id);
     await ctx.api
       .editMessageText(
         ctx.chat!.id,
         processingMsg.message_id,
-        "Something went wrong while transcribing your voice note 😢 Please try again.",
+        "Something went wrong while processing your voice note 😢 Please try again.",
       )
       .catch(() => {});
   } finally {
-    // Clean up temp file
-    if (localPath && fs.existsSync(localPath)) {
-      fs.unlinkSync(localPath);
-    }
+    if (localPath && fs.existsSync(localPath)) fs.unlinkSync(localPath);
   }
 }
 
 // ---------------------------------------------------------------------------
-// Callback: voice_save — save the transcription as today's log
+// 8.4 — Voice Resume (Called when user replies with their Course of Study)
 // ---------------------------------------------------------------------------
-
-export async function handleVoiceSave(ctx: BotContext): Promise<void> {
-  await ctx.answerCallbackQuery();
-
+export async function continueVoiceRefinementAfterCourse(ctx: BotContext, courseOfStudy: string): Promise<void> {
+  const telegramId = BigInt(ctx.from!.id);
   const transcription = ctx.session.pendingVoiceTranscription;
-
-  // SRE FIX: Clear immediately to prevent double-tap races from reusing staged state.
-  ctx.session.pendingVoiceTranscription = undefined;
+  
+  ctx.session.awaitingCourseForVoice = false;
 
   if (!transcription) {
-    await ctx.reply("Session expired — please send your voice message again.");
+    await ctx.reply("Session expired. Please send your voice note again.");
     return;
   }
 
-  const telegramId = BigInt(ctx.from!.id);
+  const dbUser = await prisma.user.update({
+    where: { telegramId },
+    data: { courseOfStudy },
+  });
+
   const monetizationUser = await getMonetizationUserByTelegramId(telegramId);
   if (!monetizationUser) return;
+  const unlocked = hasActiveStorage(monetizationUser);
 
-  if (!canCreateLog(monetizationUser)) {
-    await sendStorageWall(ctx, monetizationUser);
-    return;
-  }
+  const loadingMsg = await ctx.reply("✨ Got it! Refining your voice log...", { parse_mode: "Markdown" });
 
   try {
-    const [savedLog, updatedUser] = await prisma.$transaction([
-      prisma.log.create({
-        data: {
-          userId: monetizationUser.id,
-          content: transcription,
-          logDate: new Date(),
-          isVoice: true,
-          isAiRefined: false,
-        },
-      }),
-      prisma.user.update({
-        where: { id: monetizationUser.id },
-        data: { logCount: { increment: 1 } },
-        select: {
-          id: true,
-          firstName: true,
-          isPro: true,
-          storageUnlocked: true,
-          logCount: true,
-          nextRenewalDate: true,
-        },
-      }),
-    ]);
+    const refined = await refineLog(transcription, courseOfStudy);
 
-    await ctx.editMessageText("Saving your voice log\u2026 🎙️").catch(() => {});
-
-    if (!hasActiveStorage(updatedUser) && updatedUser.logCount === FREE_LOG_LIMIT) {
-      await ctx.reply(getStorageLimitReachedAfterSaveText(), {
-        parse_mode: "Markdown",
-        reply_markup: new InlineKeyboard().text("🔓 Unlock storage - ₦1,000", "go_pro"),
+    if (!unlocked) {
+      await prisma.user.update({
+        where: { id: dbUser.id },
+        data: { freeVoiceLogs: { decrement: 1 } },
       });
-      return;
     }
 
-    await ctx.reply("What would you like to do next?", {
-      reply_markup: new InlineKeyboard()
-        .text("✨ Refine with AI", `ai_refine_${savedLog.id}`)
-        .row()
-        .text("📖 View logs", "nav_calendar")
-        .text("🏠 Menu", "nav_menu"),
-    });
+    // 👇 EXPLICITLY MAP SESSION STATE FOR SAVE HANDLERS 👇
+    ctx.session.pendingRawText = transcription;
+    ctx.session.pendingRefinedText = refined;
+    ctx.session.refiningLogId = undefined; 
+    // 👆 ────────────────────────────────────────────── 👆
+
+    await showAiComparisonChoice(ctx, loadingMsg.message_id, transcription, refined);
   } catch (err) {
-    console.error("Error saving voice log:", err);
-    captureReplayError(telegramId, err, "handleVoiceSave", ctx.chat?.id);
-    await ctx.reply("Couldn't save the log. Please try again. 😢");
+    console.error("Auto-refinement error after course:", err);
+    captureReplayError(telegramId, err, "continueVoiceRefinementAfterCourse", ctx.chat?.id);
+    await ctx.api.editMessageText(
+      ctx.chat!.id,
+      loadingMsg.message_id,
+      "Something went wrong while refining your log 😢 Please try again."
+    ).catch(() => {});
   }
-}
-
-// ---------------------------------------------------------------------------
-// Callback: voice_edit — pre-fill transcription, hand off to edit flow
-// ---------------------------------------------------------------------------
-
-export async function handleVoiceEdit(ctx: BotContext): Promise<void> {
-  await ctx.answerCallbackQuery();
-
-  const transcription = ctx.session.pendingVoiceTranscription;
-  if (!transcription) {
-    await ctx.reply("Session expired — please send your voice message again.");
-    return;
-  }
-
-  // Clear the voice session, but open the text logging session
-  ctx.session.awaitingLog = true;
-  ctx.session.pendingVoiceTranscription = undefined;
-  
-  // Make sure we clear out any old draft arrays just to be safe
-  ctx.session.pendingLogParts = [];
-
-  await ctx.reply(
-    `✏️ To edit, just **copy** the text above, make your changes, and send it back to me. I'll automatically refine the new version! ✨`,
-    {
-      parse_mode: "Markdown",
-    },
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Callback: voice_rerecord — prompt the user to try again
-// ---------------------------------------------------------------------------
-
-export async function handleVoiceRerecord(ctx: BotContext): Promise<void> {
-  await ctx.answerCallbackQuery();
-
-  ctx.session.pendingVoiceTranscription = undefined;
-
-  await ctx.editMessageText(
-    "No problem! 🔄 Send me another voice message whenever you're ready 🎤",
-  ).catch(() => {});
 }
