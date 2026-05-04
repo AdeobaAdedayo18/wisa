@@ -1091,9 +1091,14 @@
       <!-- ── ANALYTICS ─────────────────────────────────────────────── -->
       <div id="panel-analytics" class="panel">
         <div id="analytics-view">
-          <div class="analytics-hero">
-            <h2>Messaging Strategy Performance</h2>
-            <p>Tracking which psychological triggers and time-of-day buckets get the highest response rate.</p>
+          <div class="analytics-hero" style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px;">
+            <div>
+              <h2>Messaging Strategy Performance</h2>
+              <p>Tracking which psychological triggers and time-of-day buckets get the highest response rate.</p>
+            </div>
+            <div>
+              <input type="date" id="analytics-date-filter" class="date-input" onchange="loadAnalytics()" title="Select date to view performance" />
+            </div>
           </div>
           <div id="analytics-bucket-wrap">
             <div class="loading-row">Loading…</div>
@@ -1781,10 +1786,23 @@ function renderAnalyticsBucketTable(s) {
 
 async function loadAnalytics() {
   const wrap = document.getElementById('analytics-bucket-wrap');
+  const dateInput = document.getElementById('analytics-date-filter');
+  
+  // Auto-fill today's date if empty
+  if (dateInput && !dateInput.value) {
+    const today = new Date();
+    // Format to YYYY-MM-DD local time
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, '0');
+    const dd = String(today.getDate()).padStart(2, '0');
+    dateInput.value = `${yyyy}-${mm}-${dd}`;
+  }
+
   wrap.innerHTML = `<div class="loading-row">Loading…</div>`;
 
   try {
-    const stats = await api('/stats');
+    // Send the requested date to your backend
+    const stats = await api(`/stats?date=${dateInput ? dateInput.value : ''}`);
     state.stats = stats;
     renderAnalyticsBucketTable(stats);
     markUpdated();

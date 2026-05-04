@@ -73,12 +73,19 @@ function handleError(res: Response, label: string, err: unknown): void {
 }
 
 // ─── /api/stats ───────────────────────────────────────────────────────────────
-router.get("/api/stats", async (_req: Request, res: Response): Promise<void> => {
+router.get("/api/stats", async (req: Request, res: Response): Promise<void> => {
   try {
-    const now = new Date();
-    const todayStart = startOfDay(now);
-    const todayEnd = endOfDay(now);
-    const weekStart = subDays(now, 7);
+    // 1. Grab date from URL query (if it exists) to support the Analytics Date Picker
+    const dateQuery = String(req.query.date ?? "");
+    let targetDate = new Date();
+    if (dateQuery) {
+      const parsed = parseISO(dateQuery);
+      if (isValid(parsed)) targetDate = parsed;
+    }
+
+    const dayStart = startOfDay(targetDate);
+    const dayEnd = endOfDay(targetDate);
+    const weekStart = subDays(targetDate, 7);
 
     const [
       totalUsers,
@@ -111,16 +118,16 @@ router.get("/api/stats", async (_req: Request, res: Response): Promise<void> => 
       prisma.user.count({ where: { isPro: true } }),
       prisma.user.count({ where: { onboardingDone: true } }),
       prisma.user.count({
-        where: { createdAt: { gte: todayStart, lte: todayEnd } },
+        where: { createdAt: { gte: dayStart, lte: dayEnd } },
       }),
       prisma.user.count({ where: { createdAt: { gte: weekStart } } }),
       prisma.log.count(),
       prisma.log.count({
-        where: { logDate: { gte: todayStart, lte: todayEnd } },
+        where: { logDate: { gte: dayStart, lte: dayEnd } },
       }),
       prisma.log.groupBy({
         by: ["userId"],
-        where: { logDate: { gte: todayStart, lte: todayEnd } },
+        where: { logDate: { gte: dayStart, lte: dayEnd } },
       }),
       prisma.log.count({ where: { isVoice: true } }),
       prisma.log.count({ where: { logDate: { gte: weekStart } } }),
@@ -141,9 +148,13 @@ router.get("/api/stats", async (_req: Request, res: Response): Promise<void> => 
       prisma.subscription.count({ where: { createdAt: { gte: weekStart } } }),
     ]);
 
+    // 2. Fetch buckets heavily filtered by the requested specific day
     const reminderBucketRows = await prisma.reminderJob.groupBy({
       by: ["bucketSent"],
-      where: { bucketSent: { not: null } },
+      where: { 
+        bucketSent: { not: null },
+        scheduledFor: { gte: dayStart, lte: dayEnd } // 👈 The Daily Analytics Fix
+      },
       _count: { _all: true, convertedAt: true },
       orderBy: { bucketSent: "asc" },
     });
@@ -998,4 +1009,3 @@ router.post(
 );
 
 export { router as adminRouter };
-
