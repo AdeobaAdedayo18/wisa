@@ -134,7 +134,7 @@ export async function handleSaveAiLog(ctx: BotContext): Promise<void> {
   const refinedText = ctx.session.pendingRefinedText;
   const logId = ctx.session.refiningLogId;
 
-  // Clear immediately to prevent double-tap races from reusing staged state.
+  // SRE FIX: Clear immediately to prevent double-tap races from reusing staged state.
   ctx.session.pendingRawText = undefined;
   ctx.session.pendingRefinedText = undefined;
   ctx.session.pendingRefinedContent = undefined;
@@ -161,8 +161,8 @@ export async function handleSaveAiLog(ctx: BotContext): Promise<void> {
       await prisma.log.update({
         where: { id: logId },
         data: {
-          content: refinedText,
-          refinedContent: rawText,
+          content: refinedText, // ✅ The chosen AI text becomes the main log
+          refinedContent: null, // ✅ Clear this so the dashboard doesn't show the raw text incorrectly
           isAiRefined: true,
         },
       });
@@ -172,8 +172,8 @@ export async function handleSaveAiLog(ctx: BotContext): Promise<void> {
         prisma.log.create({
           data: {
             userId: dbUser.id,
-            content: refinedText,
-            refinedContent: rawText,
+            content: refinedText, // ✅ The chosen AI text becomes the main log
+            refinedContent: null, // ✅ Clear this so the dashboard doesn't show the raw text incorrectly
             logDate,
             isVoice: false,
             isAiRefined: true,
@@ -214,7 +214,7 @@ export async function handleSaveRawLog(ctx: BotContext): Promise<void> {
   const refinedText = ctx.session.pendingRefinedText;
   const logId = ctx.session.refiningLogId;
 
-  // Clear immediately to prevent double-tap races from reusing staged state.
+  // SRE FIX: Clear immediately to prevent double-tap races from reusing staged state.
   ctx.session.pendingRawText = undefined;
   ctx.session.pendingRefinedText = undefined;
   ctx.session.pendingRefinedContent = undefined;
@@ -241,8 +241,8 @@ export async function handleSaveRawLog(ctx: BotContext): Promise<void> {
       await prisma.log.update({
         where: { id: logId },
         data: {
-          content: rawText,
-          refinedContent: refinedText,
+          content: rawText,             // ✅ The original messy text stays as the main log
+          refinedContent: refinedText,  // ✅ The AI version gets saved in the background
           isAiRefined: false,
         },
       });
@@ -252,8 +252,8 @@ export async function handleSaveRawLog(ctx: BotContext): Promise<void> {
         prisma.log.create({
           data: {
             userId: dbUser.id,
-            content: rawText,
-            refinedContent: refinedText,
+            content: rawText,             // ✅ The original messy text stays as the main log
+            refinedContent: refinedText,  // ✅ The AI version gets saved in the background
             logDate,
             isVoice: false,
             isAiRefined: false,
@@ -417,7 +417,7 @@ export async function handleVoiceSave(ctx: BotContext): Promise<void> {
 
   const transcription = ctx.session.pendingVoiceTranscription;
 
-  // Clear immediately to prevent double-tap races from reusing staged state.
+  // SRE FIX: Clear immediately to prevent double-tap races from reusing staged state.
   ctx.session.pendingVoiceTranscription = undefined;
 
   if (!transcription) {
