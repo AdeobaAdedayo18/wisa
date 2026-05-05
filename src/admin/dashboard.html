@@ -2351,6 +2351,38 @@
 
 
 
+        <div class="table-card mt-24">
+
+          <div class="table-header">
+
+            <h3>Paystack Payment Records</h3>
+
+            <select id="payment-status-filter" class="filter-select" onchange="loadPayments()">
+
+              <option value="">All</option>
+
+              <option value="active">Active</option>
+
+              <option value="expired">Expired</option>
+
+              <option value="cancelled">Cancelled</option>
+
+            </select>
+
+          </div>
+
+          <div id="payments-table-wrap">
+
+            <div class="loading-row">Loading…</div>
+
+          </div>
+
+        </div>
+
+
+
+      </div><!-- /panel-payments -->
+
 
 
       <!-- ── REMINDERS ──────────────────────────────────────────────── -->
@@ -3343,15 +3375,6 @@ function renderStatCards(s) {
 
     },
 
-    {
-
-      label: 'Payment Records', value: fmt(s.payments.total),
-
-      sub: `${fmt(s.payments.active)} active · ${fmt(s.payments.expired)} expired · ${fmt(s.payments.cancelled)} cancelled`,
-
-      icon: '💳', cls: s.payments.total > 0 ? 'card-yellow' : '',
-
-    },
 
     {
 
