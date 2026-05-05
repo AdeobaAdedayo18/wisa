@@ -863,6 +863,11 @@
 
       padding: 3px 9px; border-radius: 99px;
 
+      font-size: 11px; font-weight: 600;
+
+      white-space: nowrap;
+
+    }
 
     .tag-green  { background: var(--green-g);  color: var(--green);  }
 
@@ -3250,23 +3255,31 @@ function renderUserGrowthChart(data) {
 
 // ── OVERVIEW ───────────────────────────────────────────────────────
 
-async function loadAnalytics() {
-  const wrap = document.getElementById('analytics-bucket-wrap');
-  const timeframeSelect = document.getElementById('analytics-timeframe-filter');
-  const timeframe = timeframeSelect ? (timeframeSelect.value || 'day') : 'day';
-  wrap.innerHTML = `<div class="loading-row">Loading…</div>`;
-  try {
-    // Send the requested timeframe to the backend
-    const stats = await api(`/stats?timeframe=${encodeURIComponent(timeframe)}`);
-    state.stats = stats;
-    renderAnalyticsBucketTable(stats);
-    markUpdated();
-  } catch (err) {
-    wrap.innerHTML = `<div class="loading-row" style="color:var(--red)">Error: ${escHtml(err.message)}</div>`;
-    toast('Failed to load analytics: ' + err.message, 'error');
-  }
+async function loadOverview() {
 
-}
+  try {
+
+    const [stats, todayLogs, atRisk, dailyLogs, userGrowth] = await Promise.all([
+
+      api('/stats'),
+
+      api('/logs/today'),
+
+      api('/at-risk-users'),
+
+      api('/chart/daily-logs'),
+
+      api('/chart/user-growth'),
+
+    ]);
+
+    state.stats = stats;
+
+
+
+    // Update payments badge
+
+    const pb = document.getElementById('payments-badge');
 
     if (stats.payments.total > 0) {
 
@@ -5345,3 +5358,4 @@ init();
 </body>
 
 </html>
+
