@@ -21,7 +21,7 @@ The student is studying: ${courseOfStudy}.
 Rewrite their raw log to be professional, accurate, and relevant to their course of study.
 
 CRITICAL CONSTRAINTS (YOU MUST OBEY THESE):
-1. Target Length: You MUST write between 50 and 75 words. Expand on the tasks, tools used, and concepts learned to ensure the entry is detailed and substantial enough to fill at least 5 lines in a physical logbook.
+1. Target Length: You MUST write less than 40 words. Expand on the tasks, tools used, and concepts learned to ensure the entry is detailed and substantial enough to fill at least 5 lines in a physical logbook.
 2. Structure: Break the text into 2 short paragraphs so it looks well-formatted.
 3. Tone: Use simple, natural, everyday English. Sound like a real student, not a robot.
 4. Banned Words: DO NOT use overly complex AI words. NEVER use words like: delve, orchestrate, seamless, foster, testament, utilize, or navigate.
