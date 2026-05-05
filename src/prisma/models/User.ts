@@ -353,6 +353,7 @@ export type UserWhereInput = {
   lastGreetingType?: Prisma.EnumGreetingTypeNullableFilter<"User"> | $Enums.GreetingType | null
   createdAt?: Prisma.DateTimeFilter<"User"> | Date | string
   logs?: Prisma.LogListRelationFilter
+  reminderJobs?: Prisma.ReminderJobListRelationFilter
   subscription?: Prisma.XOR<Prisma.SubscriptionNullableScalarRelationFilter, Prisma.SubscriptionWhereInput> | null
   manualPayments?: Prisma.ManualPaymentListRelationFilter
 }
@@ -379,6 +380,7 @@ export type UserOrderByWithRelationInput = {
   lastGreetingType?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   logs?: Prisma.LogOrderByRelationAggregateInput
+  reminderJobs?: Prisma.ReminderJobOrderByRelationAggregateInput
   subscription?: Prisma.SubscriptionOrderByWithRelationInput
   manualPayments?: Prisma.ManualPaymentOrderByRelationAggregateInput
 }
@@ -408,6 +410,7 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   lastGreetingType?: Prisma.EnumGreetingTypeNullableFilter<"User"> | $Enums.GreetingType | null
   createdAt?: Prisma.DateTimeFilter<"User"> | Date | string
   logs?: Prisma.LogListRelationFilter
+  reminderJobs?: Prisma.ReminderJobListRelationFilter
   subscription?: Prisma.XOR<Prisma.SubscriptionNullableScalarRelationFilter, Prisma.SubscriptionWhereInput> | null
   manualPayments?: Prisma.ManualPaymentListRelationFilter
 }, "id" | "telegramId">
@@ -487,6 +490,7 @@ export type UserCreateInput = {
   lastGreetingType?: $Enums.GreetingType | null
   createdAt?: Date | string
   logs?: Prisma.LogCreateNestedManyWithoutUserInput
+  reminderJobs?: Prisma.ReminderJobCreateNestedManyWithoutUserInput
   subscription?: Prisma.SubscriptionCreateNestedOneWithoutUserInput
   manualPayments?: Prisma.ManualPaymentCreateNestedManyWithoutUserInput
 }
@@ -513,6 +517,7 @@ export type UserUncheckedCreateInput = {
   lastGreetingType?: $Enums.GreetingType | null
   createdAt?: Date | string
   logs?: Prisma.LogUncheckedCreateNestedManyWithoutUserInput
+  reminderJobs?: Prisma.ReminderJobUncheckedCreateNestedManyWithoutUserInput
   subscription?: Prisma.SubscriptionUncheckedCreateNestedOneWithoutUserInput
   manualPayments?: Prisma.ManualPaymentUncheckedCreateNestedManyWithoutUserInput
 }
@@ -538,6 +543,7 @@ export type UserUpdateInput = {
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUpdateManyWithoutUserNestedInput
+  reminderJobs?: Prisma.ReminderJobUpdateManyWithoutUserNestedInput
   subscription?: Prisma.SubscriptionUpdateOneWithoutUserNestedInput
   manualPayments?: Prisma.ManualPaymentUpdateManyWithoutUserNestedInput
 }
@@ -564,6 +570,7 @@ export type UserUncheckedUpdateInput = {
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUncheckedUpdateManyWithoutUserNestedInput
+  reminderJobs?: Prisma.ReminderJobUncheckedUpdateManyWithoutUserNestedInput
   subscription?: Prisma.SubscriptionUncheckedUpdateOneWithoutUserNestedInput
   manualPayments?: Prisma.ManualPaymentUncheckedUpdateManyWithoutUserNestedInput
 }
@@ -794,6 +801,20 @@ export type UserUpdateOneRequiredWithoutSubscriptionNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutSubscriptionInput, Prisma.UserUpdateWithoutSubscriptionInput>, Prisma.UserUncheckedUpdateWithoutSubscriptionInput>
 }
 
+export type UserCreateNestedOneWithoutReminderJobsInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutReminderJobsInput, Prisma.UserUncheckedCreateWithoutReminderJobsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutReminderJobsInput
+  connect?: Prisma.UserWhereUniqueInput
+}
+
+export type UserUpdateOneRequiredWithoutReminderJobsNestedInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutReminderJobsInput, Prisma.UserUncheckedCreateWithoutReminderJobsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutReminderJobsInput
+  upsert?: Prisma.UserUpsertWithoutReminderJobsInput
+  connect?: Prisma.UserWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutReminderJobsInput, Prisma.UserUpdateWithoutReminderJobsInput>, Prisma.UserUncheckedUpdateWithoutReminderJobsInput>
+}
+
 export type UserCreateNestedOneWithoutManualPaymentsInput = {
   create?: Prisma.XOR<Prisma.UserCreateWithoutManualPaymentsInput, Prisma.UserUncheckedCreateWithoutManualPaymentsInput>
   connectOrCreate?: Prisma.UserCreateOrConnectWithoutManualPaymentsInput
@@ -828,6 +849,7 @@ export type UserCreateWithoutLogsInput = {
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
   createdAt?: Date | string
+  reminderJobs?: Prisma.ReminderJobCreateNestedManyWithoutUserInput
   subscription?: Prisma.SubscriptionCreateNestedOneWithoutUserInput
   manualPayments?: Prisma.ManualPaymentCreateNestedManyWithoutUserInput
 }
@@ -853,6 +875,7 @@ export type UserUncheckedCreateWithoutLogsInput = {
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
   createdAt?: Date | string
+  reminderJobs?: Prisma.ReminderJobUncheckedCreateNestedManyWithoutUserInput
   subscription?: Prisma.SubscriptionUncheckedCreateNestedOneWithoutUserInput
   manualPayments?: Prisma.ManualPaymentUncheckedCreateNestedManyWithoutUserInput
 }
@@ -893,6 +916,7 @@ export type UserUpdateWithoutLogsInput = {
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reminderJobs?: Prisma.ReminderJobUpdateManyWithoutUserNestedInput
   subscription?: Prisma.SubscriptionUpdateOneWithoutUserNestedInput
   manualPayments?: Prisma.ManualPaymentUpdateManyWithoutUserNestedInput
 }
@@ -918,6 +942,7 @@ export type UserUncheckedUpdateWithoutLogsInput = {
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  reminderJobs?: Prisma.ReminderJobUncheckedUpdateManyWithoutUserNestedInput
   subscription?: Prisma.SubscriptionUncheckedUpdateOneWithoutUserNestedInput
   manualPayments?: Prisma.ManualPaymentUncheckedUpdateManyWithoutUserNestedInput
 }
@@ -943,6 +968,7 @@ export type UserCreateWithoutSubscriptionInput = {
   lastGreetingType?: $Enums.GreetingType | null
   createdAt?: Date | string
   logs?: Prisma.LogCreateNestedManyWithoutUserInput
+  reminderJobs?: Prisma.ReminderJobCreateNestedManyWithoutUserInput
   manualPayments?: Prisma.ManualPaymentCreateNestedManyWithoutUserInput
 }
 
@@ -968,6 +994,7 @@ export type UserUncheckedCreateWithoutSubscriptionInput = {
   lastGreetingType?: $Enums.GreetingType | null
   createdAt?: Date | string
   logs?: Prisma.LogUncheckedCreateNestedManyWithoutUserInput
+  reminderJobs?: Prisma.ReminderJobUncheckedCreateNestedManyWithoutUserInput
   manualPayments?: Prisma.ManualPaymentUncheckedCreateNestedManyWithoutUserInput
 }
 
@@ -1008,6 +1035,7 @@ export type UserUpdateWithoutSubscriptionInput = {
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUpdateManyWithoutUserNestedInput
+  reminderJobs?: Prisma.ReminderJobUpdateManyWithoutUserNestedInput
   manualPayments?: Prisma.ManualPaymentUpdateManyWithoutUserNestedInput
 }
 
@@ -1033,6 +1061,125 @@ export type UserUncheckedUpdateWithoutSubscriptionInput = {
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUncheckedUpdateManyWithoutUserNestedInput
+  reminderJobs?: Prisma.ReminderJobUncheckedUpdateManyWithoutUserNestedInput
+  manualPayments?: Prisma.ManualPaymentUncheckedUpdateManyWithoutUserNestedInput
+}
+
+export type UserCreateWithoutReminderJobsInput = {
+  telegramId: bigint | number
+  firstName: string
+  username?: string | null
+  paymentEmail?: string | null
+  courseOfStudy?: string | null
+  logFrequency: string
+  reminderTime: string
+  timezone?: string
+  isPro?: boolean
+  storageUnlocked?: boolean
+  logCount?: number
+  nextRenewalDate?: Date | string | null
+  freeAiRefinements?: number
+  freeVoiceLogs?: number
+  onboardingDone?: boolean
+  botBlocked?: boolean
+  lastGreetingSentAt?: Date | string | null
+  lastGreetingType?: $Enums.GreetingType | null
+  createdAt?: Date | string
+  logs?: Prisma.LogCreateNestedManyWithoutUserInput
+  subscription?: Prisma.SubscriptionCreateNestedOneWithoutUserInput
+  manualPayments?: Prisma.ManualPaymentCreateNestedManyWithoutUserInput
+}
+
+export type UserUncheckedCreateWithoutReminderJobsInput = {
+  id?: number
+  telegramId: bigint | number
+  firstName: string
+  username?: string | null
+  paymentEmail?: string | null
+  courseOfStudy?: string | null
+  logFrequency: string
+  reminderTime: string
+  timezone?: string
+  isPro?: boolean
+  storageUnlocked?: boolean
+  logCount?: number
+  nextRenewalDate?: Date | string | null
+  freeAiRefinements?: number
+  freeVoiceLogs?: number
+  onboardingDone?: boolean
+  botBlocked?: boolean
+  lastGreetingSentAt?: Date | string | null
+  lastGreetingType?: $Enums.GreetingType | null
+  createdAt?: Date | string
+  logs?: Prisma.LogUncheckedCreateNestedManyWithoutUserInput
+  subscription?: Prisma.SubscriptionUncheckedCreateNestedOneWithoutUserInput
+  manualPayments?: Prisma.ManualPaymentUncheckedCreateNestedManyWithoutUserInput
+}
+
+export type UserCreateOrConnectWithoutReminderJobsInput = {
+  where: Prisma.UserWhereUniqueInput
+  create: Prisma.XOR<Prisma.UserCreateWithoutReminderJobsInput, Prisma.UserUncheckedCreateWithoutReminderJobsInput>
+}
+
+export type UserUpsertWithoutReminderJobsInput = {
+  update: Prisma.XOR<Prisma.UserUpdateWithoutReminderJobsInput, Prisma.UserUncheckedUpdateWithoutReminderJobsInput>
+  create: Prisma.XOR<Prisma.UserCreateWithoutReminderJobsInput, Prisma.UserUncheckedCreateWithoutReminderJobsInput>
+  where?: Prisma.UserWhereInput
+}
+
+export type UserUpdateToOneWithWhereWithoutReminderJobsInput = {
+  where?: Prisma.UserWhereInput
+  data: Prisma.XOR<Prisma.UserUpdateWithoutReminderJobsInput, Prisma.UserUncheckedUpdateWithoutReminderJobsInput>
+}
+
+export type UserUpdateWithoutReminderJobsInput = {
+  telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
+  firstName?: Prisma.StringFieldUpdateOperationsInput | string
+  username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  courseOfStudy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
+  reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
+  timezone?: Prisma.StringFieldUpdateOperationsInput | string
+  isPro?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  storageUnlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  logCount?: Prisma.IntFieldUpdateOperationsInput | number
+  nextRenewalDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
+  freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
+  onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  logs?: Prisma.LogUpdateManyWithoutUserNestedInput
+  subscription?: Prisma.SubscriptionUpdateOneWithoutUserNestedInput
+  manualPayments?: Prisma.ManualPaymentUpdateManyWithoutUserNestedInput
+}
+
+export type UserUncheckedUpdateWithoutReminderJobsInput = {
+  id?: Prisma.IntFieldUpdateOperationsInput | number
+  telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
+  firstName?: Prisma.StringFieldUpdateOperationsInput | string
+  username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  courseOfStudy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
+  reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
+  timezone?: Prisma.StringFieldUpdateOperationsInput | string
+  isPro?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  storageUnlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  logCount?: Prisma.IntFieldUpdateOperationsInput | number
+  nextRenewalDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
+  freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
+  onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  logs?: Prisma.LogUncheckedUpdateManyWithoutUserNestedInput
+  subscription?: Prisma.SubscriptionUncheckedUpdateOneWithoutUserNestedInput
   manualPayments?: Prisma.ManualPaymentUncheckedUpdateManyWithoutUserNestedInput
 }
 
@@ -1057,6 +1204,7 @@ export type UserCreateWithoutManualPaymentsInput = {
   lastGreetingType?: $Enums.GreetingType | null
   createdAt?: Date | string
   logs?: Prisma.LogCreateNestedManyWithoutUserInput
+  reminderJobs?: Prisma.ReminderJobCreateNestedManyWithoutUserInput
   subscription?: Prisma.SubscriptionCreateNestedOneWithoutUserInput
 }
 
@@ -1082,6 +1230,7 @@ export type UserUncheckedCreateWithoutManualPaymentsInput = {
   lastGreetingType?: $Enums.GreetingType | null
   createdAt?: Date | string
   logs?: Prisma.LogUncheckedCreateNestedManyWithoutUserInput
+  reminderJobs?: Prisma.ReminderJobUncheckedCreateNestedManyWithoutUserInput
   subscription?: Prisma.SubscriptionUncheckedCreateNestedOneWithoutUserInput
 }
 
@@ -1122,6 +1271,7 @@ export type UserUpdateWithoutManualPaymentsInput = {
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUpdateManyWithoutUserNestedInput
+  reminderJobs?: Prisma.ReminderJobUpdateManyWithoutUserNestedInput
   subscription?: Prisma.SubscriptionUpdateOneWithoutUserNestedInput
 }
 
@@ -1147,6 +1297,7 @@ export type UserUncheckedUpdateWithoutManualPaymentsInput = {
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUncheckedUpdateManyWithoutUserNestedInput
+  reminderJobs?: Prisma.ReminderJobUncheckedUpdateManyWithoutUserNestedInput
   subscription?: Prisma.SubscriptionUncheckedUpdateOneWithoutUserNestedInput
 }
 
@@ -1157,11 +1308,13 @@ export type UserUncheckedUpdateWithoutManualPaymentsInput = {
 
 export type UserCountOutputType = {
   logs: number
+  reminderJobs: number
   manualPayments: number
 }
 
 export type UserCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   logs?: boolean | UserCountOutputTypeCountLogsArgs
+  reminderJobs?: boolean | UserCountOutputTypeCountReminderJobsArgs
   manualPayments?: boolean | UserCountOutputTypeCountManualPaymentsArgs
 }
 
@@ -1180,6 +1333,13 @@ export type UserCountOutputTypeDefaultArgs<ExtArgs extends runtime.Types.Extensi
  */
 export type UserCountOutputTypeCountLogsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   where?: Prisma.LogWhereInput
+}
+
+/**
+ * UserCountOutputType without action
+ */
+export type UserCountOutputTypeCountReminderJobsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.ReminderJobWhereInput
 }
 
 /**
@@ -1212,6 +1372,7 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   lastGreetingType?: boolean
   createdAt?: boolean
   logs?: boolean | Prisma.User$logsArgs<ExtArgs>
+  reminderJobs?: boolean | Prisma.User$reminderJobsArgs<ExtArgs>
   subscription?: boolean | Prisma.User$subscriptionArgs<ExtArgs>
   manualPayments?: boolean | Prisma.User$manualPaymentsArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
@@ -1289,6 +1450,7 @@ export type UserSelectScalar = {
 export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "telegramId" | "firstName" | "username" | "paymentEmail" | "courseOfStudy" | "logFrequency" | "reminderTime" | "timezone" | "isPro" | "storageUnlocked" | "logCount" | "nextRenewalDate" | "freeAiRefinements" | "freeVoiceLogs" | "onboardingDone" | "botBlocked" | "lastGreetingSentAt" | "lastGreetingType" | "createdAt", ExtArgs["result"]["user"]>
 export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   logs?: boolean | Prisma.User$logsArgs<ExtArgs>
+  reminderJobs?: boolean | Prisma.User$reminderJobsArgs<ExtArgs>
   subscription?: boolean | Prisma.User$subscriptionArgs<ExtArgs>
   manualPayments?: boolean | Prisma.User$manualPaymentsArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
@@ -1300,6 +1462,7 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
   name: "User"
   objects: {
     logs: Prisma.$LogPayload<ExtArgs>[]
+    reminderJobs: Prisma.$ReminderJobPayload<ExtArgs>[]
     subscription: Prisma.$SubscriptionPayload<ExtArgs> | null
     manualPayments: Prisma.$ManualPaymentPayload<ExtArgs>[]
   }
@@ -1719,6 +1882,7 @@ readonly fields: UserFieldRefs;
 export interface Prisma__UserClient<T, Null = never, ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
   readonly [Symbol.toStringTag]: "PrismaPromise"
   logs<T extends Prisma.User$logsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$logsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$LogPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  reminderJobs<T extends Prisma.User$reminderJobsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$reminderJobsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ReminderJobPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   subscription<T extends Prisma.User$subscriptionArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$subscriptionArgs<ExtArgs>>): Prisma.Prisma__SubscriptionClient<runtime.Types.Result.GetResult<Prisma.$SubscriptionPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   manualPayments<T extends Prisma.User$manualPaymentsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$manualPaymentsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ManualPaymentPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
@@ -2179,6 +2343,30 @@ export type User$logsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs 
   take?: number
   skip?: number
   distinct?: Prisma.LogScalarFieldEnum | Prisma.LogScalarFieldEnum[]
+}
+
+/**
+ * User.reminderJobs
+ */
+export type User$reminderJobsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the ReminderJob
+   */
+  select?: Prisma.ReminderJobSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the ReminderJob
+   */
+  omit?: Prisma.ReminderJobOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.ReminderJobInclude<ExtArgs> | null
+  where?: Prisma.ReminderJobWhereInput
+  orderBy?: Prisma.ReminderJobOrderByWithRelationInput | Prisma.ReminderJobOrderByWithRelationInput[]
+  cursor?: Prisma.ReminderJobWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.ReminderJobScalarFieldEnum | Prisma.ReminderJobScalarFieldEnum[]
 }
 
 /**

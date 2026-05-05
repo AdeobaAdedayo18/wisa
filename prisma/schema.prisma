@@ -25,8 +25,8 @@ model User {
   username           String?
   paymentEmail       String?
   courseOfStudy      String?
-  logFrequency       String          // "daily" | "bi-daily" | "every-3-days" | "weekly"
-  reminderTime       String          // "HH:MM" in 24hr format
+  logFrequency       String // "daily" | "bi-daily" | "every-3-days" | "weekly"
+  reminderTime       String // "HH:MM" in 24hr format
   timezone           String          @default("Africa/Lagos")
   isPro              Boolean         @default(false) // legacy compatibility flag
   storageUnlocked    Boolean         @default(false)
@@ -40,6 +40,7 @@ model User {
   lastGreetingType   GreetingType?
   createdAt          DateTime        @default(now())
   logs               Log[]
+  reminderJobs       ReminderJob[]
   subscription       Subscription?
   manualPayments     ManualPayment[]
 
@@ -48,41 +49,46 @@ model User {
 }
 
 model Log {
-  id              Int      @id @default(autoincrement())
-  userId          Int
-  user            User     @relation(fields: [userId], references: [id])
-  content         String
-  refinedContent  String?
-  logDate         DateTime
-  isVoice         Boolean  @default(false)
-  isAiRefined     Boolean  @default(false)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             Int      @id @default(autoincrement())
+  userId         Int
+  user           User     @relation(fields: [userId], references: [id])
+  content        String
+  refinedContent String?
+  logDate        DateTime
+  isVoice        Boolean  @default(false)
+  isAiRefined    Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 model Subscription {
-  id           Int      @id @default(autoincrement())
-  userId       Int      @unique
-  user         User     @relation(fields: [userId], references: [id])
-  paystackRef  String   @unique
-  status       String   // "active" | "cancelled" | "expired"
-  startDate    DateTime
-  endDate      DateTime
-  createdAt    DateTime @default(now())
+  id          Int      @id @default(autoincrement())
+  userId      Int      @unique
+  user        User     @relation(fields: [userId], references: [id])
+  paystackRef String   @unique
+  status      String // "active" | "cancelled" | "expired"
+  startDate   DateTime
+  endDate     DateTime
+  createdAt   DateTime @default(now())
 }
 
 model ReminderJob {
-  id             Int      @id @default(autoincrement())
+  id             Int       @id @default(autoincrement())
   userId         Int
+  user           User      @relation(fields: [userId], references: [id])
   telegramId     BigInt
   scheduledFor   DateTime
-  status         String   // "pending" | "sent" | "snoozed" | "skipped"
-  snoozeCount    Int      @default(0)
-  autoNudgeCount Int      @default(0)
-  logDate        String?  // ISO date "YYYY-MM-DD" the reminder is for (user's local date)
+  status         String // "pending" | "sent" | "snoozed" | "skipped"
+  snoozeCount    Int       @default(0)
+  autoNudgeCount Int       @default(0)
+  logDate        String? // ISO date "YYYY-MM-DD" the reminder is for (user's local date)
   bucketSent     String?
   convertedAt    DateTime?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime  @default(now())
+
+  @@index([userId, status, scheduledFor])
+  @@index([status, scheduledFor])
+  @@index([status, autoNudgeCount])
 }
 
 model Session {
@@ -103,9 +109,9 @@ model ManualPayment {
 model ReplayEvent {
   id         Int      @id @default(autoincrement())
   telegramId BigInt
-  eventType  String   // "user_message" | "user_voice" | "user_callback" | "bot_message" | "bot_photo" | "bot_edit" | "bot_callback_answer" | "error" | "state_change"
-  direction  String   // "incoming" | "outgoing" | "system"
-  payload    String   // JSON blob — full event data
+  eventType  String // "user_message" | "user_voice" | "user_callback" | "bot_message" | "bot_photo" | "bot_edit" | "bot_callback_answer" | "error" | "state_change"
+  direction  String // "incoming" | "outgoing" | "system"
+  payload    String // JSON blob — full event data
   timestamp  DateTime @default(now())
 
   @@index([telegramId, timestamp(sort: Desc)])
