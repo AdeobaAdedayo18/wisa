@@ -421,7 +421,15 @@ router.get(
       const logs = await prisma.log.findMany({
         where: { logDate: { gte: todayStart, lte: todayEnd } },
         orderBy: { createdAt: "desc" },
-        include: {
+        select: {
+          id: true,
+          userId: true,
+          content: true,
+          refinedContent: true,
+          isVoice: true,
+          isAiRefined: true,
+          logDate: true,
+          createdAt: true,
           user: { select: { firstName: true, username: true } },
         },
       });
@@ -461,7 +469,15 @@ router.get("/api/logs", async (req: Request, res: Response): Promise<void> => {
         skip,
         take: limit,
         orderBy: { logDate: "desc" },
-        include: {
+        select: {
+          id: true,
+          userId: true,
+          content: true,
+          refinedContent: true,
+          isVoice: true,
+          isAiRefined: true,
+          logDate: true,
+          createdAt: true,
           user: { select: { id: true, firstName: true, username: true } },
         },
       }),
