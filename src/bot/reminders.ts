@@ -117,50 +117,52 @@ export function getReminderMessage(
 // Schedule the NEXT ReminderJob for a user after a job fires
 // ---------------------------------------------------------------------------
 
-export async function scheduleNextJob(userId: number, telegramId: bigint): Promise<void> {
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user) return;
+export async function scheduleNextJob(userId: number, telegramId: bigint, nextTime?: Date): Promise<void> {
+  // Use a transaction to make the existence check + create atomic and prevent races
+  await prisma.$transaction(async (tx) => {
+    const user = await tx.user.findUnique({ where: { id: userId } });
+    if (!user) return;
+    if (user.botBlocked) {
+      console.log(`[scheduler] Skipped scheduleNextJob for user ${userId} — bot is blocked`);
+      return;
+    }
 
-  // Don't schedule new reminders for users who blocked the bot
-  if (user.botBlocked) {
-    console.log(`[scheduler] Skipped scheduleNextJob for user ${userId} — bot is blocked`);
-    return;
-  }
+    const existingJob = await tx.reminderJob.findFirst({
+      where: { userId, status: "pending" },
+      orderBy: { scheduledFor: "asc" },
+    });
 
-  // ── Guard: skip if this user already has a future SCHEDULED pending job ──
-  // Only block if there's a pending job > 4 hours away (next-day type).
-  // This allows snooze jobs (30 min away) to coexist.
-  const fourHoursFromNow = new Date(Date.now() + 4 * 60 * 60 * 1000);
-  const existingScheduled = await prisma.reminderJob.findFirst({
-    where: { userId, status: "pending", scheduledFor: { gte: fourHoursFromNow } },
-  });
-  if (existingScheduled) {
-    console.log(
-      `[scheduler] Skipped scheduleNextJob for user ${userId} — already has scheduled job #${existingScheduled.id} at ${existingScheduled.scheduledFor.toISOString()}`,
-    );
-    return;
-  }
+    if (existingJob && nextTime) {
+      const adjustedScheduledFor = skipWeekend(nextTime, user.timezone);
+      const logDate = new Intl.DateTimeFormat("en-CA", { timeZone: user.timezone }).format(adjustedScheduledFor);
 
-  const intervalDays =
-    (
-      {
-        daily: 1,
-        "bi-daily": 2,
-        "every-3-days": 3,
-        weekly: 7,
-      } as Record<string, number>
-    )[user.logFrequency] ?? 1;
+      await tx.reminderJob.update({
+        where: { id: existingJob.id },
+        data: { scheduledFor: adjustedScheduledFor, logDate },
+      });
+      return;
+    }
 
-  const scheduledFor = localTimeToUtc(user.reminderTime, user.timezone, intervalDays);
+    if (existingJob) {
+      console.log(
+        `[scheduler] Skipped scheduleNextJob for user ${userId} — already has pending job #${existingJob.id} at ${existingJob.scheduledFor.toISOString()}`,
+      );
+      return;
+    }
 
-  // Skip weekends — push Saturday/Sunday reminders to Monday
-  const adjustedScheduledFor = skipWeekend(scheduledFor, user.timezone);
+    const intervalDays = ({ daily: 1, "bi-daily": 2, "every-3-days": 3, weekly: 7 } as Record<string, number>)[user.logFrequency] ?? 1;
 
-  // Compute the log date in the user's local timezone
-  const logDate = new Intl.DateTimeFormat("en-CA", { timeZone: user.timezone }).format(adjustedScheduledFor);
+    const scheduledFor = nextTime ?? localTimeToUtc(user.reminderTime, user.timezone, intervalDays);
 
-  await prisma.reminderJob.create({
-    data: { userId, telegramId, scheduledFor: adjustedScheduledFor, status: "pending", logDate },
+    // Skip weekends — push Saturday/Sunday reminders to Monday
+    const adjustedScheduledFor = skipWeekend(scheduledFor, user.timezone);
+
+    // Compute the log date in the user's local timezone
+    const logDate = new Intl.DateTimeFormat("en-CA", { timeZone: user.timezone }).format(adjustedScheduledFor);
+
+    await tx.reminderJob.create({
+      data: { userId, telegramId, scheduledFor: adjustedScheduledFor, status: "pending", logDate },
+    });
   });
 }
 
