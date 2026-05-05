@@ -81,13 +81,14 @@ router.get("/api/stats", async (req: Request, res: Response): Promise<void> => {
     const weekStart = subDays(now, 7);
 
     // 1. Determine Timeframe for Messaging Strategy (Analytics)
-    const timeframe = String(req.query.timeframe ?? "today"); // Options: all, today, week, month
+    // Frontend sends: 'day' | 'week' | 'month' (defaults to 'day')
+    const timeframe = String(req.query.timeframe ?? "day"); // Options: all, day, week, month
     const bucketWhere: any = { bucketSent: { not: null } };
-    
-    if (timeframe === "today") {
+
+    if (timeframe === "day") {
       bucketWhere.scheduledFor = { gte: dayStart, lte: dayEnd };
     } else if (timeframe === "week") {
-      bucketWhere.scheduledFor = { gte: weekStart, lte: dayEnd };
+      bucketWhere.scheduledFor = { gte: subDays(now, 7), lte: dayEnd };
     } else if (timeframe === "month") {
       bucketWhere.scheduledFor = { gte: subDays(now, 30), lte: dayEnd };
     } // If "all", we leave bucketWhere as is (no date constraints)
