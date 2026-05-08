@@ -5,18 +5,31 @@ import { captureReplayError } from "../services/replayCapture";
 import { initializeTransaction, verifyTransaction } from "../services/paystack";
 import { getMainMenuKeyboard } from "./onboarding";
 import { getMonetizationUserByTelegramId, hasActiveStorage, STORAGE_PRICE_LABEL } from "./monetization";
+import { parseISO, addDays } from "date-fns"; 
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-export async function activateStorageForUser(userId: number, renewalDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)): Promise<void> {
+// 🚀 BUG FIX: Stack the 30 days on top of their remaining time, so paying early doesn't rob them.
+export async function activateStorageForUser(userId: number, currentRenewalDate?: Date | null): Promise<void> {
+  const now = new Date();
+  let newRenewalDate: Date;
+
+  if (currentRenewalDate && currentRenewalDate > now) {
+    // They still have time left. Add 30 days to their EXISTING future date.
+    newRenewalDate = new Date(currentRenewalDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+  } else {
+    // They completely expired. Start 30 days from right now.
+    newRenewalDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  }
+
   await prisma.user.update({
     where: { id: userId },
     data: {
       isPro: true,
       storageUnlocked: true,
-      nextRenewalDate: renewalDate,
+      nextRenewalDate: newRenewalDate,
     },
   });
 }
@@ -32,7 +45,13 @@ export async function handleGoPro(ctx: BotContext): Promise<void> {
   const user = await getMonetizationUserByTelegramId(telegramId);
   if (!user) return;
 
-  if (hasActiveStorage(user)) {
+  // 🚀 BUG FIX: Calculate how many days are left.
+  const daysUntilExpiration = user.nextRenewalDate 
+    ? (user.nextRenewalDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24) 
+    : -1;
+
+  // Only block the payment if they have active storage AND are NOT in the 3-day renewal window
+  if (hasActiveStorage(user) && daysUntilExpiration > 3) {
     await ctx.reply("🔓 Your storage is already unlocked. You're all set!", {
       reply_markup: getMainMenuKeyboard(true),
     });
@@ -40,8 +59,6 @@ export async function handleGoPro(ctx: BotContext): Promise<void> {
   }
 
   if (!(await prisma.user.findUnique({ where: { id: user.id }, select: { paymentEmail: true } }))?.paymentEmail) {
-    // If the user was mid-log and got blocked by the storage wall,
-    // don't wipe their draft while we collect payment email.
     if (ctx.session.awaitingLog && (ctx.session.pendingLogParts?.length ?? 0) > 0) {
       ctx.session.pausedLogDraft = {
         pendingLogParts: [...ctx.session.pendingLogParts],
@@ -95,7 +112,11 @@ export async function handlePayPaystack(ctx: BotContext): Promise<void> {
 
   if (!user) return;
 
-  if (user.storageUnlocked && (!user.nextRenewalDate || user.nextRenewalDate >= new Date())) {
+  const daysUntilExpiration = user.nextRenewalDate 
+    ? (user.nextRenewalDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24) 
+    : -1;
+
+  if (user.storageUnlocked && daysUntilExpiration > 3) {
     await ctx.reply("🔓 Your storage is already unlocked.");
     return;
   }
@@ -139,11 +160,6 @@ export async function handleCheckPayment(ctx: BotContext): Promise<void> {
 
   if (!user) return;
 
-  if (user.storageUnlocked && (!user.nextRenewalDate || user.nextRenewalDate >= new Date())) {
-    await ctx.reply("🎉 Payment confirmed. Your storage is already unlocked.");
-    return;
-  }
-
   const reference = ctx.session.pendingPaystackRef;
   if (!reference) {
     await ctx.reply(
@@ -161,8 +177,44 @@ export async function handleCheckPayment(ctx: BotContext): Promise<void> {
       return;
     }
 
-    await activateStorageForUser(user.id);
+    // 1. Activate storage normally (Pass the expiration date so it safely stacks the 30 days)
+    await activateStorageForUser(user.id, user.nextRenewalDate);
 
+    // 2. CATCH-UP ENGINE: THE CLIFFHANGER RESOLUTION
+    const catchupState = ctx.session.catchup;
+    if (catchupState?.heldLogs && catchupState.heldLogs.length > 0 && catchupState.startDate) {
+      const logsToSave = catchupState.heldLogs;
+      const startDate = parseISO(catchupState.startDate);
+
+      const insertData = logsToSave.map(log => ({
+        userId: user.id,
+        content: log.content,
+        isAiRefined: true,
+        isVoice: false,
+        logDate: addDays(startDate, log.dateOffset),
+      }));
+
+      await prisma.$transaction([
+        prisma.log.createMany({ data: insertData }),
+        prisma.user.update({
+          where: { id: user.id },
+          data: { logCount: { increment: logsToSave.length } }
+        })
+      ]);
+
+      let peekText = `🔓 **Storage Unlocked!**\n\nAs promised, I have successfully saved the remaining **${logsToSave.length} days** to your logbook:\n\n`;
+      logsToSave.forEach(log => {
+        const logDate = addDays(startDate, log.dateOffset);
+        const dateStr = logDate.toLocaleDateString('en-GB', { weekday: 'short', month: 'short', day: 'numeric' });
+        peekText += `📅 **${dateStr}**\n${log.content}\n\n`;
+      });
+      peekText += `✅ All caught up!`;
+
+      await ctx.reply(peekText, { parse_mode: "Markdown" });
+      ctx.session.catchup = { active: false, step: 'none' };
+    }
+
+    // 3. Send normal Pro Welcome Message
     await ctx.reply(
       `👑 *Welcome to the Pro club, ${user.firstName}!*\n\n` +
         `You're all set for the next 30 days 🔓\n\n` +
@@ -173,7 +225,7 @@ export async function handleCheckPayment(ctx: BotContext): Promise<void> {
       },
     );
 
-    await ctx.reply("🎉Let's Goo", {
+    await ctx.reply("🎉 Let's Goo", {
       reply_markup: getMainMenuKeyboard(true),
     });
   } catch (err) {
@@ -191,7 +243,7 @@ export async function handlePayManual(ctx: BotContext): Promise<void> {
     "🏦 Bank transfer has been retired. Please use Paystack to unlock storage instantly.",
     {
       reply_markup: new InlineKeyboard().text("💳 Pay with Paystack", "pay_paystack"),
-    },
+    }
   );
 }
 
@@ -201,7 +253,7 @@ export async function handleManualSent(ctx: BotContext): Promise<void> {
     "Manual confirmation is no longer supported. Tap below to pay via Paystack.",
     {
       reply_markup: new InlineKeyboard().text("💳 Pay with Paystack", "pay_paystack"),
-    },
+    }
   );
 }
 
