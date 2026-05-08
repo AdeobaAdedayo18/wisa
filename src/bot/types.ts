@@ -90,6 +90,21 @@ export interface SessionData {
     flowStartedAt?: number;
     autoSavePromptSent?: boolean;
   };
+
+  /**
+   * 🚀 MULTI-DAY CATCH-UP ENGINE STATE
+   * Manages the conversation flow and holds pending logs for the freemium cliffhanger.
+   */
+  catchup?: {
+    active: boolean;
+    step: 'none' | 'awaiting_start_date' | 'awaiting_end_date' | 'awaiting_braindump' | 'interrogation' | 'awaiting_course';
+    startDate?: string; // ISO date string YYYY-MM-DD
+    endDate?: string;   // ISO date string YYYY-MM-DD
+    workingDays?: number;
+    rawDump?: string;
+    // THE HOLDING CELL: Stores unpaid logs awaiting Paystack success
+    heldLogs?: Array<{ dateOffset: number; content: string }>; 
+  };
 }
 
 export type BotContext = ConversationFlavor<Context & SessionFlavor<SessionData>>;
@@ -119,7 +134,7 @@ export function clearActiveFlow(session: SessionData): void {
   session.pendingVoiceTranscription = undefined;
   session.awaitingCourse = undefined;
   session.draftLogForCourse = undefined;
-  session.awaitingCourseForVoice = undefined; // 👈 Clears the new voice guard
+  session.awaitingCourseForVoice = undefined; 
   session.pendingRawText = undefined;
   session.pendingRefinedText = undefined;
   session.pendingRefinedContent = undefined;
@@ -127,6 +142,19 @@ export function clearActiveFlow(session: SessionData): void {
   session.flowStartedAt = undefined;
   session.lastLogMessageAt = undefined;
   session.autoSavePromptSent = undefined;
+
+  // Safely reset Catch-Up state (but do NOT wipe heldLogs if they are pending payment)
+  if (session.catchup) {
+    session.catchup.active = false;
+    session.catchup.step = 'none';
+    session.catchup.startDate = undefined;
+    session.catchup.endDate = undefined;
+    session.catchup.workingDays = undefined;
+    session.catchup.rawDump = undefined;
+    // NOTE: session.catchup.heldLogs is intentionally preserved here for the payment cliffhanger
+  } else {
+    session.catchup = { active: false, step: 'none' };
+  }
 
   // NOTE: intentionally does NOT clear `postPaymentAction`.
   // Payment flows call clearActiveFlow, and we still want to resume the
