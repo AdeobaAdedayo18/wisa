@@ -123,7 +123,7 @@ bot.command("start", async (ctx) => {
 
   
     if (!dbUser) {
-      // ✅ FIX #10: Set default courseOfStudy so we skip the interceptor
+      // ✅ FIX #10: Create user WITHOUT courseOfStudy so they go through the interceptor
       dbUser = await prisma.user.create({
         data: {
           telegramId,
@@ -131,21 +131,14 @@ bot.command("start", async (ctx) => {
           onboardingDone: true, // Bypass normal onboarding
           logFrequency: "daily",
           reminderTime: "18:00",
-          courseOfStudy: "IT",  // ✅ NEW: Set default so we skip the interceptor
+          courseOfStudy: null,  // ✅ Leave null to trigger course interceptor in catchupFlow
         },
       });
     }
 
-    // ✅ NEW: If existing user but no courseOfStudy, set one now
-    if (!dbUser.courseOfStudy) {
-      await prisma.user.update({
-        where: { telegramId },
-        data: { courseOfStudy: "IT" },
-      });
-      dbUser.courseOfStudy = "IT";
-    }
+    // ✅ Don't set a default courseOfStudy — let catchupFlow ask for it
 
-    // ✅ NOW launch catch-up directly — no course interceptor
+    // ✅ NOW launch catch-up — will ask for course if not set
     return startCatchupFlow(ctx);
   }
 
