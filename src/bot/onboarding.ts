@@ -19,6 +19,7 @@ type OnboardingConversation = Conversation<BotContext, BotContext>;
 
 const MAIN_MENU_BASE = new Keyboard()
   .text("✍️ Write today's log").row()
+  .text("� Catch up missed days").row()
   .text("📖 See my logs").text("💬 Leave feedback").row()
   .text("✨ AI Refine").text("⚙️ Settings")
   .resized()
@@ -26,6 +27,7 @@ const MAIN_MENU_BASE = new Keyboard()
 
 const MAIN_MENU_WITH_PRO = new Keyboard()
   .text("✍️ Write today's log").row()
+  .text("🔄 Catch up missed days").row()
   .text("📖 See my logs").text("💬 Leave feedback").row()
   .text("✨ AI Refine").text("👑 Go Pro").row()
   .text("⚙️ Settings")
