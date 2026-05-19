@@ -109,7 +109,8 @@ export interface SessionData {
     savedLogsCount?: number; // Track how many logs were saved vs held
     // ✅ PERMANENT WARNING TRACKING: Store when days are capped by AI evaluation
     wasCapped?: boolean; // True if maxSupportableDays < workingDays
-    originalRequestedDays?: number; // Original workingDays before capping
+    originalRequestedDays?: number; // Original workingDays before capping (user's request)
+    cappedWorkingDays?: number; // The final capped value after AI evaluation (what we actually generate)
   };
 }
 
