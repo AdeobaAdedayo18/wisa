@@ -271,17 +271,16 @@ export async function handlePaymentEmailText(ctx: BotContext): Promise<boolean> 
 
   const email = (ctx.message?.text ?? "").trim().toLowerCase();
 
-  // ✅ Safety Check #1: Allow explicit /cancel command
-  if (email === '/cancel' || email === 'cancel') {
-    ctx.session.awaitingPaymentEmail = false;
-    ctx.session.pendingPaymentEmail = undefined;
-    ctx.session.pendingPaystackRef = undefined;
-    await ctx.reply("Payment cancelled. Here's your menu:", {
-      reply_markup: getMainMenuKeyboard(ctx.session),
-    });
-    return true;
-  }
 
+if (email === '/cancel' || email === 'cancel') {
+  ctx.session.awaitingPaymentEmail = false;
+  ctx.session.pendingPaymentEmail = undefined;
+  ctx.session.pendingPaystackRef = undefined;
+  await ctx.reply("Payment cancelled. Here's your menu:", {
+    reply_markup: getMainMenuKeyboard(false), 
+  });
+  return true;
+}
   // ✅ Safety Check #2: Detect menu button taps and exit gracefully
   const mainMenuPattern = /^(?:✍️\s*Write today.?s log|📖\s*See my logs|💬\s*Leave feedback|✨\s*AI Refine|👑\s*Go Pro|⚙️\s*Settings|🔄\s*Catch up\s*missed days)$/i;
   if (mainMenuPattern.test(email)) {
