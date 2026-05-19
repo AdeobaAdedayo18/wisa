@@ -22,6 +22,7 @@ import {
   showViewCalendar,
   handleViewCalNav,
   handleViewCalDateSelect,
+  handleViewLogNavigation,
   handleDeleteLogPrompt,
   handleDeleteLogConfirm,
   handleDeleteLogCancel,
@@ -61,6 +62,9 @@ import {
 import { handleFeedback, handleFeedbackText, handleFeedbackCancel } from "./feedback";
 import { clearActiveFlow, type SessionData, type BotContext } from "./types";
 import { FREE_LOG_LIMIT, getMonetizationUserByTelegramId, getStorageLimitReachedAfterSaveText, hasActiveStorage } from "./monetization";
+
+// 🚀 IMPORT THE CATCH-UP ENGINE & CALENDAR HANDLERS
+import { startCatchupFlow, handleCatchupFlow, handleCatchupCallback } from "./catchupFlow";
 
 export type { SessionData, BotContext };
 
@@ -104,130 +108,88 @@ bot.use(async (ctx, next) => {
 });
 
 // ── Command handlers ───────────────────────────────────────────────────────
-bot.command("start", handleStart);
+bot.command("start", async (ctx) => {
+  const payload = ctx.match; // This grabs the "catchup" part from the deep link
+
+  // ✅ FIX #9: Block other /start variants during catch-up
+  if (ctx.session.catchup?.active && payload !== "catchup") {
+    await ctx.reply("You're in the middle of Catch-Up Mode! Tap 'Cancel' in the calendar or type /cancel to exit.");
+    return;
+  }
+
+  if (payload === "catchup") {
+    const telegramId = BigInt(ctx.from!.id);
+    let dbUser = await prisma.user.findUnique({ where: { telegramId } });
+
+  
+    if (!dbUser) {
+      // ✅ FIX #10: Set default courseOfStudy so we skip the interceptor
+      dbUser = await prisma.user.create({
+        data: {
+          telegramId,
+          firstName: ctx.from?.first_name || "Student",
+          onboardingDone: true, // Bypass normal onboarding
+          logFrequency: "daily",
+          reminderTime: "18:00",
+          courseOfStudy: "IT",  // ✅ NEW: Set default so we skip the interceptor
+        },
+      });
+    }
+
+    // ✅ NEW: If existing user but no courseOfStudy, set one now
+    if (!dbUser.courseOfStudy) {
+      await prisma.user.update({
+        where: { telegramId },
+        data: { courseOfStudy: "IT" },
+      });
+      dbUser.courseOfStudy = "IT";
+    }
+
+    // ✅ NOW launch catch-up directly — no course interceptor
+    return startCatchupFlow(ctx);
+  }
+
+  // Normal start command for regular users
+  return handleStart(ctx);
+});
+
+// ✅ FIX #9: Allow /cancel to exit catch-up cleanly
 bot.command("cancel", async (ctx) => {
+  if (ctx.session.catchup?.active) {
+    clearActiveFlow(ctx.session);
+    await ctx.reply("Catch-up cancelled. Let me know when you're ready! 🏠", {
+      reply_markup: new InlineKeyboard().text("🏠 Menu", "nav_menu")
+    });
+    return;
+  }
   clearActiveFlow(ctx.session);
   await ctx.reply("Flow cancelled.");
 });
 
-// ── Reply keyboard — main menu ─────────────────────────────────────────────
-// Use regex so emoji encoding changes from formatters don't break matching
-bot.hears(/Write today.s log/i, (ctx) => startLogging(ctx));
-bot.hears(/See my logs/i, (ctx) => showViewCalendar(ctx));
-bot.hears(/Leave feedback/i, handleFeedback);
-bot.hears(/AI Refine/i, (ctx) => showViewCalendar(ctx));
-bot.hears(/Go Pro/i, handleGoPro);
-bot.hears(/Settings/i, handleSettings);
+// 🚀 REGISTER CATCH-UP COMMAND
+bot.command("catchup", startCatchupFlow);
 
-// ── Callback query handlers ────────────────────────────────────────────────
-bot.callbackQuery("start_onboarding", handleLetsGo);
-bot.callbackQuery(/^snooze_\d+$/, handleSnooze);
-bot.callbackQuery(/^skip_\d+$/, handleSkip);
+// ── Text message handler — session-aware routing (MOVED TO TOP FOR ISOLATION) ──
+bot.on("message:text", async (ctx, next) => {
+  // ✅ GLOBAL MENU ESCAPE HATCH: Exit flows when user taps main menu buttons
+  const text = ctx.message?.text?.trim() || "";
+  const mainMenuPattern = /^(?:✍️\s*Write today.?s log|📖\s*See my logs|💬\s*Leave feedback|✨\s*AI Refine|👑\s*Go Pro|⚙️\s*Settings|🔄\s*Catch up\s*missed days)$/i;
+  
+  // If user taps a menu button while in any flow (catch-up, payment email, etc.), exit cleanly
+  if (mainMenuPattern.test(text)) {
+    if (ctx.session.catchup?.active || ctx.session.awaitingPaymentEmail || ctx.session.awaitingPaymentSenderName) {
+      clearActiveFlow(ctx.session);
+      // Don't return — let the normal handlers process the menu button tap below
+    }
+  }
 
-// Logging flow
-bot.callbackQuery(/^write_log_\d+_\d{4}-\d{2}-\d{2}$/, handleWriteFromReminder);
-bot.callbackQuery("write_log", (ctx) => startLogging(ctx));
-bot.callbackQuery("auto_save_confirm", handleAutoSaveConfirm);
-bot.callbackQuery("auto_save_continue", handleAutoSaveContinue);
-bot.callbackQuery(/^edit_log_\d+$/, handleEditLog);
+  // 🚀 CATCH-UP FLOW INTERCEPTOR 🚀
+  // Routes text input directly to the catch-up state machine if active
+  if (ctx.session.catchup?.active) {
+    await handleCatchupFlow(ctx);
+    return;
+  }
 
-// Past-log calendar (6.4)
-bot.callbackQuery(/^cal_nav_\d+_\d+$/, handlePastCalNav);
-bot.callbackQuery("cal_noop", (ctx) => ctx.answerCallbackQuery());
-bot.callbackQuery(/^past_log_\d{4}-\d{2}-\d{2}$/, handlePastLogDateSelect);
-
-// View calendar (7.1 / 7.2)
-bot.callbackQuery(/^vcal_nav_\d+_\d+$/, handleViewCalNav);
-bot.callbackQuery(/^view_cal_\d{4}-\d{2}-\d{2}$/, handleViewCalDateSelect);
-
-// Delete flow (7.3)
-bot.callbackQuery(/^delete_log_\d+$/, handleDeleteLogPrompt);
-bot.callbackQuery(/^delete_confirm_\d+$/, handleDeleteLogConfirm);
-bot.callbackQuery("delete_cancel", handleDeleteLogCancel);
-
-// AI refinement flow (8.2)
-bot.callbackQuery(/^ai_refine_\d+$/, handleAiRefine);
-bot.callbackQuery("save_ai_log", handleSaveAiLog);
-bot.callbackQuery("save_raw_log", handleSaveRawLog);
-
-// Voice log flow (8.3)
-
-
-// Payments / Pro upgrade flow (9.2)
-bot.callbackQuery("go_pro", handleGoPro);
-bot.callbackQuery("pay_paystack", handlePayPaystack);
-bot.callbackQuery("check_payment", handleCheckPayment);
-bot.callbackQuery("pay_manual", handlePayManual);
-bot.callbackQuery("manual_sent", handleManualSent);
-bot.callbackQuery(/^mpay_approve_\d+$/, handleAdminApprove);
-bot.callbackQuery(/^mpay_reject_\d+$/, handleAdminReject);
-
-// Settings flow (11)
-bot.callbackQuery("settings_menu", handleSettingsMenu);
-bot.callbackQuery("settings_time", handleSettingsTime);
-bot.callbackQuery(/^stg_time_\d{2}:\d{2}$/, handleSettingsTimeSelect);
-bot.callbackQuery("settings_freq", handleSettingsFreq);
-bot.callbackQuery("set_freq_daily", handleSettingsFreqDaily);
-bot.callbackQuery("set_freq_2days", handleSettingsFreq2Days);
-bot.callbackQuery(/^stg_freq_/, handleSettingsFreqSelect);
-bot.callbackQuery("settings_sub", handleSettingsSub);
-bot.callbackQuery("settings_cancel_sub", handleCancelSubPrompt);
-bot.callbackQuery("settings_cancel_sub_confirm", handleCancelSubConfirm);
-bot.callbackQuery("settings_how", handleSettingsHow);
-
-// Feedback flow
-bot.callbackQuery("feedback_cancel", handleFeedbackCancel);
-
-// Keep-active (10)
-bot.callbackQuery("keepalive", async (ctx) => {
-  await ctx.answerCallbackQuery("Thanks for checking in! 👋");
-  const user = await getMonetizationUserByTelegramId(BigInt(ctx.from!.id));
-  await ctx.reply("Great to see you! 😊 Keep those logs coming 📝", {
-    reply_markup: getMainMenuKeyboard(user ? hasActiveStorage(user) : false),
-  });
-});
-
-// Navigation shortcuts
-bot.callbackQuery("nav_write", async (ctx) => {
-  await ctx.answerCallbackQuery();
-  return startLogging(ctx);
-});
-bot.callbackQuery(/^resume_write_log_\d{4}-\d{2}-\d{2}$/, async (ctx) => {
-  await ctx.answerCallbackQuery();
-  const data = ctx.callbackQuery?.data ?? "";
-  const isoDate = data.replace("resume_write_log_", "");
-  return startLogging(ctx, isoDate);
-});
-bot.callbackQuery("nav_calendar", async (ctx) => {
-  await ctx.answerCallbackQuery();
-  return showViewCalendar(ctx);
-});
-bot.callbackQuery("weekly_nav_calendar", async (ctx) => {
-  await ctx.answerCallbackQuery();
-  return showViewCalendar(ctx, undefined, undefined, { mode: "reply" });
-});
-bot.callbackQuery("nav_logs", async (ctx) => {
-  await ctx.answerCallbackQuery();
-  return showViewCalendar(ctx);
-});
-bot.callbackQuery("nav_past_log", async (ctx) => {
-  await ctx.answerCallbackQuery();
-  return showPastLogCalendar(ctx);
-});
-bot.callbackQuery("weekly_nav_past_log", async (ctx) => {
-  await ctx.answerCallbackQuery();
-  return showPastLogCalendar(ctx, undefined, undefined, { mode: "reply" });
-});
-bot.callbackQuery("nav_menu", async (ctx) => {
-  await ctx.answerCallbackQuery();
-  return handleMenu(ctx);
-});
-
-// ── Voice message handler (8.3) ──────────────────────────────────────────
-bot.on("message:voice", handleVoiceLog);
-
-// ── Text message handler — session-aware routing ──────────────────────────
-bot.on("message:text", async (ctx) => {
   // Feedback capture takes highest priority
   if (await handleFeedbackText(ctx)) return;
   // Payment email capture
@@ -333,7 +295,7 @@ bot.on("message:text", async (ctx) => {
 
         await ctx.reply(
           `✅ **Original log saved!** 📝\n\n` +
-            `✨ _Heads up: You've used all 3 free AI refinements._\n` +
+            `✨ _Heads up: You've used all 5 free AI refinements._\n` + // 🚀 Bumped to 5
             `Upgrade to **Pro** to unlock unlimited AI refinements and keep your logs looking pristine 🚀`,
           { parse_mode: "Markdown", reply_markup: combinedKeyboard },
         );
@@ -404,8 +366,144 @@ bot.on("message:text", async (ctx) => {
   if (ctx.session.awaitingLog && dbUser?.courseOfStudy) {
     if (await handleLogText(ctx, dbUser)) return;
   }
-  // Fall through — other text messages not handled here
+  
+  // Fall through — other text messages pass to next middleware
+  return next();
 });
+
+// ── Reply keyboard — main menu ─────────────────────────────────────────────
+// ✅ Use strict anchors (^ $) so emoji and normal text don't interfere
+bot.hears(/^✍️\s*Write today.?s log$/i, (ctx) => {
+  if (ctx.session.catchup?.active) return; // 🚀 Isolation Guard
+  return startLogging(ctx);
+});
+bot.hears(/^📖\s*See my logs$/i, (ctx) => showViewCalendar(ctx));
+bot.hears(/^💬\s*Leave feedback$/i, handleFeedback);
+bot.hears(/^✨\s*AI Refine$/i, (ctx) => showViewCalendar(ctx));
+bot.hears(/^👑\s*Go Pro$/i, handleGoPro);
+
+// ✅ Fixed: Settings uses strict anchors with emoji to prevent false matches
+bot.hears(/^⚙️\s*Settings$/i, handleSettings);
+
+// ✅ Fixed: Catch-up button uses strict anchors to prevent false matches
+bot.hears(/^🔄\s*Catch up\s*missed days$/i, startCatchupFlow);
+
+// ── Callback query handlers ────────────────────────────────────────────────
+bot.callbackQuery("start_onboarding", handleLetsGo);
+bot.callbackQuery(/^snooze_\d+$/, handleSnooze);
+bot.callbackQuery(/^skip_\d+$/, handleSkip);
+
+// 🚀 CATCHUP TRIGGER FROM INLINE BUTTONS (Reminders / Weekly Recap)
+bot.callbackQuery("trigger_catchup", startCatchupFlow);
+
+// 🚀 ROUTE CALENDAR CLICKS TO CATCHUP HANDLER
+bot.callbackQuery(/^ccal_/, handleCatchupCallback);
+
+// Logging flow
+bot.callbackQuery(/^write_log_\d+_\d{4}-\d{2}-\d{2}$/, handleWriteFromReminder);
+bot.callbackQuery("write_log", (ctx) => {
+  if (ctx.session.catchup?.active) return ctx.answerCallbackQuery("Please finish or /cancel catch-up first!");
+  return startLogging(ctx);
+});
+bot.callbackQuery("auto_save_confirm", handleAutoSaveConfirm);
+bot.callbackQuery("auto_save_continue", handleAutoSaveContinue);
+bot.callbackQuery(/^edit_log_\d+$/, handleEditLog);
+
+// Past-log calendar (6.4)
+bot.callbackQuery(/^cal_nav_\d+_\d+$/, handlePastCalNav);
+bot.callbackQuery("cal_noop", (ctx) => ctx.answerCallbackQuery());
+bot.callbackQuery(/^past_log_\d{4}-\d{2}-\d{2}$/, handlePastLogDateSelect);
+
+// View calendar (7.1 / 7.2)
+bot.callbackQuery(/^vcal_nav_\d+_\d+$/, handleViewCalNav);
+bot.callbackQuery(/^view_cal_\d{4}-\d{2}-\d{2}$/, handleViewCalDateSelect);
+
+// ✅ NEW: Chronological log navigation (7.2b)
+bot.callbackQuery(/^view_log_nav_\d+$/, handleViewLogNavigation);
+
+// Delete flow (7.3)
+bot.callbackQuery(/^delete_log_\d+$/, handleDeleteLogPrompt);
+bot.callbackQuery(/^delete_confirm_\d+$/, handleDeleteLogConfirm);
+bot.callbackQuery("delete_cancel", handleDeleteLogCancel);
+
+// AI refinement flow (8.2)
+bot.callbackQuery(/^ai_refine_\d+$/, handleAiRefine);
+bot.callbackQuery("save_ai_log", handleSaveAiLog);
+bot.callbackQuery("save_raw_log", handleSaveRawLog);
+
+// Payments / Pro upgrade flow (9.2)
+bot.callbackQuery("go_pro", handleGoPro);
+bot.callbackQuery("pay_paystack", handlePayPaystack);
+bot.callbackQuery("check_payment", handleCheckPayment);
+bot.callbackQuery("pay_manual", handlePayManual);
+bot.callbackQuery("manual_sent", handleManualSent);
+bot.callbackQuery(/^mpay_approve_\d+$/, handleAdminApprove);
+bot.callbackQuery(/^mpay_reject_\d+$/, handleAdminReject);
+
+// Settings flow (11)
+bot.callbackQuery("settings_menu", handleSettingsMenu);
+bot.callbackQuery("settings_time", handleSettingsTime);
+bot.callbackQuery(/^stg_time_\d{2}:\d{2}$/, handleSettingsTimeSelect);
+bot.callbackQuery("settings_freq", handleSettingsFreq);
+bot.callbackQuery("set_freq_daily", handleSettingsFreqDaily);
+bot.callbackQuery("set_freq_2days", handleSettingsFreq2Days);
+bot.callbackQuery(/^stg_freq_/, handleSettingsFreqSelect);
+bot.callbackQuery("settings_sub", handleSettingsSub);
+bot.callbackQuery("settings_cancel_sub", handleCancelSubPrompt);
+bot.callbackQuery("settings_cancel_sub_confirm", handleCancelSubConfirm);
+bot.callbackQuery("settings_how", handleSettingsHow);
+
+// Feedback flow
+bot.callbackQuery("feedback_cancel", handleFeedbackCancel);
+
+// Keep-active (10)
+bot.callbackQuery("keepalive", async (ctx) => {
+  await ctx.answerCallbackQuery("Thanks for checking in! 👋");
+  const user = await getMonetizationUserByTelegramId(BigInt(ctx.from!.id));
+  await ctx.reply("Great to see you! 😊 Keep those logs coming 📝", {
+    reply_markup: getMainMenuKeyboard(user ? hasActiveStorage(user) : false),
+  });
+});
+
+// Navigation shortcuts
+bot.callbackQuery("nav_write", async (ctx) => {
+  if (ctx.session.catchup?.active) return ctx.answerCallbackQuery("Please finish catch-up first!");
+  await ctx.answerCallbackQuery();
+  return startLogging(ctx);
+});
+bot.callbackQuery(/^resume_write_log_\d{4}-\d{2}-\d{2}$/, async (ctx) => {
+  await ctx.answerCallbackQuery();
+  const data = ctx.callbackQuery?.data ?? "";
+  const isoDate = data.replace("resume_write_log_", "");
+  return startLogging(ctx, isoDate);
+});
+bot.callbackQuery("nav_calendar", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  return showViewCalendar(ctx);
+});
+bot.callbackQuery("weekly_nav_calendar", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  return showViewCalendar(ctx, undefined, undefined, { mode: "reply" });
+});
+bot.callbackQuery("nav_logs", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  return showViewCalendar(ctx);
+});
+bot.callbackQuery("nav_past_log", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  return showPastLogCalendar(ctx);
+});
+bot.callbackQuery("weekly_nav_past_log", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  return showPastLogCalendar(ctx, undefined, undefined, { mode: "reply" });
+});
+bot.callbackQuery("nav_menu", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  return handleMenu(ctx);
+});
+
+// ── Voice message handler (8.3) ──────────────────────────────────────────
+bot.on("message:voice", handleVoiceLog);
 
 // ── Global error boundary ─────────────────────────────────────────────────
 bot.catch((err) => {
@@ -420,3 +518,11 @@ bot.catch((err) => {
     ctx.chat?.id,
   );
 });
+
+// ── Set Native Bot Commands ────────────────────────────────────────────────
+// Exposes the blue "Menu" button natively in Telegram
+bot.api.setMyCommands([
+  { command: "start", description: "Restart Wisa" },
+  { command: "catchup", description: "🔄 Fill in missed SIWES days" },
+  { command: "cancel", description: "Cancel what you are currently doing" },
+]).catch((err) => console.error("Failed to set commands:", err));
