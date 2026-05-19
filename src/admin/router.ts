@@ -1033,4 +1033,113 @@ router.post(
   }
 );
 
+// ─── /api/analytics — Dynamic timeframe analytics ────────────────────────────
+router.get(
+  "/api/analytics",
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const timeframe = String(req.query.timeframe ?? "day"); // "day", "week", "month"
+      const now = new Date();
+      let startDate: Date;
+
+      switch (timeframe) {
+        case "week":
+          startDate = subDays(now, 7);
+          break;
+        case "month":
+          startDate = subDays(now, 30);
+          break;
+        case "day":
+        default:
+          startDate = startOfDay(now);
+          break;
+      }
+
+      // ✅ QUERY 1: Messaging Strategy Stats (Morning vs Afternoon)
+      // Fetch reminders with their scheduled times
+      const reminders = await prisma.reminderJob.findMany({
+        where: {
+          createdAt: { gte: startDate },
+          status: "sent", // Only sent reminders
+        },
+        select: {
+          scheduledFor: true,
+          status: true,
+          convertedAt: true,
+        },
+      });
+
+      // Categorize by time of day (morning before 12pm, afternoon/evening 12pm+)
+      let morningDelivered = 0;
+      let morningConverted = 0;
+      let afternoonDelivered = 0;
+      let afternoonConverted = 0;
+
+      reminders.forEach((reminder) => {
+        const hour = new Date(reminder.scheduledFor).getHours();
+        const isMorning = hour < 12;
+        const isConverted = reminder.convertedAt !== null;
+
+        if (isMorning) {
+          morningDelivered++;
+          if (isConverted) morningConverted++;
+        } else {
+          afternoonDelivered++;
+          if (isConverted) afternoonConverted++;
+        }
+      });
+
+      const morningRate =
+        morningDelivered > 0
+          ? Math.round((morningConverted / morningDelivered) * 100)
+          : 0;
+
+      const afternoonRate =
+        afternoonDelivered > 0
+          ? Math.round((afternoonConverted / afternoonDelivered) * 100)
+          : 0;
+
+      const messagingStats = [
+        {
+          bucket: "MORNING",
+          icon: "🌅",
+          title: "Morning Motivation",
+          sent: morningDelivered,
+          converted: morningConverted,
+          conversionRate: morningRate,
+        },
+        {
+          bucket: "AFTERNOON_EVENING",
+          icon: "🌙",
+          title: "Afternoon/Evening Nudge",
+          sent: afternoonDelivered,
+          converted: afternoonConverted,
+          conversionRate: afternoonRate,
+        },
+      ];
+
+      // ✅ QUERY 2: Refined vs Original Logs
+      const logsGrouped = await prisma.log.groupBy({
+        by: ["isAiRefined"],
+        where: { createdAt: { gte: startDate } },
+        _count: { id: true },
+      });
+
+      const refinedVsOriginal = logsGrouped.map((group) => ({
+        name: group.isAiRefined ? "AI Refined" : "Original",
+        value: group._count.id,
+      }));
+
+      res.json({
+        timeframe,
+        startDate: startDate.toISOString(),
+        messagingStats,
+        refinedVsOriginal,
+      });
+    } catch (err) {
+      handleError(res, "/api/analytics", err);
+    }
+  }
+);
+
 export { router as adminRouter };
