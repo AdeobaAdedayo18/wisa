@@ -381,48 +381,38 @@ export async function handleCatchupFlow(ctx: BotContext) {
             );
             return;
           }
-
-          // ✅ APPLY MAXSUPPORTABLEDAYS CAP: If evaluation says we can only do X days, don't generate more
+// ✅ APPLY MAXSUPPORTABLEDAYS CAP: If evaluation says we can only do X days, don't generate more
           let cappedWorkingDays = workingDays;
-          let daysCapped = false;
+          
+          // 🚀 LOCAL VARIABLES (Bulletproof against session race conditions)
+          const localOriginalDays = workingDays;
+          let localWasCapped = false;
           
           if (maxSupportableDays < workingDays) {
             cappedWorkingDays = maxSupportableDays;
-            daysCapped = true;
+            localWasCapped = true;
             
-            // 🚀 PERSIST CAPPING DATA TO STATE (so it survives through generation and message building)
-            state.originalRequestedDays = workingDays;  // Original user request
-            state.cappedWorkingDays = cappedWorkingDays;  // Capped value after AI evaluation
-            state.wasCapped = true;  // Flag to trigger warning in final message
-            ctx.session.catchup = state;  // Save to session NOW
-            
-            // Show warning message
+            // Show warning message ONCE and leave it there while it loads
             await ctx.api.editMessageText(
               ctx.chat!.id,
               loadingMsg.message_id,
-              `⚠️ The details provided can only realistically cover **${cappedWorkingDays}** days without making things up. Generating **${cappedWorkingDays}** days to keep your logbook authentic!`,
+              `⚠️ **Notice:** Your summary only supports **${cappedWorkingDays} days** without hallucinating.\n\n⏳ Generating ${cappedWorkingDays} authentic days now...`,
               { parse_mode: "Markdown" }
             );
-            
-            // Brief pause to let user read the message
-            await new Promise(resolve => setTimeout(resolve, 1500));
+          } else {
+             // Normal loading message
+             await ctx.api.editMessageText(
+              ctx.chat!.id,
+              loadingMsg.message_id,
+              `Data looks great! ✨ Time-traveling and generating ${cappedWorkingDays} days of logs. This might take a minute...`
+            );
           }
-
-          await ctx.api.editMessageText(
-            ctx.chat!.id,
-            loadingMsg.message_id,
-            `Data looks great! ✨ Time-traveling and generating ${cappedWorkingDays} days of logs. This might take a minute...`
-          );
 
           const generated = await generateMultiDayLogs(state.rawDump, cappedWorkingDays, courseOfStudy);
 
           isProcessing = false;
           clearInterval(typingInterval);
           
-          // ✅ RE-VERIFY STATE BEFORE BUILDING FINAL MESSAGE
-          // If wasCapped was set, ensure capped values are still available
-          const finalCappedDays = state.cappedWorkingDays || cappedWorkingDays;
-
           // ✅ FIX #2: CRITICAL — Re-fetch user state JUST BEFORE slicing
           // The logCount may have changed during the 45 seconds of AI generation
           const freshDbUser = await prisma.user.findUnique({
@@ -457,7 +447,7 @@ export async function handleCatchupFlow(ctx: BotContext) {
             ]);
           }
 
-          // Delete the "Let me look at this data..." loading message
+          // Delete the loading message now that we are done generating
           await ctx.api.deleteMessage(ctx.chat!.id, loadingMsg.message_id).catch(() => {});
 
           // 2. Decide which UI to show based on if they hit the paywall
@@ -468,14 +458,14 @@ export async function handleCatchupFlow(ctx: BotContext) {
               logDate: addDays(parseISO(state.startDate!), log.dateOffset).toISOString(),
               dateOffset: log.dateOffset,
             }));
-            state.savedLogsCount = logsToSave.length;  // ✅ Track how many were saved
+            state.savedLogsCount = logsToSave.length;  
             
-            // 🚀 Include permanent capping warning if applicable
+            // 🚀 Use the LOCAL VARIABLE to trigger the permanent warning
             let peekText = '';
-            if (state.wasCapped && state.originalRequestedDays && state.cappedWorkingDays) {
-              peekText += `⚠️ **Notice:** You requested **${state.originalRequestedDays} days**, but your prompt only had enough detail for **${state.cappedWorkingDays} days**. I stopped there to keep your logbook authentic and avoid making things up!\n\n`;
+            if (localWasCapped) {
+              peekText += `⚠️ **Notice:** You requested **${localOriginalDays} days**, but your prompt only had enough detail for **${cappedWorkingDays} days**. I stopped there to keep your logbook authentic and avoid making things up!\n\n`;
             }
-            peekText += `✅ **Generated ${finalCappedDays} days successfully!** Here is a peek:\n\n`;
+            peekText += `✅ **Generated ${cappedWorkingDays} days successfully!** Here is a peek:\n\n`;
             const peekLogs = generated.logs.slice(0, 2);
             
             peekLogs.forEach((log, index) => {
@@ -501,12 +491,11 @@ export async function handleCatchupFlow(ctx: BotContext) {
           } else {
             // 🎉 FULL SUCCESS (No Paywall Hit, Show 3 items max)
             
-            // 🚀 Include permanent capping warning if applicable
             let successText = '';
-            if (state.wasCapped && state.originalRequestedDays && state.cappedWorkingDays) {
-              successText += `⚠️ **Notice:** You requested **${state.originalRequestedDays} days**, but your prompt only had enough detail for **${state.cappedWorkingDays} days**. I stopped there to keep your logbook authentic and avoid making things up!\n\n`;
+            if (localWasCapped) {
+              successText += `⚠️ **Notice:** You requested **${localOriginalDays} days**, but your prompt only had enough detail for **${cappedWorkingDays} days**. I stopped there to keep your logbook authentic and avoid making things up!\n\n`;
             }
-            successText += `✅ **Generated all ${finalCappedDays} days successfully!** Here is a quick preview:\n\n`;
+            successText += `✅ **Generated all ${cappedWorkingDays} days successfully!** Here is a quick preview:\n\n`;
             const previewLogs = generated.logs.slice(0, 3);
             
             previewLogs.forEach((log, index) => {
@@ -521,7 +510,7 @@ export async function handleCatchupFlow(ctx: BotContext) {
             }
 
             await ctx.reply(successText, { parse_mode: "Markdown" });
-            await ctx.reply(`🎉 All ${finalCappedDays} days have been safely stored in your logbook! Tap below to read them all.`, {
+            await ctx.reply(`🎉 All ${cappedWorkingDays} days have been safely stored in your logbook! Tap below to read them all.`, {
               reply_markup: new InlineKeyboard().text("📅 View calendar", "nav_calendar").text("🏠 Menu", "nav_menu")
             });
 
@@ -531,7 +520,7 @@ export async function handleCatchupFlow(ctx: BotContext) {
         } catch (innerErr) {
           isProcessing = false;
           clearInterval(typingInterval);
-          throw innerErr; // Re-throw to be caught by the outer block
+          throw innerErr; 
         }
         break;
       }
