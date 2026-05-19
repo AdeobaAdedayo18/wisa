@@ -79,3 +79,62 @@ export function skipWeekend(date: Date, timezone: string): Date {
   if (dow === 0) return new Date(date.getTime() + 1 * 24 * 60 * 60 * 1000); // Sun → Mon
   return date;
 }
+
+/**
+ * Calculate the number of working days (Mon-Fri) between two dates (inclusive).
+ * Ignores weekends completely (Saturdays and Sundays).
+ * Returns -1 if endDate is before startDate.
+ */
+export function calculateWorkingDays(
+  startDate: Date,
+  endDate: Date,
+  timezone: string = 'Africa/Lagos'
+): number {
+  // Validate dates
+  if (endDate < startDate) {
+    return -1;
+  }
+
+  let workingDays = 0;
+  const current = new Date(startDate);
+
+  // Normalize to midnight UTC to avoid timezone issues during iteration
+  current.setUTCHours(0, 0, 0, 0);
+  const end = new Date(endDate);
+  end.setUTCHours(23, 59, 59, 999);
+
+  // Iterate through each day (inclusive)
+  while (current <= end) {
+    const dayOfWeek = current.getUTCDay();
+    // Count if NOT Saturday (6) and NOT Sunday (0)
+    if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+      workingDays++;
+    }
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+
+  return workingDays;
+}
+
+/**
+ * Convert an ISO date string (YYYY-MM-DD) to a Date object.
+ */
+export function getDateFromString(dateStr: string): Date {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const date = new Date(year, month - 1, day);
+  date.setUTCHours(0, 0, 0, 0);
+  return date;
+}
+
+/**
+ * Format a Date for display in a given timezone.
+ */
+export function formatDateForDisplay(date: Date, timezone: string = 'Africa/Lagos'): string {
+  return date.toLocaleDateString('en-NG', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+}
+
