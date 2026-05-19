@@ -80,13 +80,13 @@ app.post("/webhook/paystack", express.raw({ type: "application/json" }), async (
       // ✅ FIX #3: NEW — Recover held logs from catch-up session
       try {
         const sessionKey = telegramId.toString();
+        let sessionData: any = null;  // ✅ Declare in outer scope so it's accessible at line 139
         const sessionRow = await prisma.session.findUnique({
           where: { key: sessionKey },
           select: { key: true, value: true },
         });
 
         if (sessionRow?.value) {
-          let sessionData: any = null;
           try {
             sessionData = JSON.parse(sessionRow.value);
           } catch {
