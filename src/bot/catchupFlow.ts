@@ -390,10 +390,11 @@ export async function handleCatchupFlow(ctx: BotContext) {
             cappedWorkingDays = maxSupportableDays;
             daysCapped = true;
             
-            // 🚀 Store for permanent warning in final message
-            state.originalRequestedDays = workingDays;
-            state.wasCapped = true;
-            ctx.session.catchup = state;
+            // 🚀 PERSIST CAPPING DATA TO STATE (so it survives through generation and message building)
+            state.originalRequestedDays = workingDays;  // Original user request
+            state.cappedWorkingDays = cappedWorkingDays;  // Capped value after AI evaluation
+            state.wasCapped = true;  // Flag to trigger warning in final message
+            ctx.session.catchup = state;  // Save to session NOW
             
             // Show warning message
             await ctx.api.editMessageText(
@@ -417,6 +418,10 @@ export async function handleCatchupFlow(ctx: BotContext) {
 
           isProcessing = false;
           clearInterval(typingInterval);
+          
+          // ✅ RE-VERIFY STATE BEFORE BUILDING FINAL MESSAGE
+          // If wasCapped was set, ensure capped values are still available
+          const finalCappedDays = state.cappedWorkingDays || cappedWorkingDays;
 
           // ✅ FIX #2: CRITICAL — Re-fetch user state JUST BEFORE slicing
           // The logCount may have changed during the 45 seconds of AI generation
@@ -467,10 +472,10 @@ export async function handleCatchupFlow(ctx: BotContext) {
             
             // 🚀 Include permanent capping warning if applicable
             let peekText = '';
-            if (state.wasCapped && state.originalRequestedDays) {
-              peekText += `⚠️ *Notice:* You requested *${state.originalRequestedDays} days*, but your prompt only had enough detail for **${cappedWorkingDays} days**. I stopped there to keep your logbook authentic and avoid making things up!\n\n`;
+            if (state.wasCapped && state.originalRequestedDays && state.cappedWorkingDays) {
+              peekText += `⚠️ **Notice:** You requested **${state.originalRequestedDays} days**, but your prompt only had enough detail for **${state.cappedWorkingDays} days**. I stopped there to keep your logbook authentic and avoid making things up!\n\n`;
             }
-            peekText += `✅ **Generated ${cappedWorkingDays} days successfully!** Here is a peek:\n\n`;
+            peekText += `✅ **Generated ${finalCappedDays} days successfully!** Here is a peek:\n\n`;
             const peekLogs = generated.logs.slice(0, 2);
             
             peekLogs.forEach((log, index) => {
@@ -498,10 +503,10 @@ export async function handleCatchupFlow(ctx: BotContext) {
             
             // 🚀 Include permanent capping warning if applicable
             let successText = '';
-            if (state.wasCapped && state.originalRequestedDays) {
-              successText += `⚠️ **Notice:** You requested **${state.originalRequestedDays} days**, but your prompt only had enough detail for **${cappedWorkingDays} days**. I stopped there to keep your logbook authentic and avoid making things up!\n\n`;
+            if (state.wasCapped && state.originalRequestedDays && state.cappedWorkingDays) {
+              successText += `⚠️ **Notice:** You requested **${state.originalRequestedDays} days**, but your prompt only had enough detail for **${state.cappedWorkingDays} days**. I stopped there to keep your logbook authentic and avoid making things up!\n\n`;
             }
-            successText += `✅ **Generated all ${cappedWorkingDays} days successfully!** Here is a quick preview:\n\n`;
+            successText += `✅ **Generated all ${finalCappedDays} days successfully!** Here is a quick preview:\n\n`;
             const previewLogs = generated.logs.slice(0, 3);
             
             previewLogs.forEach((log, index) => {
@@ -516,7 +521,7 @@ export async function handleCatchupFlow(ctx: BotContext) {
             }
 
             await ctx.reply(successText, { parse_mode: "Markdown" });
-            await ctx.reply(`🎉 All ${cappedWorkingDays} days have been safely stored in your logbook! Tap below to read them all.`, {
+            await ctx.reply(`🎉 All ${finalCappedDays} days have been safely stored in your logbook! Tap below to read them all.`, {
               reply_markup: new InlineKeyboard().text("📅 View calendar", "nav_calendar").text("🏠 Menu", "nav_menu")
             });
 
