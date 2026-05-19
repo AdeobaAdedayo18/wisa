@@ -348,17 +348,16 @@ export async function handleCatchupFlow(ctx: BotContext) {
           // 🚀 THE 2-STRIKE HARD LIMIT
           let isAdequate = false;
           let questions: string[] = [];
+          let maxSupportableDays = Infinity; // Default: allow all days (will be capped below)
 
           const dbUser = await prisma.user.findUnique({ where: { telegramId } });
           const courseOfStudy = dbUser?.courseOfStudy ?? "IT";
 
-          if (state.questionCount >= 2) {
-            isAdequate = true; 
-          } else {
-            const evaluation = await evaluateCatchupDetail(state.rawDump, workingDays, courseOfStudy);
-            isAdequate = evaluation.isAdequate;
-            questions = evaluation.followUpQuestions;
-          }
+          // ✅ ALWAYS call evaluateCatchupDetail to get maxSupportableDays, even if 2-strike rule is hit
+          const evaluation = await evaluateCatchupDetail(state.rawDump, workingDays, courseOfStudy);
+          isAdequate = state.questionCount >= 2 ? true : evaluation.isAdequate; // 2-strike forces adequacy
+          questions = evaluation.followUpQuestions;
+          maxSupportableDays = evaluation.maxSupportableDays; // ✅ ALWAYS capture the cap
 
           if (!isAdequate) {
             state.step = 'interrogation';
@@ -383,13 +382,38 @@ export async function handleCatchupFlow(ctx: BotContext) {
             return;
           }
 
+          // ✅ APPLY MAXSUPPORTABLEDAYS CAP: If evaluation says we can only do X days, don't generate more
+          let cappedWorkingDays = workingDays;
+          let daysCapped = false;
+          
+          if (maxSupportableDays < workingDays) {
+            cappedWorkingDays = maxSupportableDays;
+            daysCapped = true;
+            
+            // 🚀 Store for permanent warning in final message
+            state.originalRequestedDays = workingDays;
+            state.wasCapped = true;
+            ctx.session.catchup = state;
+            
+            // Show warning message
+            await ctx.api.editMessageText(
+              ctx.chat!.id,
+              loadingMsg.message_id,
+              `⚠️ The details provided can only realistically cover **${cappedWorkingDays}** days without making things up. Generating **${cappedWorkingDays}** days to keep your logbook authentic!`,
+              { parse_mode: "Markdown" }
+            );
+            
+            // Brief pause to let user read the message
+            await new Promise(resolve => setTimeout(resolve, 1500));
+          }
+
           await ctx.api.editMessageText(
             ctx.chat!.id,
             loadingMsg.message_id,
-            `Data looks great! ✨ Time-traveling and generating ${workingDays} days of logs. This might take a minute...`
+            `Data looks great! ✨ Time-traveling and generating ${cappedWorkingDays} days of logs. This might take a minute...`
           );
 
-          const generated = await generateMultiDayLogs(state.rawDump, workingDays, courseOfStudy);
+          const generated = await generateMultiDayLogs(state.rawDump, cappedWorkingDays, courseOfStudy);
 
           isProcessing = false;
           clearInterval(typingInterval);
@@ -441,7 +465,12 @@ export async function handleCatchupFlow(ctx: BotContext) {
             }));
             state.savedLogsCount = logsToSave.length;  // ✅ Track how many were saved
             
-            let peekText = `✅ **Generated ${workingDays} days successfully!** Here is a peek:\n\n`;
+            // 🚀 Include permanent capping warning if applicable
+            let peekText = '';
+            if (state.wasCapped && state.originalRequestedDays) {
+              peekText += `⚠️ *Notice:* You requested *${state.originalRequestedDays} days*, but your prompt only had enough detail for **${cappedWorkingDays} days**. I stopped there to keep your logbook authentic and avoid making things up!\n\n`;
+            }
+            peekText += `✅ **Generated ${cappedWorkingDays} days successfully!** Here is a peek:\n\n`;
             const peekLogs = generated.logs.slice(0, 2);
             
             peekLogs.forEach((log, index) => {
@@ -467,7 +496,12 @@ export async function handleCatchupFlow(ctx: BotContext) {
           } else {
             // 🎉 FULL SUCCESS (No Paywall Hit, Show 3 items max)
             
-            let successText = `✅ **Generated all ${workingDays} days successfully!** Here is a quick preview:\n\n`;
+            // 🚀 Include permanent capping warning if applicable
+            let successText = '';
+            if (state.wasCapped && state.originalRequestedDays) {
+              successText += `⚠️ **Notice:** You requested **${state.originalRequestedDays} days**, but your prompt only had enough detail for **${cappedWorkingDays} days**. I stopped there to keep your logbook authentic and avoid making things up!\n\n`;
+            }
+            successText += `✅ **Generated all ${cappedWorkingDays} days successfully!** Here is a quick preview:\n\n`;
             const previewLogs = generated.logs.slice(0, 3);
             
             previewLogs.forEach((log, index) => {
@@ -482,7 +516,7 @@ export async function handleCatchupFlow(ctx: BotContext) {
             }
 
             await ctx.reply(successText, { parse_mode: "Markdown" });
-            await ctx.reply(`🎉 All ${workingDays} days have been safely stored in your logbook! Tap below to read them all.`, {
+            await ctx.reply(`🎉 All ${cappedWorkingDays} days have been safely stored in your logbook! Tap below to read them all.`, {
               reply_markup: new InlineKeyboard().text("📅 View calendar", "nav_calendar").text("🏠 Menu", "nav_menu")
             });
 
