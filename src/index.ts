@@ -77,13 +77,82 @@ app.post("/webhook/paystack", express.raw({ type: "application/json" }), async (
         console.warn(`[webhook] No user found for telegramId=${telegramId}`);
       }
 
-      await bot.api.sendMessage(
-        Number(telegramId),
-        `🎉 *Storage unlocked!*\n\n` +
-          `You're all set for the next 30 days 🔓\n\n` +
-          `You now have unlimited log storage, unlimited voice logs, and unlimited AI refinements.`,
-        { parse_mode: "Markdown" },
-      );
+      // ✅ FIX #3: NEW — Recover held logs from catch-up session
+      try {
+        const sessionKey = telegramId.toString();
+        const sessionRow = await prisma.session.findUnique({
+          where: { key: sessionKey },
+          select: { key: true, value: true },
+        });
+
+        if (sessionRow?.value) {
+          let sessionData: any = null;
+          try {
+            sessionData = JSON.parse(sessionRow.value);
+          } catch {
+            sessionData = null;
+          }
+
+          // ✅ If there are heldLogs, save them now!
+          if (sessionData?.catchup?.heldLogs && Array.isArray(sessionData.catchup.heldLogs)) {
+            const heldLogs = sessionData.catchup.heldLogs;
+            const dbUser = await prisma.user.findUnique({
+              where: { telegramId },
+              select: { id: true }
+            });
+
+            if (dbUser && heldLogs.length > 0) {
+              const insertData = heldLogs.map((log: any) => ({
+                userId: dbUser.id,
+                content: log.content,
+                isAiRefined: true,
+                isVoice: false,
+                logDate: log.logDate ? new Date(log.logDate) : new Date(),
+              }));
+
+              await prisma.$transaction([
+                prisma.log.createMany({ data: insertData }),
+                prisma.user.update({
+                  where: { id: dbUser.id },
+                  data: { logCount: { increment: heldLogs.length } }
+                })
+              ]);
+
+              // ✅ Clear the held logs from session
+              delete sessionData.catchup.heldLogs;
+              delete sessionData.catchup.savedLogsCount;
+              await prisma.session.update({
+                where: { key: sessionKey },
+                data: { value: JSON.stringify(sessionData) },
+              });
+
+              console.log(`[webhook] Recovered ${heldLogs.length} held logs for user ${dbUser.id}`);
+            }
+          }
+        }
+      } catch (heldErr) {
+        console.error("[webhook] Failed to recover held logs:", heldErr);
+        // Don't fail the payment flow for this
+      }
+
+      // ✅ Send personalized notification based on whether heldLogs were recovered
+      const hasHeldLogs = sessionData?.catchup?.heldLogs && Array.isArray(sessionData.catchup.heldLogs) && sessionData.catchup.heldLogs.length > 0;
+      
+      if (hasHeldLogs) {
+        await bot.api.sendMessage(
+          Number(telegramId),
+          `🎉 *Payment successful!* All your pending logs have been unlocked and instantly added to your logbook!`,
+          { parse_mode: "Markdown" },
+        );
+      } else {
+        await bot.api.sendMessage(
+          Number(telegramId),
+          `🎉 *Storage unlocked!*\n\n` +
+            `You're all set for the next 30 days 🔓\n\n` +
+            `You now have unlimited log storage, unlimited voice logs, and unlimited AI refinements.`,
+          { parse_mode: "Markdown" },
+        );
+      }
 
       // Post-payment UX: if they were blocked mid-log, prompt them to resume.
       try {
