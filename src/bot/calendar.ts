@@ -222,59 +222,218 @@ export async function handleViewCalNav(ctx: BotContext): Promise<void> {
 /**
  * Tapping a logged day in the view calendar: callback `view_cal_YYYY-MM-DD`
  * Shows the log text with [✏️ Edit] [🗑️ Delete] [✨ Refine] [🏠 Menu] buttons.
+ * ✅ CRASH-PROOF: Early answerCallbackQuery, full try/catch, safe date parsing.
  */
 export async function handleViewCalDateSelect(ctx: BotContext): Promise<void> {
-  await ctx.answerCallbackQuery();
+  // ✅ EARLY CALLBACK ANSWER: Stop button loading animation immediately
+  await ctx.answerCallbackQuery().catch(() => {});
 
-  const data = ctx.callbackQuery?.data ?? "";
-  const isoDate = data.replace("view_cal_", "");
-  const telegramId = BigInt(ctx.from!.id);
+  try {
+    const data = ctx.callbackQuery?.data ?? "";
+    const isoDate = data.replace("view_cal_", "");
 
-  const dbUser = await prisma.user.findUnique({ where: { telegramId } });
-  if (!dbUser) return;
+    // ✅ SAFE DATE PARSING: Validate date strictly before using it
+    let parsedDate: Date;
+    try {
+      parsedDate = parseISO(isoDate);
+      // Validate that the parsed date is actually valid
+      if (isNaN(parsedDate.getTime())) {
+        await ctx.reply("⚠️ Invalid date selected. Please try again.");
+        return;
+      }
+    } catch {
+      await ctx.reply("⚠️ Sorry, that date couldn't be parsed. Please try again.");
+      return;
+    }
 
-  const dayStart = startOfDay(parseISO(isoDate));
-  const dayEnd = new Date(dayStart.getTime() + 86_400_000 - 1);
+    const telegramId = BigInt(ctx.from!.id);
 
-  const log = await prisma.log.findFirst({
-    where: { userId: dbUser.id, logDate: { gte: dayStart, lte: dayEnd } },
-    orderBy: { createdAt: "desc" },
-  });
+    const dbUser = await prisma.user.findUnique({ where: { telegramId } });
+    if (!dbUser) {
+      await ctx.reply("Couldn't find your account. Try /start.");
+      return;
+    }
 
-  if (!log) {
-    await ctx.reply(
-      `No log found for ${format(parseISO(isoDate), "EEEE, MMM d")}. Want to write one?`,
-      {
-        reply_markup: new InlineKeyboard()
-          .text("✍️ Write log", `past_log_${isoDate}`)
-          .text("🏠 Menu", "nav_menu"),
-      },
-    );
-    return;
+    const dayStart = startOfDay(parsedDate);
+    const dayEnd = new Date(dayStart.getTime() + 86_400_000 - 1);
+
+    const log = await prisma.log.findFirst({
+      where: { userId: dbUser.id, logDate: { gte: dayStart, lte: dayEnd } },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (!log) {
+      await ctx.reply(
+        `No log found for ${format(parsedDate, "EEEE, MMM d")}. Want to write one?`,
+        {
+          reply_markup: new InlineKeyboard()
+            .text("✍️ Write log", `past_log_${isoDate}`)
+            .text("🏠 Menu", "nav_menu"),
+        },
+      );
+      return;
+    }
+
+    await viewLogWithNavigation(ctx, log, dbUser.id);
+  } catch (error) {
+    console.error("[calendar] View log date select error:", error);
+    await ctx.reply("⚠️ Sorry, I ran into an error fetching that log. Please try again.").catch(() => {});
   }
+}
 
-  const dateLabel = format(log.logDate, "EEEE, MMMM d yyyy");
-  const wordCount = log.content.split(/\s+/).filter(Boolean).length;
-  const preview =
-    log.refinedContent ??
-    (log.content.length > 1000
-      ? log.content.slice(0, 1000) + "…"
-      : log.content);
+// ---------------------------------------------------------------------------
+// 7.2b — Pagination helpers for chronological navigation
+// ---------------------------------------------------------------------------
 
-  const caption =
-    `📖 *Log — ${dateLabel}*\n` +
-    `_(${wordCount} words${log.isVoice ? " · 🎤 voice" : ""})_\n\n` +
-    preview;
+/**
+ * Get the previous and next logs for a given log ID (chronologically).
+ */
+export async function getPreviousAndNextLogs(userId: number, currentLog: { logDate: Date }): Promise<{ prev: any | null; next: any | null }> {
+  const [prevLog, nextLog] = await Promise.all([
+    // Previous log: logDate < current, ordered by logDate DESC (most recent before current)
+    prisma.log.findFirst({
+      where: {
+        userId,
+        logDate: { lt: currentLog.logDate },
+      },
+      orderBy: { logDate: "desc" },
+      select: { id: true, logDate: true },
+    }),
+    // Next log: logDate > current, ordered by logDate ASC (nearest after current)
+    prisma.log.findFirst({
+      where: {
+        userId,
+        logDate: { gt: currentLog.logDate },
+      },
+      orderBy: { logDate: "asc" },
+      select: { id: true, logDate: true },
+    }),
+  ]);
 
-  await ctx.reply(caption, {
-    parse_mode: "Markdown",
-    reply_markup: new InlineKeyboard()
-      .text("✏️ Edit this log", `edit_log_${log.id}`)
-      .text("🗑️ Delete", `delete_log_${log.id}`)
-      .row()
-      .text("✨ Refine with AI", `ai_refine_${log.id}`)
-      .text("🏠 Menu", "nav_menu"),
-  });
+  return { prev: prevLog, next: nextLog };
+}
+
+/**
+ * Build the view log keyboard with chronological navigation.
+ */
+export function buildViewLogKeyboard(logId: number, prev: any | null, next: any | null): InlineKeyboard {
+  const kb = new InlineKeyboard();
+
+  // Navigation row at the top
+  const prevButton = prev ? `◀️ ${format(prev.logDate, "MMM d")}` : "⛔";
+  const nextButton = next ? `${format(next.logDate, "MMM d")} ▶️` : "⛔";
+  const prevCb = prev ? `view_log_nav_${prev.id}` : "noop";
+  const nextCb = next ? `view_log_nav_${next.id}` : "noop";
+
+  kb.text(prevButton, prevCb).text(nextButton, nextCb).row();
+
+  // Main action row
+  kb.text("✏️ Edit this log", `edit_log_${logId}`)
+    .text("🗑️ Delete", `delete_log_${logId}`)
+    .row()
+    .text("✨ Refine with AI", `ai_refine_${logId}`)
+    .text("🏠 Menu", "nav_menu");
+
+  return kb;
+}
+
+/**
+ * Display a log with chronological navigation buttons (Prev/Next).
+ * ✅ CRASH-PROOF: Full try/catch, safe queries, error handling.
+ */
+export async function viewLogWithNavigation(ctx: BotContext, log: any, userId: number): Promise<void> {
+  try {
+    // ✅ SAFE ADJACENT QUERIES: No errors if prev/next don't exist
+    const { prev, next } = await getPreviousAndNextLogs(userId, log);
+    const keyboard = buildViewLogKeyboard(log.id, prev, next);
+
+    const dateLabel = format(log.logDate, "EEEE, MMMM d yyyy");
+    const wordCount = log.content.split(/\s+/).filter(Boolean).length;
+    const preview =
+      log.refinedContent ??
+      (log.content.length > 1000
+        ? log.content.slice(0, 1000) + "…"
+        : log.content);
+
+    const caption =
+      `📖 *Log — ${dateLabel}*\n` +
+      `_(${wordCount} words${log.isVoice ? " · 🎤 voice" : ""})_\n\n` +
+      preview;
+
+    await ctx.reply(caption, {
+      parse_mode: "Markdown",
+      reply_markup: keyboard,
+    });
+  } catch (error) {
+    console.error("[calendar] viewLogWithNavigation error:", error);
+    await ctx.reply("⚠️ Sorry, I ran into an error displaying that log. Please try again.").catch(() => {});
+  }
+}
+
+/**
+ * Handle navigation between logs (Prev/Next buttons).
+ * Callback: `view_log_nav_<id>`
+ * ✅ CRASH-PROOF: Early answerCallbackQuery, full try/catch, safe queries.
+ */
+export async function handleViewLogNavigation(ctx: BotContext): Promise<void> {
+  // ✅ EARLY CALLBACK ANSWER: Stop button loading animation immediately
+  await ctx.answerCallbackQuery().catch(() => {});
+
+  try {
+    const data = ctx.callbackQuery?.data ?? "";
+    const logId = parseInt(data.replace("view_log_nav_", ""), 10);
+
+    // ✅ SAFE PARSING: Validate logId before using it
+    if (isNaN(logId) || logId <= 0) {
+      await ctx.reply("⚠️ Invalid log ID. Please try again.").catch(() => {});
+      return;
+    }
+
+    const telegramId = BigInt(ctx.from!.id);
+    const dbUser = await prisma.user.findUnique({ where: { telegramId } });
+    if (!dbUser) {
+      await ctx.reply("Couldn't find your account. Try /start.").catch(() => {});
+      return;
+    }
+
+    // ✅ SAFE QUERY: Fetch the log, handle null gracefully
+    const log = await prisma.log.findUnique({
+      where: { id: logId },
+    });
+
+    if (!log || log.userId !== dbUser.id) {
+      await ctx.answerCallbackQuery("Log not found").catch(() => {});
+      return;
+    }
+
+    // ✅ SAFE ADJACENT QUERIES: No errors if prev/next don't exist (returns null)
+    const { prev, next } = await getPreviousAndNextLogs(dbUser.id, log);
+    const keyboard = buildViewLogKeyboard(log.id, prev, next);
+
+    const dateLabel = format(log.logDate, "EEEE, MMMM d yyyy");
+    const wordCount = log.content.split(/\s+/).filter(Boolean).length;
+    const preview =
+      log.refinedContent ??
+      (log.content.length > 1000
+        ? log.content.slice(0, 1000) + "…"
+        : log.content);
+
+    const caption =
+      `📖 *Log — ${dateLabel}*\n` +
+      `_(${wordCount} words${log.isVoice ? " · 🎤 voice" : ""})_\n\n` +
+      preview;
+
+    // Edit the current message with the new log
+    await ctx
+      .editMessageText(caption, {
+        parse_mode: "Markdown",
+        reply_markup: keyboard,
+      })
+      .catch(() => {});
+  } catch (error) {
+    console.error("[calendar] View log navigation error:", error);
+    await ctx.reply("⚠️ Sorry, I ran into an error navigating logs. Please try again.").catch(() => {});
+  }
 }
 
 // ---------------------------------------------------------------------------

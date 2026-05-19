@@ -42,6 +42,7 @@ export async function handleAiRefine(ctx: BotContext): Promise<void> {
     nextRenewalDate: dbUser.nextRenewalDate,
   });
 
+  // ✅ FIX #5: CRITICAL — Check BEFORE the expensive API call
   if (!unlocked && dbUser.freeAiRefinements <= 0) {
     await ctx.reply(
       `✨ You've used all your free AI refinements!\n\n` +
@@ -70,19 +71,20 @@ export async function handleAiRefine(ctx: BotContext): Promise<void> {
     const courseOfStudy = dbUser.courseOfStudy ?? "IT";
     const refined = await refineLog(log.content, courseOfStudy);
 
-    // 👇 GUARANTEE SESSION STATE 👇
-    ctx.session.pendingRawText = log.content;
-    ctx.session.pendingRefinedText = refined;
-    ctx.session.refiningLogId = logId;
-
-    await showAiComparisonChoice(ctx, loadingMsg.message_id, log.content, refined);
-
+    // ✅ Decrement BEFORE showing the comparison (already checked above)
     if (!unlocked) {
       await prisma.user.update({
         where: { id: dbUser.id },
         data: { freeAiRefinements: { decrement: 1 } },
       });
     }
+
+    // 👇 GUARANTEE SESSION STATE 👇
+    ctx.session.pendingRawText = log.content;
+    ctx.session.pendingRefinedText = refined;
+    ctx.session.refiningLogId = logId;
+
+    await showAiComparisonChoice(ctx, loadingMsg.message_id, log.content, refined);
   } catch (err) {
     console.error("AI refinement error:", err);
     captureReplayError(telegramId, err, "handleAiRefine", ctx.chat?.id);
@@ -312,7 +314,7 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
 
   if (!unlocked && dbUser.freeVoiceLogs <= 0) {
     await ctx.reply(
-      `🎤 You've used all 3 of your free voice logs!\n\n` +
+      `🎤 You've used all 5 of your free voice logs!\n\n` + // 🚀 Bumped to 5
         `Voice logging is *so* much faster than typing — upgrade to *Pro* for unlimited voice-to-log transcription ✨`,
       {
         parse_mode: "Markdown",
@@ -347,12 +349,13 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
 
     const transcription = await transcribeVoice(localPath);
 
+    // 🚀 THE GRACEFUL FAILSAFE
     if (!transcription) {
       await ctx.api
         .editMessageText(
           ctx.chat!.id,
           processingMsg.message_id,
-          "🎤 I couldn't make out anything from that audio. Please re-record in a quiet environment and speak clearly.",
+          "🎤 Oops, it sounded a bit noisy in the background! Can you type it out for me, or try recording again in a quieter spot?",
         )
         .catch(() => {});
       return;

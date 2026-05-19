@@ -102,8 +102,15 @@ export interface SessionData {
     endDate?: string;   // ISO date string YYYY-MM-DD
     workingDays?: number;
     rawDump?: string;
+    questionCount?: number;
+    courseOfStudy?: string;
     // THE HOLDING CELL: Stores unpaid logs awaiting Paystack success
-    heldLogs?: Array<{ dateOffset: number; content: string }>; 
+    heldLogs?: Array<{ content: string; logDate: string; dateOffset: number }>; 
+    savedLogsCount?: number; // Track how many logs were saved vs held
+    // ✅ PERMANENT WARNING TRACKING: Store when days are capped by AI evaluation
+    wasCapped?: boolean; // True if maxSupportableDays < workingDays
+    originalRequestedDays?: number; // Original workingDays before capping (user's request)
+    cappedWorkingDays?: number; // The final capped value after AI evaluation (what we actually generate)
   };
 }
 
@@ -151,6 +158,8 @@ export function clearActiveFlow(session: SessionData): void {
     session.catchup.endDate = undefined;
     session.catchup.workingDays = undefined;
     session.catchup.rawDump = undefined;
+    session.catchup.questionCount = undefined;
+    session.catchup.courseOfStudy = undefined;
     // NOTE: session.catchup.heldLogs is intentionally preserved here for the payment cliffhanger
   } else {
     session.catchup = { active: false, step: 'none' };

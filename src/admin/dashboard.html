@@ -2211,6 +2211,19 @@
 
           </div>
 
+          <!-- Log Refinement Stats -->
+          <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--border);">
+            <h3 style="margin-bottom: 15px;">Log Save Preference</h3>
+            <div style="display: flex; align-items: center; gap: 40px;">
+              <div style="flex: 1; max-width: 300px;">
+                <canvas id="logPieChart" style="max-width: 300px; height: 300px;"></canvas>
+              </div>
+              <div id="refinement-stats" style="flex: 1;">
+                <div class="loading-row">Loading…</div>
+              </div>
+            </div>
+          </div>
+
         </div>
 
       </div><!-- /panel-analytics -->
@@ -3567,55 +3580,189 @@ function renderAnalyticsBucketTable(s) {
 async function loadAnalytics() {
 
   const wrap = document.getElementById('analytics-bucket-wrap');
-
-  const dateInput = document.getElementById('analytics-date-filter');
-
+  const refinementStats = document.getElementById('refinement-stats');
   
-
-  // Auto-fill today's date if empty
-
-  if (dateInput && !dateInput.value) {
-
-    const today = new Date();
-
-    // Format to YYYY-MM-DD local time
-
-    const yyyy = today.getFullYear();
-
-    const mm = String(today.getMonth() + 1).padStart(2, '0');
-
-    const dd = String(today.getDate()).padStart(2, '0');
-
-    dateInput.value = `${yyyy}-${mm}-${dd}`;
-
-  }
-
-
+  // Get the selected timeframe from dropdown
+  const timeframeSelect = document.getElementById('analytics-timeframe-filter');
+  const timeframe = timeframeSelect ? timeframeSelect.value : 'day';
 
   wrap.innerHTML = `<div class="loading-row">Loading…</div>`;
-
-
+  refinementStats.innerHTML = `<div class="loading-row">Loading…</div>`;
 
   try {
-
-    // Send the requested date to your backend
-
-    const stats = await api(`/stats?date=${dateInput ? dateInput.value : ''}`);
-
-    state.stats = stats;
-
-    renderAnalyticsBucketTable(stats);
-
+    // ✅ Call the new /api/analytics endpoint with timeframe parameter
+    const analyticsData = await api(`/analytics?timeframe=${timeframe}`);
+    
+    // ✅ Render messaging strategy cards
+    if (analyticsData.messagingStats) {
+      renderAnalyticsCards(analyticsData.messagingStats);
+    }
+    
+    // ✅ Render refined vs original pie chart
+    if (analyticsData.refinedVsOriginal) {
+      renderRefinementChart(analyticsData.refinedVsOriginal);
+      renderRefinementStats(analyticsData.refinedVsOriginal);
+    }
+    
     markUpdated();
-
   } catch (err) {
-
     wrap.innerHTML = `<div class="loading-row" style="color:var(--red)">Error: ${escHtml(err.message)}</div>`;
-
+    refinementStats.innerHTML = `<div class="loading-row" style="color:var(--red)">Error loading chart</div>`;
     toast('Failed to load analytics: ' + err.message, 'error');
-
   }
 
+}
+
+// ✅ NEW: Render messaging strategy cards from the API data
+function renderAnalyticsCards(messagingStats) {
+  const wrap = document.getElementById('analytics-bucket-wrap');
+  if (!wrap) return;
+
+  const BUCKET_META = {
+    MORNING: {
+      icon: '🌅',
+      title: 'Morning Motivation',
+      desc: 'Sent in the morning. Upbeat, motivating notification.',
+    },
+    AFTERNOON_EVENING: {
+      icon: '🌙',
+      title: 'Afternoon/Evening Nudge',
+      desc: 'Sent in afternoon/evening. Gentle, motivational reminder.',
+    },
+  };
+
+  const cards = messagingStats.map((stat) => {
+    const meta = BUCKET_META[stat.bucket] || {
+      icon: '📦',
+      title: stat.title || stat.bucket,
+      desc: 'Strategy performance.',
+    };
+
+    const rate = Math.max(0, Math.min(100, Number(stat.conversionRate || 0)));
+
+    return `
+      <article class="bucket-card">
+        <div class="bucket-head">
+          <div class="bucket-icon">${meta.icon}</div>
+          <div>
+            <h4 class="bucket-title">${meta.title}</h4>
+            <p class="bucket-desc">${meta.desc}</p>
+          </div>
+        </div>
+        <div class="bucket-metrics">
+          <div>
+            <small>Delivered</small>
+            <strong>${stat.sent || 0}</strong>
+          </div>
+          <div>
+            <small>Converted</small>
+            <strong>${stat.converted || 0}</strong>
+          </div>
+        </div>
+        <div class="bucket-rate">
+          <strong>${rate}%</strong> conversion rate
+          <div style="background: var(--s3); height: 4px; border-radius: 2px; margin-top: 6px; overflow: hidden;">
+            <div style="background: var(--accent); height: 100%; width: ${rate}%; transition: width 0.3s;"></div>
+          </div>
+        </div>
+      </article>
+    `;
+  }).join('');
+
+  wrap.innerHTML = `<div class="analytics-grid">${cards}</div>`;
+}
+
+// ✅ NEW: Render pie chart for refined vs original logs
+let logPieChartInstance = null;
+
+function renderRefinementChart(refinedVsOriginal) {
+  const canvas = document.getElementById('logPieChart');
+  if (!canvas) return;
+
+  // Destroy existing chart if it exists
+  if (logPieChartInstance) {
+    logPieChartInstance.destroy();
+    logPieChartInstance = null;
+  }
+
+  const ctx = canvas.getContext('2d');
+  
+  logPieChartInstance = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: refinedVsOriginal.map(d => d.name),
+      datasets: [
+        {
+          data: refinedVsOriginal.map(d => d.value),
+          backgroundColor: [
+            '#7c3aed', // Purple for AI Refined
+            '#9ca3af', // Gray for Original
+          ],
+          borderColor: 'var(--s1)',
+          borderWidth: 2,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: {
+            color: 'var(--t1)',
+            font: { size: 13, family: "'Inter', sans-serif" },
+            padding: 20,
+          },
+        },
+        tooltip: {
+          backgroundColor: 'rgba(0, 0, 0, 0.8)',
+          titleColor: 'var(--t1)',
+          bodyColor: 'var(--t2)',
+          borderColor: 'var(--border)',
+          borderWidth: 1,
+          padding: 10,
+          displayColors: true,
+          callbacks: {
+            label: function(context) {
+              const total = context.dataset.data.reduce((a, b) => a + b, 0);
+              const percentage = ((context.parsed / total) * 100).toFixed(1);
+              return `${context.label}: ${context.parsed} (${percentage}%)`;
+            }
+          }
+        },
+      },
+    },
+  });
+}
+
+// ✅ NEW: Render refinement statistics cards
+function renderRefinementStats(refinedVsOriginal) {
+  const statsEl = document.getElementById('refinement-stats');
+  if (!statsEl) return;
+
+  const total = refinedVsOriginal.reduce((sum, d) => sum + d.value, 0);
+
+  const statsHtml = refinedVsOriginal.map(stat => {
+    const percentage = total > 0 ? ((stat.value / total) * 100).toFixed(1) : 0;
+    const color = stat.name === 'AI Refined' ? 'var(--accent)' : 'var(--t3)';
+    
+    return `
+      <div style="margin-bottom: 20px; padding: 15px; background: var(--s2); border-left: 4px solid ${color}; border-radius: 6px;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div>
+            <p style="font-size: 12px; color: var(--t3); margin-bottom: 4px;">${stat.name}</p>
+            <p style="font-size: 24px; font-weight: 700; color: var(--t1);">${stat.value}</p>
+          </div>
+          <div style="text-align: right;">
+            <p style="font-size: 20px; font-weight: 700; color: ${color};">${percentage}%</p>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  statsEl.innerHTML = statsHtml;
 }
 
 

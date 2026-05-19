@@ -32,8 +32,8 @@ model User {
   storageUnlocked    Boolean         @default(false)
   logCount           Int             @default(0)
   nextRenewalDate    DateTime?
-  freeAiRefinements  Int             @default(3)
-  freeVoiceLogs      Int             @default(3)
+  freeAiRefinements  Int             @default(5) // 🚀 Bumped to 5
+  freeVoiceLogs      Int             @default(5) // 🚀 Bumped to 5
   onboardingDone     Boolean         @default(false)
   botBlocked         Boolean         @default(false)
   lastGreetingSentAt DateTime?
