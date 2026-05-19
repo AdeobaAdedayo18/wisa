@@ -170,7 +170,7 @@ bot.on("message:text", async (ctx, next) => {
   
   // If user taps a menu button while in any flow (catch-up, payment email, etc.), exit cleanly
   if (mainMenuPattern.test(text)) {
-if (ctx.session.catchup?.active || ctx.session.awaitingPaymentEmail || ctx.session.awaitingPaymentSenderName) {
+   if (ctx.session.catchup?.active || ctx.session.awaitingPaymentEmail || ctx.session.awaitingPaymentSenderName) {
       clearActiveFlow(ctx.session);
       // Don't return — let the normal handlers process the menu button tap below
     }
