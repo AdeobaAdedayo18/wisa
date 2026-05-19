@@ -358,6 +358,15 @@ export async function handleCatchupFlow(ctx: BotContext) {
           isAdequate = state.questionCount >= 2 ? true : evaluation.isAdequate; // 2-strike forces adequacy
           questions = evaluation.followUpQuestions;
           maxSupportableDays = evaluation.maxSupportableDays; // ✅ ALWAYS capture the cap
+          
+          // 🔥 DEBUG: Log AI evaluation results
+          console.log("🔥 [CATCHUP] AI EVALUATION COMPLETE:", {
+            userRequestedDays: workingDays,
+            maxSupportableDays: maxSupportableDays,
+            rawDumpLength: state.rawDump?.length ?? 0,
+            willCapDays: maxSupportableDays < workingDays,
+            isAdequate: isAdequate
+          });
 
           if (!isAdequate) {
             state.step = 'interrogation';
@@ -392,6 +401,14 @@ export async function handleCatchupFlow(ctx: BotContext) {
             cappedWorkingDays = maxSupportableDays;
             localWasCapped = true;
             
+            // 🔥 DEBUG: Confirm capping is triggered
+            console.log("🔥 [CATCHUP] CAPPING TRIGGERED:", {
+              localWasCapped: localWasCapped,
+              localOriginalDays: localOriginalDays,
+              cappedWorkingDays: cappedWorkingDays,
+              cappedByAI: maxSupportableDays
+            });
+            
             // Show warning message ONCE and leave it there while it loads
             await ctx.api.editMessageText(
               ctx.chat!.id,
@@ -401,6 +418,7 @@ export async function handleCatchupFlow(ctx: BotContext) {
             );
           } else {
              // Normal loading message
+             console.log("🔥 [CATCHUP] NO CAPPING - Full days allowed:", { localWasCapped, cappedWorkingDays, workingDays });
              await ctx.api.editMessageText(
               ctx.chat!.id,
               loadingMsg.message_id,
@@ -449,6 +467,16 @@ export async function handleCatchupFlow(ctx: BotContext) {
 
           // Delete the loading message now that we are done generating
           await ctx.api.deleteMessage(ctx.chat!.id, loadingMsg.message_id).catch(() => {});
+          
+          // 🔥 DEBUG: Right before building final messages, confirm capping state
+          console.log("🔥 [CATCHUP] PRE-FINAL MESSAGE - Capping State:", {
+            localWasCapped: localWasCapped,
+            localOriginalDays: localOriginalDays,
+            cappedWorkingDays: cappedWorkingDays,
+            generatedLogsCount: generated.logs.length,
+            logsToSaveCount: logsToSave.length,
+            logsToHoldCount: logsToHold.length
+          });
 
           // 2. Decide which UI to show based on if they hit the paywall
           if (logsToHold.length > 0) {
@@ -460,12 +488,24 @@ export async function handleCatchupFlow(ctx: BotContext) {
             }));
             state.savedLogsCount = logsToSave.length;  
             
-            // 🚀 Use the LOCAL VARIABLE to trigger the permanent warning
+            // 🚀 MATHEMATICAL COMPARISON: Check if days were actually reduced
+            const isCapped = localOriginalDays > cappedWorkingDays;
             let peekText = '';
-            if (localWasCapped) {
-              peekText += `⚠️ **Notice:** You requested **${localOriginalDays} days**, but your prompt only had enough detail for **${cappedWorkingDays} days**. I stopped there to keep your logbook authentic and avoid making things up!\n\n`;
+            
+            console.log("🔥 [CATCHUP] PAYWALL PATH - Computing isCapped:", {
+              localOriginalDays,
+              cappedWorkingDays,
+              isCapped: isCapped
+            });
+            
+            if (isCapped) {
+              peekText += `⚠️ **Notice:** You requested **${localOriginalDays} days**, but the details provided can only realistically cover **${cappedWorkingDays} days** without making things up. We stopped here to keep your logbook authentic!\n\n`;
+              peekText += `✅ **Generated ${cappedWorkingDays} days successfully!** Here is a peek:\n\n`;
+              console.log("🔥 [CATCHUP] PAYWALL PATH - Warning INCLUDED (isCapped=true)");
+            } else {
+              peekText += `✅ **Generated all ${cappedWorkingDays} days successfully!** Here is a peek:\n\n`;
+              console.log("🔥 [CATCHUP] PAYWALL PATH - No warning (isCapped=false)");
             }
-            peekText += `✅ **Generated ${cappedWorkingDays} days successfully!** Here is a peek:\n\n`;
             const peekLogs = generated.logs.slice(0, 2);
             
             peekLogs.forEach((log, index) => {
@@ -480,6 +520,7 @@ export async function handleCatchupFlow(ctx: BotContext) {
             }
 
             await ctx.reply(peekText, { parse_mode: "Markdown" });
+            console.log("🔥 [CATCHUP] FINAL PAYWALL MESSAGE SENT:", { peekTextLength: peekText.length, hasWarning: peekText.includes("Notice"), logsHeld: logsToHold.length });
             
             await ctx.reply(
               `⚠️ **Storage Limit Reached!**\n\nI saved the first ${logsToSave.length} days to your logbook, but you are out of free storage. \n\nI have the remaining **${logsToHold.length} days** generated and ready. Unlock Wisa Pro for ₦1,000 to save them immediately!`,
@@ -491,11 +532,24 @@ export async function handleCatchupFlow(ctx: BotContext) {
           } else {
             // 🎉 FULL SUCCESS (No Paywall Hit, Show 3 items max)
             
+            // 🚀 MATHEMATICAL COMPARISON: Check if days were actually reduced
+            const isCapped = localOriginalDays > cappedWorkingDays;
             let successText = '';
-            if (localWasCapped) {
-              successText += `⚠️ **Notice:** You requested **${localOriginalDays} days**, but your prompt only had enough detail for **${cappedWorkingDays} days**. I stopped there to keep your logbook authentic and avoid making things up!\n\n`;
+            
+            console.log("🔥 [CATCHUP] FULL SUCCESS PATH - Computing isCapped:", {
+              localOriginalDays,
+              cappedWorkingDays,
+              isCapped: isCapped
+            });
+            
+            if (isCapped) {
+              successText += `⚠️ **Notice:** You requested **${localOriginalDays} days**, but the details provided can only realistically cover **${cappedWorkingDays} days** without making things up. We stopped here to keep your logbook authentic!\n\n`;
+              successText += `✅ **Generated ${cappedWorkingDays} days successfully!** Here is a quick preview:\n\n`;
+              console.log("🔥 [CATCHUP] FULL SUCCESS PATH - Warning INCLUDED (isCapped=true)");
+            } else {
+              successText += `✅ **Generated all ${cappedWorkingDays} days successfully!** Here is a quick preview:\n\n`;
+              console.log("🔥 [CATCHUP] FULL SUCCESS PATH - No warning (isCapped=false)");
             }
-            successText += `✅ **Generated all ${cappedWorkingDays} days successfully!** Here is a quick preview:\n\n`;
             const previewLogs = generated.logs.slice(0, 3);
             
             previewLogs.forEach((log, index) => {
@@ -510,6 +564,7 @@ export async function handleCatchupFlow(ctx: BotContext) {
             }
 
             await ctx.reply(successText, { parse_mode: "Markdown" });
+            console.log("🔥 [CATCHUP] FINAL SUCCESS MESSAGE SENT:", { successTextLength: successText.length, hasWarning: successText.includes("Notice"), logsCount: cappedWorkingDays });
             await ctx.reply(`🎉 All ${cappedWorkingDays} days have been safely stored in your logbook! Tap below to read them all.`, {
               reply_markup: new InlineKeyboard().text("📅 View calendar", "nav_calendar").text("🏠 Menu", "nav_menu")
             });
