@@ -213,7 +213,7 @@ export async function handleCatchupCallback(ctx: BotContext) {
 
       if (workingDays > 20) {
         clearActiveFlow(ctx.session);
-        await ctx.editMessageText("Whoa, that's a lot of time! 😅 My brain can only generate up to *20 working days* at a time.\n\nPlease type /catchup and try doing it in smaller chunks!");
+        await ctx.editMessageText("Whoa, that's a lot of time! 😅 My brain can only generate up to 20 working days at a time.\n\nPlease type /catchup and try doing it in smaller chunks!");
         await ctx.answerCallbackQuery();
         return;
       }
