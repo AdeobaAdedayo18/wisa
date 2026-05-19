@@ -101,6 +101,7 @@ export async function transcribeVoice(filePath: string): Promise<string | null> 
 export interface CatchupEvaluation {
   isAdequate: boolean;
   followUpQuestions: string[];
+  maxSupportableDays: number; // ✅ CRITICAL: Cap on realistically generatable days (prevents hallucination)
 }
 
 export interface GeneratedCatchup {
@@ -130,51 +131,65 @@ export async function evaluateCatchupDetail(rawText: string, days: number, cours
 The student is studying: ${courseOfStudy}.
 The student needs to generate logs for exactly ${days} working days.
 
-CRITICAL DENSITY CHECK (THE MATH OF DETAIL):
-You MUST evaluate if the volume of information matches the requested days. 
-- 1 to 5 days: 2-3 sentences mentioning basic tasks or tools is adequate.
-- 6 to 10 days: Needs at least 1 major project, 1 minor task, and 1 specific challenge.
-- 11 to 20+ days: Needs distinct project phases, major milestones, or multiple themes. 
+⚠️ **RUTHLESS HALLUCINATION PREVENTION** ⚠️
+Your PRIMARY job is to calculate maxSupportableDays WITHOUT HALLUCINATION.
+Do NOT grant 8 days to someone with 3 sentences of context. Be EXTREMELY conservative.
 
-CRITICAL RULE: READ BEFORE ASKING
-CRITICAL RULE: THE LOW BAR FOR APPROVAL (TRUST THE GENERATOR)
-Your job is ONLY to check if there is a basic skeleton of facts. The main AI generator will do the heavy lifting to expand this skeleton into the final daily logs. 
-- Do NOT demand every single detail.
-- If the user provides at least 3 distinct technical details (e.g., a tool, a task, and a bug), you MUST return { "isAdequate": true }.
-- If the user writes a multi-paragraph breakdown with technical jargon (like your Prisma/Next.js example), AUTOMATICALLY return { "isAdequate": true } immediately.
-- NEVER ask follow-up questions digging into things they briefly mentioned (e.g., if they mention "writing tests," do NOT ask "what kind of tests?"). Just accept it and pass them!
+DENSITY MAPPING (THE STRICTEST RULE):
+- 1 short sentence (e.g., "I did fieldwork" or "I attended meetings") = MAX 1 day realistically
+- 2-3 sentences mentioning 1-2 distinct work areas = MAX 2 days
+- 1 paragraph with 3 distinct activities/areas = MAX 3 days
+- 2 paragraphs with 4+ distinct activities/challenges = MAX 5 days
+- Multi-paragraph with detailed phases and multiple work areas = MAX 10+ days
 
-EVALUATION CRITERIA:
-Look at the user's text. Does it contain enough distinct technical tasks, challenges, tools, or concepts to realistically spread across ${days} days without repeating information or hallucinating fake tasks?
+CRITICAL: Count the DISTINCT work activities/areas mentioned:
+- "I monitored, analyzed, and reported" = 3 activities = can support ~3-4 days max
+- "I worked on Area A and Area B with different methods" = 2 major work areas = can support ~4-6 days max
+- Just repeating the same activity over and over = DO NOT allow many days, cap severely
 
 INSTRUCTIONS (YOU MUST RETURN A JSON OBJECT):
-1. If the text has enough detail (or is highly descriptive) for ${days} days, return a JSON object exactly like this:
-   { "isAdequate": true, "followUpQuestions": [] }
+Analyze the text FIRST. Count the distinct work activities, areas, or responsibilities mentioned.
+THEN calculate maxSupportableDays RUTHLESSLY.
 
-2. ONLY if the text is genuinely too short or vague (e.g., just saying "I wrote code" for 14 days), return a JSON object exactly like this:
-   { 
-     "isAdequate": false, 
-     "followUpQuestions": [
-       "Ask ONE highly specific question related to ${courseOfStudy} about a missing detail. Do not parrot my instructions."
-     ] 
-   }
+Return JSON with BOTH checks:
+1. isAdequate: true if ${days} days is realistic given the detail. false if the data is too thin.
+2. maxSupportableDays: The MAXIMUM days you can realistically generate WITHOUT HALLUCINATION (even if user asked for more).
+   - NEVER return more than 3x the distinct work activities found.
+   - If user provided 1 sentence, maxSupportableDays is AT MOST 1.
+   - If user provided 3 sentences, maxSupportableDays is AT MOST 2-3.
+   - Be conservative and protect the student from fake logs!
 
-RULES FOR THE FOLLOW-UP QUESTION (IF NEEDED):
-- Sound like a helpful senior colleague.
-- Never ask them for "phases" if they already listed them.
-- Ask ONLY ONE question. Keep it concise. Provide a quick example in parentheses to make it easy for them to answer.`,
+Example JSON (isAdequate=true case):
+{
+  "isAdequate": true,
+  "maxSupportableDays": 4,
+  "followUpQuestions": []
+}
+
+Example JSON (isAdequate=false case):
+{
+  "isAdequate": false,
+  "maxSupportableDays": 2,
+  "followUpQuestions": ["Can you tell me more about the specific areas or tasks you focused on?"]
+}`,
         },
         { role: "user", content: rawText },
       ],
       temperature: 0.2, 
     });
 
-    const result = JSON.parse(completion.choices[0].message.content || '{"isAdequate": false, "followUpQuestions": ["I need a bit more detail. What specific tools or projects did you focus on?"]}');
-    console.log(`[evaluateCatchupDetail] Result: ${result.isAdequate} in ${Date.now() - start}ms`);
+    const result = JSON.parse(completion.choices[0].message.content || '{"isAdequate": false, "maxSupportableDays": 1, "followUpQuestions": ["Can you tell me more about the specific areas or tasks you worked on?"]}');
+    console.log(`[evaluateCatchupDetail] Result: isAdequate=${result.isAdequate}, maxSupportableDays=${result.maxSupportableDays} in ${Date.now() - start}ms`);
+    
+    // ✅ SAFETY: Ensure maxSupportableDays is always set
+    if (!result.maxSupportableDays || result.maxSupportableDays < 1) {
+      result.maxSupportableDays = 1;
+    }
+    
     return result as CatchupEvaluation;
   } catch (error) {
     console.error("[evaluateCatchupDetail] Error calling OpenAI:", error);
-    return { isAdequate: false, followUpQuestions: ["I missed some of that. Could you break down exactly what main projects or tools you used?"] };
+    return { isAdequate: false, maxSupportableDays: 1, followUpQuestions: ["I missed some of that. Could you tell me more about what areas you worked on?"] };
   }
 }
 
@@ -197,16 +212,17 @@ export async function generateMultiDayLogs(rawText: string, days: number, course
 The student has provided a brain-dump of their work. You must expand this into exactly ${days} daily log entries.
 
 CRITICAL CONSTRAINTS (YOU MUST OBEY THESE):
-1. Task Lifecycle: Spread the work naturally across the ${days} days. For example, early days should focus on planning/setup/reading documentation, middle days on execution/troubleshooting, and final days on testing/deployment.
+1. Work Progression: Spread the work naturally across the ${days} days. Think of it as early days = planning/observation/setup, middle days = main work/learning, final days = review/documentation/wrap-up. Match the actual progression described, not forced phases.
 2. Length: EVERY SINGLE DAY MUST be strictly between 40 and 45 words. Count your words carefully. Do not write fewer than 40 words, and do not exceed 45 words. Break each day into 2 short paragraphs if possible.
-3. Tone & Vocab: Use simple, natural, everyday English. Sound like a real student. NEVER use words like: delve, orchestrate, seamless, foster, testament, utilize, or navigate.
+3. Tone & Vocab: Use simple, natural, everyday English. Sound like a real student. NEVER use words like: delve, orchestrate, seamless, foster, testament, utilize, navigate, leverage, or synergize. Use domain-appropriate terminology for ${courseOfStudy}.
+4. Authenticity: Match the work described. If about fieldwork, mention fields/samples. If about meetings, mention discussions/presentations. Never hallucinate tools or activities not implied.
 
 OUTPUT FORMAT:
 You MUST return a valid JSON object matching this exact structure:
 {
   "logs": [
     {
-      "dateOffset": 0, // 0 for the first day, 1 for the second day, up to ${days - 1}
+      "dateOffset": 0,
       "content": "The log for this day..."
     }
   ]
