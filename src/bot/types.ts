@@ -107,6 +107,9 @@ export interface SessionData {
     // THE HOLDING CELL: Stores unpaid logs awaiting Paystack success
     heldLogs?: Array<{ content: string; logDate: string; dateOffset: number }>; 
     savedLogsCount?: number; // Track how many logs were saved vs held
+    // ✅ PERMANENT WARNING TRACKING: Store when days are capped by AI evaluation
+    wasCapped?: boolean; // True if maxSupportableDays < workingDays
+    originalRequestedDays?: number; // Original workingDays before capping
   };
 }
 
