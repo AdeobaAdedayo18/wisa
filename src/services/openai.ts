@@ -21,7 +21,7 @@ The student is studying: ${courseOfStudy}.
 Rewrite their raw log to be professional, well-formatted, and grammatically correct.
 
 CRITICAL CONSTRAINTS (YOU MUST OBEY THESE):
-1. THE GATEKEEPER (STRICT ANTI-HALLUCINATION): If the user's input is a simple greeting (e.g., 'hey', 'hi'), a single word, gibberish, or completely lacks any description of a task, project, or activity, DO NOT generate a log. You MUST return EXACTLY this string and nothing else: "REJECTED: Please provide actual details about what you worked on."
+1. THE GATEKEEPER (STRICT ANTI-HALLUCINATION): If the user's input is a simple greeting (e.g., 'hey', 'hi'), a single word, gibberish, keyboard smashes (e.g., 'asdfgh', 'qwerty'), random disconnected characters, or completely lacks any description of a real-world task, DO NOT generate a log. Do not try to guess what they meant. You MUST return EXACTLY this string and nothing else: "REJECTED: Please provide actual details about what you worked on."
 2. Length: If the log is valid, you MUST write strictly between 40 and 45 words. Count your words. Do not write fewer than 40 words, and do not exceed 45 words.
 3. Structure: Break valid logs into 2 short paragraphs so it looks well-formatted.
 4. Tone: Use simple, natural, everyday English. Sound like a real student, not a robot.
@@ -115,7 +115,6 @@ export interface GeneratedCatchup {
  * The Gatekeeper: Evaluates if the user's brain-dump has enough meat to stretch 
  * across the requested number of working days.
  */
-// 🚀 FIXED: Kept your new instructions but restored the courseOfStudy parameter so it doesn't crash!
 export async function evaluateCatchupDetail(rawText: string, days: number, courseOfStudy: string = "IT"): Promise<CatchupEvaluation> {
   console.log(`[evaluateCatchupDetail] Checking adequacy of "${rawText.substring(0, 30)}..." for ${days} days...`);
   const start = Date.now();
@@ -133,44 +132,40 @@ The student needs to generate logs for exactly ${days} working days.
 
 ⚠️ **RUTHLESS HALLUCINATION PREVENTION** ⚠️
 Your PRIMARY job is to calculate maxSupportableDays WITHOUT HALLUCINATION.
-Do NOT grant 8 days to someone with 3 sentences of context. Be EXTREMELY conservative.
 
 DENSITY MAPPING (THE STRICTEST RULE):
+- GIBBERISH, GREETINGS, OR KEYBOARD SMASHES (e.g., "hjhj", "asdfgh", "hey", "hi", random disconnected letters, empty statements) = EXACTLY 0 DAYS. This is an absolute rejection. Do not attempt to guess what they meant.
 - 1 short sentence (e.g., "I did fieldwork" or "I attended meetings") = MAX 1 day realistically
 - 2-3 sentences mentioning 1-2 distinct work areas = MAX 4-5 days
 - 1 paragraph with 3 distinct activities/areas = MAX 6-8 days
 - 2 paragraphs with 4+ distinct activities/challenges = MAX 8-10 days
 - Multi-paragraph with detailed phases and multiple work areas = MAX 10+ days
 
-CRITICAL: Count the DISTINCT work activities/areas mentioned:
-- "I monitored, analyzed, and reported" = 3 activities = can support ~3-4 days max
-- "I worked on Area A and Area B with different methods" = 2 major work areas = can support ~4-6 days max
-- Just repeating the same activity over and over = DO NOT allow many days, cap severely
+CRITICAL: Count the DISTINCT work activities/areas mentioned.
+- Just repeating the same activity over and over = DO NOT allow many days, cap severely.
 
 INSTRUCTIONS (YOU MUST RETURN A JSON OBJECT):
-Analyze the text FIRST. Count the distinct work activities, areas, or responsibilities mentioned.
-THEN calculate maxSupportableDays RUTHLESSLY.
+Analyze the text FIRST. 
+1. If the text is gibberish, random characters, keyboard smashes, or just a greeting, YOU MUST return maxSupportableDays: 0 and isAdequate: false.
+2. Otherwise, calculate maxSupportableDays RUTHLESSLY.
+3. NEVER return more than 3x the distinct work activities found.
 
 Return JSON with BOTH checks:
 1. isAdequate: true if ${days} days is realistic given the detail. false if the data is too thin.
-2. maxSupportableDays: The MAXIMUM days you can realistically generate WITHOUT HALLUCINATION (even if user asked for more).
-   - NEVER return more than 3x the distinct work activities found.
-   - If user provided 1 sentence, maxSupportableDays is AT MOST 1.
-   - If user provided 3 sentences, maxSupportableDays is AT MOST 4-5.
-   - Be conservative and protect the student from fake logs!
+2. maxSupportableDays: The MAXIMUM days you can realistically generate WITHOUT HALLUCINATION (0 if gibberish or random characters).
+
+Example JSON (Gibberish/Keyboard Smash case):
+{
+  "isAdequate": false,
+  "maxSupportableDays": 0,
+  "followUpQuestions": ["Please provide actual details about your tasks. That doesn't give me much to work with! 😂"]
+}
 
 Example JSON (isAdequate=true case):
 {
   "isAdequate": true,
   "maxSupportableDays": 6,
   "followUpQuestions": []
-}
-
-Example JSON (isAdequate=false case):
-{
-  "isAdequate": false,
-  "maxSupportableDays": 4,
-  "followUpQuestions": ["Can you tell me more about the specific areas or tasks you focused on?"]
 }`,
         },
         { role: "user", content: rawText },
@@ -178,18 +173,18 @@ Example JSON (isAdequate=false case):
       temperature: 0.2, 
     });
 
-    const result = JSON.parse(completion.choices[0].message.content || '{"isAdequate": false, "maxSupportableDays": 1, "followUpQuestions": ["Can you tell me more about the specific areas or tasks you worked on?"]}');
+    const result = JSON.parse(completion.choices[0].message.content || '{"isAdequate": false, "maxSupportableDays": 0, "followUpQuestions": ["Can you tell me more about the specific areas or tasks you worked on?"]}');
     console.log(`[evaluateCatchupDetail] Result: isAdequate=${result.isAdequate}, maxSupportableDays=${result.maxSupportableDays} in ${Date.now() - start}ms`);
     
-    // ✅ SAFETY: Ensure maxSupportableDays is always set
-    if (!result.maxSupportableDays || result.maxSupportableDays < 1) {
-      result.maxSupportableDays = 1;
+    // ✅ SAFETY: Allow 0 for gibberish, but prevent undefined or negatives
+    if (typeof result.maxSupportableDays !== 'number' || result.maxSupportableDays < 0) {
+      result.maxSupportableDays = 0;
     }
     
     return result as CatchupEvaluation;
   } catch (error) {
     console.error("[evaluateCatchupDetail] Error calling OpenAI:", error);
-    return { isAdequate: false, maxSupportableDays: 1, followUpQuestions: ["I missed some of that. Could you tell me more about what areas you worked on?"] };
+    return { isAdequate: false, maxSupportableDays: 0, followUpQuestions: ["I missed some of that. Could you tell me more about what areas you worked on?"] };
   }
 }
 

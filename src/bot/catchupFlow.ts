@@ -85,7 +85,7 @@ export async function startCatchupFlow(ctx: BotContext) {
     };
     
     await ctx.reply(
-      "✨ Welcome to Catch-Up Mode!\n\nBefore we generate your logs, I need to know your Area of Study or your department at workso I can use the right technical terms\n_Please type it below:_ ✨",
+      "✨ Welcome to Catch-Up Mode!\n\nBefore we generate your logs, I need to know your Area of Study or your department at work so I can use the right technical terms\n_Please type it below:_ ✨",
       { parse_mode: "Markdown" }
     );
     return;
