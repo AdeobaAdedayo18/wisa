@@ -17,8 +17,8 @@ import type * as Prisma from "./prismaNamespace"
 
 const config: runtime.GetPrismaClientConfig = {
   "previewFeatures": [],
-  "clientVersion": "7.4.1",
-  "engineVersion": "55ae170b1ced7fc6ed07a15f110549408c501bb3",
+  "clientVersion": "7.8.0",
+  "engineVersion": "3c6e192761c0362d496ed980de936e2f3cebcd3a",
   "activeProvider": "postgresql",
   "inlineSchema": "// This is your Prisma schema file,\n// learn more about it in the docs: https://pris.ly/d/prisma-schema\n\n// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?\n// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init\n\ngenerator client {\n  provider = \"prisma-client\"\n  output   = \"../src/prisma\"\n}\n\ndatasource db {\n  provider = \"postgresql\"\n}\n\nenum GreetingType {\n  MORNING\n  AFTERNOON\n}\n\nmodel User {\n  id                 Int             @id @default(autoincrement())\n  telegramId         BigInt          @unique\n  firstName          String\n  username           String?\n  paymentEmail       String?\n  courseOfStudy      String?\n  logFrequency       String // \"daily\" | \"bi-daily\" | \"every-3-days\" | \"weekly\"\n  reminderTime       String // \"HH:MM\" in 24hr format\n  timezone           String          @default(\"Africa/Lagos\")\n  isPro              Boolean         @default(false) // legacy compatibility flag\n  storageUnlocked    Boolean         @default(false)\n  logCount           Int             @default(0)\n  nextRenewalDate    DateTime?\n  freeAiRefinements  Int             @default(5) // 🚀 Bumped to 5\n  freeVoiceLogs      Int             @default(5) // 🚀 Bumped to 5\n  onboardingDone     Boolean         @default(false)\n  botBlocked         Boolean         @default(false)\n  lastGreetingSentAt DateTime?\n  lastGreetingType   GreetingType?\n  createdAt          DateTime        @default(now())\n  logs               Log[]\n  reminderJobs       ReminderJob[]\n  subscription       Subscription?\n  manualPayments     ManualPayment[]\n\n  @@index([logFrequency, onboardingDone, botBlocked, lastGreetingSentAt])\n  @@index([lastGreetingType])\n}\n\nmodel Log {\n  id             Int      @id @default(autoincrement())\n  userId         Int\n  user           User     @relation(fields: [userId], references: [id])\n  content        String\n  refinedContent String?\n  logDate        DateTime\n  isVoice        Boolean  @default(false)\n  isAiRefined    Boolean  @default(false)\n  createdAt      DateTime @default(now())\n  updatedAt      DateTime @updatedAt\n}\n\nmodel Subscription {\n  id          Int      @id @default(autoincrement())\n  userId      Int      @unique\n  user        User     @relation(fields: [userId], references: [id])\n  paystackRef String   @unique\n  status      String // \"active\" | \"cancelled\" | \"expired\"\n  startDate   DateTime\n  endDate     DateTime\n  createdAt   DateTime @default(now())\n}\n\nmodel ReminderJob {\n  id             Int       @id @default(autoincrement())\n  userId         Int\n  user           User      @relation(fields: [userId], references: [id])\n  telegramId     BigInt\n  scheduledFor   DateTime\n  status         String // \"pending\" | \"sent\" | \"snoozed\" | \"skipped\"\n  snoozeCount    Int       @default(0)\n  autoNudgeCount Int       @default(0)\n  logDate        String? // ISO date \"YYYY-MM-DD\" the reminder is for (user's local date)\n  bucketSent     String?\n  convertedAt    DateTime?\n  createdAt      DateTime  @default(now())\n\n  @@index([userId, status, scheduledFor])\n  @@index([status, scheduledFor])\n  @@index([status, autoNudgeCount])\n}\n\nmodel Session {\n  id    Int    @id @default(autoincrement())\n  key   String @unique\n  value String\n}\n\nmodel ManualPayment {\n  id        Int      @id @default(autoincrement())\n  userId    Int\n  user      User     @relation(fields: [userId], references: [id])\n  status    String   @default(\"pending\") // \"pending\" | \"approved\" | \"rejected\"\n  createdAt DateTime @default(now())\n  updatedAt DateTime @updatedAt\n}\n\nmodel ReplayEvent {\n  id         Int      @id @default(autoincrement())\n  telegramId BigInt\n  eventType  String // \"user_message\" | \"user_voice\" | \"user_callback\" | \"bot_message\" | \"bot_photo\" | \"bot_edit\" | \"bot_callback_answer\" | \"error\" | \"state_change\"\n  direction  String // \"incoming\" | \"outgoing\" | \"system\"\n  payload    String // JSON blob — full event data\n  timestamp  DateTime @default(now())\n\n  @@index([telegramId, timestamp(sort: Desc)])\n  @@index([timestamp])\n}\n\n// ---------------------------------------------------------------------------\n// WeeklyQuote — one quote per IT week, shown in the Saturday recap message.\n// weekNumber: 1-based (week 1 = first week of IT).\n// attribution: optional name of the person who gave the quote.\n// ---------------------------------------------------------------------------\nmodel WeeklyQuote {\n  id          Int     @id @default(autoincrement())\n  weekNumber  Int     @unique\n  quote       String\n  attribution String?\n}\n",
   "runtimeDataModel": {
@@ -67,7 +67,9 @@ export interface PrismaClientConstructor {
    * Type-safe database client for TypeScript
    * @example
    * ```
-   * const prisma = new PrismaClient()
+   * const prisma = new PrismaClient({
+   *   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL })
+   * })
    * // Fetch zero or more Users
    * const users = await prisma.user.findMany()
    * ```
@@ -89,7 +91,9 @@ export interface PrismaClientConstructor {
  * Type-safe database client for TypeScript
  * @example
  * ```
- * const prisma = new PrismaClient()
+ * const prisma = new PrismaClient({
+ *   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL })
+ * })
  * // Fetch zero or more Users
  * const users = await prisma.user.findMany()
  * ```
@@ -176,7 +180,7 @@ export interface PrismaClient<
    * 
    * Read more in our [docs](https://www.prisma.io/docs/orm/prisma-client/queries/transactions).
    */
-  $transaction<P extends Prisma.PrismaPromise<any>[]>(arg: [...P], options?: { isolationLevel?: Prisma.TransactionIsolationLevel }): runtime.Types.Utils.JsPromise<runtime.Types.Utils.UnwrapTuple<P>>
+  $transaction<P extends Prisma.PrismaPromise<any>[]>(arg: [...P], options?: { maxWait?: number, timeout?: number, isolationLevel?: Prisma.TransactionIsolationLevel }): runtime.Types.Utils.JsPromise<runtime.Types.Utils.UnwrapTuple<P>>
 
   $transaction<R>(fn: (prisma: Omit<PrismaClient, runtime.ITXClientDenyList>) => runtime.Types.Utils.JsPromise<R>, options?: { maxWait?: number, timeout?: number, isolationLevel?: Prisma.TransactionIsolationLevel }): runtime.Types.Utils.JsPromise<R>
 

@@ -21,12 +21,12 @@ The student is studying: ${courseOfStudy}.
 Rewrite their raw log to be professional, well-formatted, and grammatically correct.
 
 CRITICAL CONSTRAINTS (YOU MUST OBEY THESE):
-1. ANTI-HALLUCINATION (STRICT): You must NEVER invent tasks, facts, tools, or technical concepts that are not present in the user's raw text. If the raw text is a joke, a song, a greeting, or unrelated chatter, DO NOT invent fake technical work to fill space. Just politely format exactly what they said.
-2. Length: You MUST write strictly between 40 and 45 words. Count your words. Do not write fewer than 40 words, and do not exceed 45 words.
-3. Structure: Break the text into 2 short paragraphs so it looks well-formatted.
+1. THE GATEKEEPER (STRICT ANTI-HALLUCINATION): If the user's input is a simple greeting (e.g., 'hey', 'hi'), a single word, gibberish, or completely lacks any description of a task, project, or activity, DO NOT generate a log. You MUST return EXACTLY this string and nothing else: "REJECTED: Please provide actual details about what you worked on."
+2. Length: If the log is valid, you MUST write strictly between 40 and 45 words. Count your words. Do not write fewer than 40 words, and do not exceed 45 words.
+3. Structure: Break valid logs into 2 short paragraphs so it looks well-formatted.
 4. Tone: Use simple, natural, everyday English. Sound like a real student, not a robot.
 5. Banned Words: DO NOT use overly complex AI words. NEVER use words like: delve, orchestrate, seamless, foster, testament, utilize, or navigate.
-6. Return ONLY the rewritten text. No introductions, no quotes, no explanations.`,
+6. Return ONLY the rewritten text (or the REJECTED string). No introductions, no quotes, no explanations.`,
         },
         { role: "user", content: rawLog },
       ],

@@ -170,7 +170,7 @@ bot.on("message:text", async (ctx, next) => {
   
   // If user taps a menu button while in any flow (catch-up, payment email, etc.), exit cleanly
   if (mainMenuPattern.test(text)) {
-   if (ctx.session.catchup?.active || ctx.session.awaitingPaymentEmail || ctx.session.awaitingPaymentSenderName) {
+    if (ctx.session.catchup?.active || ctx.session.awaitingPaymentEmail || ctx.session.awaitingPaymentSenderName) {
       clearActiveFlow(ctx.session);
       // Don't return — let the normal handlers process the menu button tap below
     }
@@ -306,6 +306,22 @@ bot.on("message:text", async (ctx, next) => {
 
     try {
       const refinedText = await refineLog(draft, trimmedText);
+
+      // 🚀 THE GATEKEEPER INTERCEPTOR (Course Flow)
+      if (refinedText.startsWith("REJECTED:")) {
+        await ctx.api.deleteMessage(ctx.chat!.id, loadingMsg.message_id).catch(() => {});
+        
+        // Reset their state so they can try writing the log again
+        ctx.session.awaitingCourse = false;
+        ctx.session.draftLogForCourse = undefined;
+        ctx.session.awaitingLog = true;
+        
+        await ctx.reply(
+          "Nice try! 😂 But I actually need to know what you worked on. Tell me a bit about your tasks! (Try sending a slightly longer message or a voice note)."
+        );
+        return; // Stop execution here!
+      }
+
       await showAiComparisonChoice(ctx, loadingMsg.message_id, draft, refinedText);
 
       return;

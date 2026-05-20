@@ -250,7 +250,7 @@ export type ReminderJobGroupByOutputType = {
   _max: ReminderJobMaxAggregateOutputType | null
 }
 
-type GetReminderJobGroupByPayload<T extends ReminderJobGroupByArgs> = Prisma.PrismaPromise<
+export type GetReminderJobGroupByPayload<T extends ReminderJobGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<ReminderJobGroupByOutputType, T['by']> &
       {
@@ -1395,6 +1395,11 @@ export type ReminderJobFindManyArgs<ExtArgs extends runtime.Types.Extensions.Int
    * Skip the first `n` ReminderJobs.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of ReminderJobs.
+   */
   distinct?: Prisma.ReminderJobScalarFieldEnum | Prisma.ReminderJobScalarFieldEnum[]
 }
 

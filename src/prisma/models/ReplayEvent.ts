@@ -203,7 +203,7 @@ export type ReplayEventGroupByOutputType = {
   _max: ReplayEventMaxAggregateOutputType | null
 }
 
-type GetReplayEventGroupByPayload<T extends ReplayEventGroupByArgs> = Prisma.PrismaPromise<
+export type GetReplayEventGroupByPayload<T extends ReplayEventGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<ReplayEventGroupByOutputType, T['by']> &
       {
@@ -1029,6 +1029,11 @@ export type ReplayEventFindManyArgs<ExtArgs extends runtime.Types.Extensions.Int
    * Skip the first `n` ReplayEvents.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of ReplayEvents.
+   */
   distinct?: Prisma.ReplayEventScalarFieldEnum | Prisma.ReplayEventScalarFieldEnum[]
 }
 

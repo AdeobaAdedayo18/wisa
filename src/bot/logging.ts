@@ -109,8 +109,7 @@ export async function startLogging(ctx: BotContext, isoDate?: string): Promise<v
   await sendScene(
     ctx,
     "scene7",
-    `I'm listening 👂\n\nTell me what you worked on${dateLabel}. Send your log and I'll refine it automatically.\n\nYou can also send a voice message instead of typing! Just hit the mic button and talk — Wisa transcribes it automatically 🎤,
-    `,
+    `I'm listening 👂\n\nTell me what you worked on${dateLabel}. Send your log and I'll refine it automatically.\n\nYou can also send a voice message instead of typing! Just hit the mic button and talk — Wisa transcribes it automatically 🎤`,
   );
 
   await ctx.reply("Go ahead — I'm all ears 👇");
@@ -163,6 +162,20 @@ export async function handleLogText(
 
   try {
     const refinedText = await refineLog(text, dbUser.courseOfStudy);
+
+    // 🚀 THE GATEKEEPER INTERCEPTOR
+    if (refinedText.startsWith("REJECTED:")) {
+      await ctx.api.deleteMessage(ctx.chat!.id, loadingMsg.message_id).catch(() => {});
+      
+      // Put them back into log-writing mode so they can try again instantly
+      ctx.session.awaitingLog = true;
+      
+      await ctx.reply(
+        "Nice try! 😂 But I actually need to know what you worked on. Tell me a bit about your tasks! (Try sending a slightly longer message or a voice note)."
+      );
+      return true; // Stop execution here!
+    }
+
     await showAiComparisonChoice(ctx, loadingMsg.message_id, text, refinedText);
   } catch (err) {
     console.error("[log] immediate refine error:", err);
@@ -285,70 +298,70 @@ export async function handleDoneLogging(ctx: BotContext): Promise<void> {
     : new Date();
 
   try {
-  const [savedLog, updatedUser] = await prisma.$transaction([
-    prisma.log.create({
-      data: {
-        userId: dbUser.id,
-        content: fullText,
-        logDate,
-        isVoice: false,
-        isAiRefined: false,
-      },
-    }),
-    prisma.user.update({
-      where: { id: dbUser.id },
-      data: { logCount: { increment: 1 } },
-      select: { freeVoiceLogs: true, storageUnlocked: true, logCount: true, nextRenewalDate: true },
-    }),
-  ]);
+    const [savedLog, updatedUser] = await prisma.$transaction([
+      prisma.log.create({
+        data: {
+          userId: dbUser.id,
+          content: fullText,
+          logDate,
+          isVoice: false,
+          isAiRefined: false,
+        },
+      }),
+      prisma.user.update({
+        where: { id: dbUser.id },
+        data: { logCount: { increment: 1 } },
+        select: { freeVoiceLogs: true, storageUnlocked: true, logCount: true, nextRenewalDate: true },
+      }),
+    ]);
 
-  console.log(`[log] User ${dbUser.id} saved log #${savedLog.id} — ${fullText.split(/\s+/).filter(Boolean).length} words`);
+    console.log(`[log] User ${dbUser.id} saved log #${savedLog.id} — ${fullText.split(/\s+/).filter(Boolean).length} words`);
 
-  // Reset session
-  ctx.session.awaitingLog = false;
-  ctx.session.pendingLogParts = [];
-  ctx.session.pendingLogDate = undefined;
-  ctx.session.flowStartedAt = undefined;
+    // Reset session
+    ctx.session.awaitingLog = false;
+    ctx.session.pendingLogParts = [];
+    ctx.session.pendingLogDate = undefined;
+    ctx.session.flowStartedAt = undefined;
 
-  const nowLockedAfterSave = !hasActiveStorage({
-    id: dbUser.id,
-    firstName: dbUser.firstName,
-    isPro: dbUser.isPro,
-    storageUnlocked: updatedUser.storageUnlocked,
-    logCount: updatedUser.logCount,
-    nextRenewalDate: updatedUser.nextRenewalDate,
-  });
-
-  if (nowLockedAfterSave && updatedUser.logCount === FREE_LOG_LIMIT) {
-    await ctx.reply(getStorageLimitReachedAfterSaveText(), {
-      parse_mode: "Markdown",
-      reply_markup: new InlineKeyboard().text("🔓 Unlock storage - ₦1,000", "go_pro"),
-    });
-    return;
-  }
-
-  // Voice hint for free users who still have tries left
-  const remainingVoice = updatedUser.freeVoiceLogs ?? 3;
-  const voiceHint =
-    !hasActiveStorage({
+    const nowLockedAfterSave = !hasActiveStorage({
       id: dbUser.id,
       firstName: dbUser.firstName,
       isPro: dbUser.isPro,
       storageUnlocked: updatedUser.storageUnlocked,
-      logCount: monetizationUser.logCount + 1,
+      logCount: updatedUser.logCount,
       nextRenewalDate: updatedUser.nextRenewalDate,
-    }) && remainingVoice > 0
-      ? `\n\n💡 *Tip:* Did you know you can send a *voice message* instead of typing? Just hit the mic button and talk — Wisa transcribes it automatically!`
-      : "";
+    });
 
-  await ctx.reply(`What would you like to do next?${voiceHint}`, {
-    parse_mode: "Markdown",
-    reply_markup: new InlineKeyboard()
-      .text("✨ Refine with AI", `ai_refine_${savedLog.id}`)
-      .row()
-      .text("📖 View logs", "nav_calendar")
-      .text("🏠 Menu", "nav_menu"),
-  });
+    if (nowLockedAfterSave && updatedUser.logCount === FREE_LOG_LIMIT) {
+      await ctx.reply(getStorageLimitReachedAfterSaveText(), {
+        parse_mode: "Markdown",
+        reply_markup: new InlineKeyboard().text("🔓 Unlock storage - ₦1,000", "go_pro"),
+      });
+      return;
+    }
+
+    // Voice hint for free users who still have tries left
+    const remainingVoice = updatedUser.freeVoiceLogs ?? 3;
+    const voiceHint =
+      !hasActiveStorage({
+        id: dbUser.id,
+        firstName: dbUser.firstName,
+        isPro: dbUser.isPro,
+        storageUnlocked: updatedUser.storageUnlocked,
+        logCount: monetizationUser.logCount + 1,
+        nextRenewalDate: updatedUser.nextRenewalDate,
+      }) && remainingVoice > 0
+        ? `\n\n💡 *Tip:* Did you know you can send a *voice message* instead of typing? Just hit the mic button and talk — Wisa transcribes it automatically!`
+        : "";
+
+    await ctx.reply(`What would you like to do next?${voiceHint}`, {
+      parse_mode: "Markdown",
+      reply_markup: new InlineKeyboard()
+        .text("✨ Refine with AI", `ai_refine_${savedLog.id}`)
+        .row()
+        .text("📖 View logs", "nav_calendar")
+        .text("🏠 Menu", "nav_menu"),
+    });
   } catch (err) {
     console.error("[log] handleDoneLogging error:", err);
     captureReplayError(telegramId, err, "handleDoneLogging", ctx.chat?.id);
@@ -537,21 +550,21 @@ export async function handleEditText(ctx: BotContext): Promise<boolean> {
 
   const telegramId = BigInt(ctx.from!.id);
   try {
-  await prisma.log.update({
-    where: { id: ctx.session.editingLogId },
-    data: { content: newContent },
-  });
+    await prisma.log.update({
+      where: { id: ctx.session.editingLogId },
+      data: { content: newContent },
+    });
 
-  // Reset edit-mode session flags
-  ctx.session.awaitingEditText = false;
-  ctx.session.editingLogId = undefined;
-  ctx.session.flowStartedAt = undefined;
+    // Reset edit-mode session flags
+    ctx.session.awaitingEditText = false;
+    ctx.session.editingLogId = undefined;
+    ctx.session.flowStartedAt = undefined;
 
-  await ctx.reply("Updated! ✅ Looking good 👌", {
-    reply_markup: new InlineKeyboard()
-      .text("✨ Refine with AI", `ai_refine_latest`)
-      .text("🏠 Menu", "nav_menu"),
-  });
+    await ctx.reply("Updated! ✅ Looking good 👌", {
+      reply_markup: new InlineKeyboard()
+        .text("✨ Refine with AI", `ai_refine_latest`)
+        .text("🏠 Menu", "nav_menu"),
+    });
   } catch (err) {
     console.error("[log] handleEditText error:", err);
     captureReplayError(telegramId, err, "handleEditText", ctx.chat?.id);
