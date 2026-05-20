@@ -78,9 +78,9 @@ app.post("/webhook/paystack", express.raw({ type: "application/json" }), async (
       }
 
       // ✅ FIX #3: NEW — Recover held logs from catch-up session
+      let sessionData: any = null; // 🚀 FIXED: Moved outside the try block so the build passes!
       try {
         const sessionKey = telegramId.toString();
-        let sessionData: any = null;  // ✅ Declare in outer scope so it's accessible at line 139
         const sessionRow = await prisma.session.findUnique({
           where: { key: sessionKey },
           select: { key: true, value: true },
@@ -261,7 +261,9 @@ app.post("/webhook/paystack", express.raw({ type: "application/json" }), async (
         reply_markup: getMainMenuKeyboard(true),
       });
     } catch (err) {
-      console.error("[webhook] Error processing charge.success:", err);      captureReplayError(telegramId, err, "webhook:charge.success");      // Still return 200 so Paystack doesn’t retry indefinitely
+      console.error("[webhook] Error processing charge.success:", err);
+      captureReplayError(telegramId, err, "webhook:charge.success");
+      // Still return 200 so Paystack doesn’t retry indefinitely
     }
   }
 

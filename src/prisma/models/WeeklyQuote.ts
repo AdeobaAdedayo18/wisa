@@ -189,7 +189,7 @@ export type WeeklyQuoteGroupByOutputType = {
   _max: WeeklyQuoteMaxAggregateOutputType | null
 }
 
-type GetWeeklyQuoteGroupByPayload<T extends WeeklyQuoteGroupByArgs> = Prisma.PrismaPromise<
+export type GetWeeklyQuoteGroupByPayload<T extends WeeklyQuoteGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<WeeklyQuoteGroupByOutputType, T['by']> &
       {
@@ -973,6 +973,11 @@ export type WeeklyQuoteFindManyArgs<ExtArgs extends runtime.Types.Extensions.Int
    * Skip the first `n` WeeklyQuotes.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of WeeklyQuotes.
+   */
   distinct?: Prisma.WeeklyQuoteScalarFieldEnum | Prisma.WeeklyQuoteScalarFieldEnum[]
 }
 

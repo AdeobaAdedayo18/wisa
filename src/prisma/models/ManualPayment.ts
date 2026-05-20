@@ -196,7 +196,7 @@ export type ManualPaymentGroupByOutputType = {
   _max: ManualPaymentMaxAggregateOutputType | null
 }
 
-type GetManualPaymentGroupByPayload<T extends ManualPaymentGroupByArgs> = Prisma.PrismaPromise<
+export type GetManualPaymentGroupByPayload<T extends ManualPaymentGroupByArgs> = Prisma.PrismaPromise<
   Array<
     Prisma.PickEnumerable<ManualPaymentGroupByOutputType, T['by']> &
       {
@@ -1167,6 +1167,11 @@ export type ManualPaymentFindManyArgs<ExtArgs extends runtime.Types.Extensions.I
    * Skip the first `n` ManualPayments.
    */
   skip?: number
+  /**
+   * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+   * 
+   * Filter by unique combinations of ManualPayments.
+   */
   distinct?: Prisma.ManualPaymentScalarFieldEnum | Prisma.ManualPaymentScalarFieldEnum[]
 }
 
