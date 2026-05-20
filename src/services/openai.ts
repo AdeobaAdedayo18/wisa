@@ -137,9 +137,9 @@ Do NOT grant 8 days to someone with 3 sentences of context. Be EXTREMELY conserv
 
 DENSITY MAPPING (THE STRICTEST RULE):
 - 1 short sentence (e.g., "I did fieldwork" or "I attended meetings") = MAX 1 day realistically
-- 2-3 sentences mentioning 1-2 distinct work areas = MAX 2 days
-- 1 paragraph with 3 distinct activities/areas = MAX 3 days
-- 2 paragraphs with 4+ distinct activities/challenges = MAX 5 days
+- 2-3 sentences mentioning 1-2 distinct work areas = MAX 4-5 days
+- 1 paragraph with 3 distinct activities/areas = MAX 6-8 days
+- 2 paragraphs with 4+ distinct activities/challenges = MAX 8-10 days
 - Multi-paragraph with detailed phases and multiple work areas = MAX 10+ days
 
 CRITICAL: Count the DISTINCT work activities/areas mentioned:
@@ -156,20 +156,20 @@ Return JSON with BOTH checks:
 2. maxSupportableDays: The MAXIMUM days you can realistically generate WITHOUT HALLUCINATION (even if user asked for more).
    - NEVER return more than 3x the distinct work activities found.
    - If user provided 1 sentence, maxSupportableDays is AT MOST 1.
-   - If user provided 3 sentences, maxSupportableDays is AT MOST 2-3.
+   - If user provided 3 sentences, maxSupportableDays is AT MOST 4-5.
    - Be conservative and protect the student from fake logs!
 
 Example JSON (isAdequate=true case):
 {
   "isAdequate": true,
-  "maxSupportableDays": 4,
+  "maxSupportableDays": 6,
   "followUpQuestions": []
 }
 
 Example JSON (isAdequate=false case):
 {
   "isAdequate": false,
-  "maxSupportableDays": 2,
+  "maxSupportableDays": 4,
   "followUpQuestions": ["Can you tell me more about the specific areas or tasks you focused on?"]
 }`,
         },
