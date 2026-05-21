@@ -529,6 +529,7 @@ bot.catch((err) => {
   );
 });
 
+
 // ── Set Native Bot Commands ────────────────────────────────────────────────
 // Exposes the blue "Menu" button natively in Telegram
 bot.api.setMyCommands([
