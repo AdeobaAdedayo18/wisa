@@ -168,12 +168,13 @@ bot.on("message:text", async (ctx, next) => {
   const text = ctx.message?.text?.trim() || "";
   const mainMenuPattern = /^(?:✍️\s*Write today.?s log|📖\s*See my logs|💬\s*Leave feedback|✨\s*AI Refine|👑\s*Go Pro|⚙️\s*Settings|🔄\s*Catch up\s*missed days)$/i;
   
-  // If user taps a menu button while in any flow (catch-up, payment email, etc.), exit cleanly
+  // 🚀 THE FIX: If user taps ANY menu button, instantly kill all active flows
   if (mainMenuPattern.test(text)) {
-    if (ctx.session.catchup?.active || ctx.session.awaitingPaymentEmail || ctx.session.awaitingPaymentSenderName) {
-      clearActiveFlow(ctx.session);
-      // Don't return — let the normal handlers process the menu button tap below
-    }
+    clearActiveFlow(ctx.session);
+    ctx.session.awaitingLog = false;
+    ctx.session.awaitingCourse = false;
+    ctx.session.awaitingCourseForVoice = false;
+    return next(); // Skip the AI logic entirely and pass the button tap to the menu handlers below!
   }
 
   // 🚀 CATCH-UP FLOW INTERCEPTOR 🚀
