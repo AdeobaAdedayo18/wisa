@@ -13,29 +13,48 @@ export async function refineLog(rawLog: string, courseOfStudy: string = "IT"): P
   try {
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
+      response_format: { type: "json_object" }, 
       messages: [
         {
           role: "system",
-          content: `You are an expert academic advisor helping a university student write their daily SIWES (Industrial Training) logbook.
-The student is studying: ${courseOfStudy}.
-Rewrite their raw log to be professional, well-formatted, and grammatically correct.
+          content: `You are an expert academic advisor helping a university student write their daily SIWES (Industrial Training) logbook. The student is studying: ${courseOfStudy}.
 
-CRITICAL CONSTRAINTS (YOU MUST OBEY THESE):
-1. THE GATEKEEPER (STRICT ANTI-HALLUCINATION): If the user's input is a simple greeting (e.g., 'hey', 'hi'), a single word, gibberish, keyboard smashes (e.g., 'asdfgh', 'qwerty'), random disconnected characters, or completely lacks any description of a real-world task, DO NOT generate a log. Do not try to guess what they meant. You MUST return EXACTLY this string and nothing else: "REJECTED: Please provide actual details about what you worked on."
-2. Length: If the log is valid, you MUST write strictly between 40 and 45 words. Count your words. Do not write fewer than 40 words, and do not exceed 45 words.
-3. Structure: Break valid logs into 2 short paragraphs so it looks well-formatted.
-4. Tone: Use simple, natural, everyday English. Sound like a real student, not a robot.
-5. Banned Words: DO NOT use overly complex AI words. NEVER use words like: delve, orchestrate, seamless, foster, testament, utilize, or navigate.
-6. Return ONLY the rewritten text (or the REJECTED string). No introductions, no quotes, no explanations.`,
+STEP 1: EVALUATION (THE STRICT LENIENCY RULE)
+Check if the user's input is a valid log attempt. YOU MUST BE EXTREMELY LENIENT.
+- ACCEPT (isValid: true): If there is ANY attempt to describe an activity, a place, an observation, or a task, you MUST accept it. Even if it is very short (e.g., "went to site", "fixed computer"), heavily misspelled due to voice-to-text, or has terrible grammar, you must accept it and attempt to make professional sense of it.
+- REJECT (isValid: false): ONLY reject if the input is PURELY a simple greeting ("hey", "hello", "hi"), completely empty, or literal keyboard smash gibberish ("hjhj", "asdfgh"). If there is even a tiny hint of work or learning, do NOT reject.
+
+STEP 2: REFINEMENT (ONLY IF VALID)
+If isValid is true, rewrite their raw log to be professional, coherent, and grammatically correct based on what they likely meant. Expand on it intelligently based on their ${courseOfStudy}.
+- Length: You MUST write strictly between 40 and 45 words. Count your words.
+- Structure: Break into 2 short paragraphs.
+- Tone: Simple, natural English.
+- Banned Words: DO NOT use overly complex AI words (e.g., delve, orchestrate, seamless, foster, testament, utilize, navigate).
+
+OUTPUT FORMAT (JSON ONLY):
+You MUST return a JSON object with exactly these two keys:
+{
+  "isValid": boolean,
+  "refinedText": "The 40-45 word rewritten log here. Leave empty if isValid is false."
+}`
         },
         { role: "user", content: rawLog },
       ],
       temperature: 0.3,
     });
     
-    const refined = completion.choices[0].message.content ?? rawLog;
-    console.log(`[refineLog] Success! Refined length: ${refined.length}. Duration: ${Date.now() - start}ms`);
-    return refined;
+    // Parse the JSON response
+    const result = JSON.parse(completion.choices[0].message.content || '{"isValid": false, "refinedText": ""}');
+    
+    // If the AI flagged it as pure gibberish/greeting, return our exact interceptor string
+    if (!result.isValid) {
+      console.log(`[refineLog] ❌ AI rejected input: "${rawLog}"`);
+      return "REJECTED: Please provide actual details about what you worked on.";
+    }
+
+    console.log(`[refineLog] ✅ Success! Refined length: ${result.refinedText.length}. Duration: ${Date.now() - start}ms`);
+    return result.refinedText;
+    
   } catch (error) {
     console.error("[refineLog] Error calling OpenAI:", error);
     throw error; // Let the caller handle the UI for errors
