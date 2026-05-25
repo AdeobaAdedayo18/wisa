@@ -4,6 +4,7 @@ import { prisma } from "../lib/prisma";
 import { captureReplayError } from "../services/replayCapture";
 import { buildTimeKeyboard, createInitialReminderJobs } from "./onboarding";
 import { hasActiveStorage, STORAGE_PRICE_LABEL } from "./monetization";
+import { disableSubscription } from "../services/paystack";
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -221,57 +222,85 @@ export async function handleSettingsSub(ctx: BotContext) {
       `Price: *${STORAGE_PRICE_LABEL}*`,
     {
       parse_mode: "Markdown",
-      reply_markup: new InlineKeyboard().text("🏠 Menu", "nav_menu"),
+      reply_markup: new InlineKeyboard()
+        .text("❌ Stop Using Wisa", "settings_cancel_sub").row() // 👈 Added the Cancel button!
+        .text("🏠 Menu", "nav_menu"),
     },
   );
 }
 
+// DRAMA STEP 1
 export async function handleCancelSubPrompt(ctx: BotContext) {
   await ctx.answerCallbackQuery();
-  await ctx.reply(
-    "⚠️ Are you sure you want to cancel your Pro subscription?\n\n" +
-      "You'll keep Pro access until the end of your current billing period, then revert to Free.",
+  await ctx.editMessageText(
+    "Are you sure you want to stop using Wisa? 🥺\n\nYour logbook is going to miss you...",
     {
       reply_markup: new InlineKeyboard()
-        .text("Yes, cancel ❌", "settings_cancel_sub_confirm")
-        .text("Keep Pro 👑", "settings_sub"),
-    },
+        .text("Yes, cancel it.", "cancel_sub_2")
+        .row()
+        .text("No, I'm staying! ❤️", "nav_menu"),
+    }
   );
 }
 
+// DRAMA STEP 2
+export async function handleCancelSubPrompt2(ctx: BotContext): Promise<void> {
+  await ctx.answerCallbackQuery();
+  await ctx.editMessageText(
+    "Are you really really really really sure? 😢",
+    {
+      reply_markup: new InlineKeyboard()
+        .text("Yes, I'm sure.", "settings_cancel_sub_confirm")
+        .row()
+        .text("Okay fine, I'll stay! 😭", "nav_menu"),
+    }
+  );
+}
+
+// DRAMA STEP 3 - FINAL CANCELLATION
 export async function handleCancelSubConfirm(ctx: BotContext) {
   await ctx.answerCallbackQuery();
   const telegramId = BigInt(ctx.from!.id);
 
-  const user = await prisma.user.findUnique({
-    where: { telegramId },
-    include: { subscription: true },
-  });
-
-  if (user?.subscription) {
-    await prisma.subscription.update({
-      where: { id: user.subscription.id },
-      data: { status: "cancelled" },
+  try {
+    const user = await prisma.user.findUnique({
+      where: { telegramId },
+      include: { subscription: true },
     });
-  }
 
-  if (user) {
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        storageUnlocked: false,
-        isPro: false,
-        nextRenewalDate: null,
-      },
-    });
-  }
+    if (!user) return;
 
-  await ctx.reply(
-    `Your Pro subscription has been cancelled 😢\n\n` +
-      `You'll retain Pro access until the end of your current billing period. ` +
-      `We hope to see you back soon — your logs will be waiting! 🙏`,
-    { reply_markup: new InlineKeyboard().text("🏠 Menu", "nav_menu") },
-  );
+    // Tell Paystack to cancel future billing
+    if (user.paymentEmail) {
+      await disableSubscription(user.paymentEmail);
+    }
+
+    // Mark subscription as cancelled in the database
+    if (user.subscription) {
+      await prisma.subscription.update({
+        where: { id: user.subscription.id },
+        data: { status: "cancelled" },
+      });
+    }
+
+    // NOTE: We do NOT set storageUnlocked to false here! 
+    // They keep their Pro access until `nextRenewalDate` is reached.
+
+    await ctx.editMessageText(
+      "Alright... if you don't value your logbook you can cancel 😭😭\n\n" +
+      "*(Your auto-renewal has been cancelled. You won't be billed again, but you can keep using your Pro features until your current month runs out).* 💔",
+      {
+        parse_mode: "Markdown",
+        reply_markup: new InlineKeyboard().text("🏠 Back to Menu", "nav_menu"),
+      }
+    );
+  } catch (err) {
+    console.error("[settings] handleCancelSubConfirm error:", err);
+    await ctx.editMessageText(
+      "Something went wrong trying to cancel. Please try again or use the link in your email receipt!", 
+      { reply_markup: new InlineKeyboard().text("🏠 Back to Menu", "nav_menu") }
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

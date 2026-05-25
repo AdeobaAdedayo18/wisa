@@ -10,6 +10,7 @@ export async function initializeTransaction(telegramId: bigint, email: string) {
     {
       amount: STORAGE_PLAN_AMOUNT_KOBO,
       email,
+      plan: process.env.PAYSTACK_PRO_PLAN_CODE, 
       metadata: { telegramId: telegramId.toString() },
     },
     { headers }
@@ -29,4 +30,42 @@ export async function verifyTransaction(reference: string) {
     metadata: { telegramId?: string };
     customer: { email: string };
   };
+}
+
+/**
+ * Fetches a user's active subscriptions by email and disables them.
+ */
+export async function disableSubscription(email: string) {
+  try {
+    // 1. Find the user's active subscriptions
+    const subRes = await axios.get(
+      `${PAYSTACK_BASE}/subscription?email=${encodeURIComponent(email)}`,
+      { headers }
+    );
+    
+    const subscriptions = subRes.data.data;
+    
+    if (!subscriptions || subscriptions.length === 0) {
+      console.log(`[paystack] No active subscriptions found for ${email}`);
+      return;
+    }
+
+    
+    for (const sub of subscriptions) {
+      if (sub.status === "active") {
+        await axios.post(
+          `${PAYSTACK_BASE}/subscription/disable`,
+          {
+            code: sub.subscription_code,
+            token: sub.email_token,
+          },
+          { headers }
+        );
+        console.log(`[paystack] Successfully disabled subscription for ${email}`);
+      }
+    }
+  } catch (error: any) {
+    console.error("[paystack] Failed to disable subscription:", error.response?.data || error.message);
+    throw error;
+  }
 }

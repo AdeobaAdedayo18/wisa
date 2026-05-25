@@ -37,6 +37,10 @@ export async function activateStorageForUser(userId: number, currentRenewalDate?
 function unlockKeyboard(url?: string): InlineKeyboard {
   const kb = new InlineKeyboard();
   if (url) kb.url("💳 Pay with Paystack", url).row();
+  
+  // 🚀 ADDED THIS LINE: The missing verification button!
+  kb.text("✅ I've paid", "check_payment"); 
+  
   return kb;
 }
 
@@ -172,7 +176,7 @@ export async function handleCheckPayment(ctx: BotContext): Promise<void> {
     const result = await verifyTransaction(reference);
     if (result.status !== "success") {
       await ctx.reply(
-        "Payment is not confirmed yet. If you just paid, wait a minute and tap `I've paid` again.",
+        "Payment is not confirmed yet. If you just paid, wait a minute and tap I've paid again.",
       );
       return;
     }
