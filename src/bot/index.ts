@@ -56,6 +56,7 @@ import {
   handleSettingsFreqSelect,
   handleSettingsSub,
   handleCancelSubPrompt,
+  handleCancelSubPrompt2, // 🚀 ADDED IMPORT HERE
   handleCancelSubConfirm,
   handleSettingsHow,
 } from "./settings";
@@ -460,6 +461,7 @@ bot.callbackQuery("set_freq_2days", handleSettingsFreq2Days);
 bot.callbackQuery(/^stg_freq_/, handleSettingsFreqSelect);
 bot.callbackQuery("settings_sub", handleSettingsSub);
 bot.callbackQuery("settings_cancel_sub", handleCancelSubPrompt);
+bot.callbackQuery("cancel_sub_2", handleCancelSubPrompt2); // 🚀 ADDED ROUTE HERE
 bot.callbackQuery("settings_cancel_sub_confirm", handleCancelSubConfirm);
 bot.callbackQuery("settings_how", handleSettingsHow);
 
