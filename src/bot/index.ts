@@ -167,7 +167,10 @@ bot.command("catchup", startCatchupFlow);
 bot.on("message:text", async (ctx, next) => {
   // ✅ GLOBAL MENU ESCAPE HATCH: Exit flows when user taps main menu buttons
   const text = ctx.message?.text?.trim() || "";
-  const mainMenuPattern = /^(?:✍️\s*Write today.?s log|📖\s*See my logs|💬\s*Leave feedback|✨\s*AI Refine|👑\s*Go Pro|⚙️\s*Settings|🔄\s*Catch up\s*missed days)$/i;
+  
+  // Anchored pattern: allows leading/trailing non-alphanumeric chars (emojis, spaces) but requires
+  // the keyword to be the ENTIRE content — prevents "go pro" from matching inside a sentence.
+  const mainMenuPattern = /^[^a-zA-Z0-9]*(write today.?s log|see my logs|leave feedback|ai refine|go pro|settings|catch up missed days)[^a-zA-Z0-9]*$/i;
   
   // 🚀 THE FIX: If user taps ANY menu button, instantly kill all active flows
   if (mainMenuPattern.test(text)) {
@@ -396,8 +399,7 @@ bot.hears(/^👑\s*Go Pro$/i, handleGoPro);
 // ✅ Fixed: Settings uses strict anchors with emoji to prevent false matches
 bot.hears(/^⚙️\s*Settings$/i, handleSettings);
 
-// ✅ Fixed: Catch-up button uses strict anchors to prevent false matches
-bot.hears(/^🔄\s*Catch up\s*missed days$/i, startCatchupFlow);
+bot.hears(/^[^a-zA-Z0-9]*catch up missed days[^a-zA-Z0-9]*$/i, startCatchupFlow);
 
 // ── Callback query handlers ────────────────────────────────────────────────
 bot.callbackQuery("start_onboarding", handleLetsGo);
