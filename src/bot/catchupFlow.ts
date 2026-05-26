@@ -487,6 +487,13 @@ export async function handleCatchupFlow(ctx: BotContext) {
               dateOffset: log.dateOffset,
             }));
             state.savedLogsCount = logsToSave.length;  
+
+            if (freshDbUser) {
+              await prisma.user.update({
+                where: { id: freshDbUser.id },
+                data: { hitPaywall: true },
+              });
+            }
             
             // 🚀 MATHEMATICAL COMPARISON: Check if days were actually reduced
             const isCapped = localOriginalDays > cappedWorkingDays;

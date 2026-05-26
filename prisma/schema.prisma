@@ -36,6 +36,7 @@ model User {
   freeVoiceLogs      Int             @default(5) // 🚀 Bumped to 5
   onboardingDone     Boolean         @default(false)
   botBlocked         Boolean         @default(false)
+  hitPaywall         Boolean         @default(false)
   lastGreetingSentAt DateTime?
   lastGreetingType   GreetingType?
   createdAt          DateTime        @default(now())

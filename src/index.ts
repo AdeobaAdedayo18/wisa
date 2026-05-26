@@ -7,6 +7,7 @@ import { startUserActivity } from "./services/userActivity";
 import express from "express";
 import { prisma } from "./lib/prisma";
 import { adminRouter } from "./admin/router";
+import { dashboardRouter } from "./dashboard/routes";
 import { flushReplayBuffer, captureReplayError } from "./services/replayCapture";
 import { InlineKeyboard } from "grammy";
 
@@ -274,6 +275,9 @@ app.use(express.json());
 
 // Admin dashboard (HTTP Basic auth — set ADMIN_USER + ADMIN_PASSWORD env vars)
 app.use("/admin", adminRouter);
+
+// Dashboard API (JWT Bearer auth)
+app.use("/api/dashboard", dashboardRouter);
 
 process.on("SIGTERM", async () => {
   console.log("[shutdown] Flushing replay buffer...");
