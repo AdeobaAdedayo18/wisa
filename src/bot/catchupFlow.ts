@@ -73,13 +73,13 @@ export async function startCatchupFlow(ctx: BotContext) {
   const telegramId = BigInt(ctx.from!.id);
   const dbUser = await prisma.user.findUnique({ where: { telegramId } });
 
-  // 🚀 COURSE OF STUDY INTERCEPTOR
+
   if (dbUser && !dbUser.courseOfStudy) {
-    // ✅ FIX #7: Initialize fresh state with all fields zeroed
+
     ctx.session.catchup = {
       active: true,
-      step: 'awaiting_course', // Special interceptor step
-      questionCount: 0,  // ✅ Always start at 0
+      step: 'awaiting_course',
+      questionCount: 0, 
       rawDump: undefined,
       heldLogs: undefined,
     };
@@ -249,8 +249,8 @@ export async function handleCatchupFlow(ctx: BotContext) {
     return;
   }
 
-  // ✅ ESCAPE HATCH: If user taps the "Catch up missed days" button, restart the flow seamlessly
-  if (/\bCatch up|Fill missed days\b/i.test(text)) {
+// ✅ ESCAPE HATCH: If user taps the "Catch up missed days" button, restart the flow seamlessly
+  if (/^[^a-zA-Z0-9]*(catch up|fill missed days|catch up missed days)[^a-zA-Z0-9]*$/i.test(text)) {
     return startCatchupFlow(ctx);
   }
 
@@ -327,7 +327,8 @@ export async function handleCatchupFlow(ctx: BotContext) {
       case 'interrogation': {
         state.rawDump = state.rawDump ? `${state.rawDump}\n\nUser added: ${text}` : text;
         const workingDays = state.workingDays!;
-        
+        const safeWorkingDays = Math.min(workingDays, 20);
+
         // 🚀 Initialize or increment the question counter
         if (state.step === 'awaiting_braindump') {
           state.questionCount = 0;
@@ -354,7 +355,7 @@ export async function handleCatchupFlow(ctx: BotContext) {
           const courseOfStudy = dbUser?.courseOfStudy ?? "IT";
 
           // ✅ ALWAYS call evaluateCatchupDetail to get maxSupportableDays, even if 2-strike rule is hit
-          const evaluation = await evaluateCatchupDetail(state.rawDump, workingDays, courseOfStudy);
+          const evaluation = await evaluateCatchupDetail(state.rawDump, safeWorkingDays, courseOfStudy);
           isAdequate = state.questionCount >= 2 ? true : evaluation.isAdequate; // 2-strike forces adequacy
           questions = evaluation.followUpQuestions;
           maxSupportableDays = evaluation.maxSupportableDays; // ✅ ALWAYS capture the cap
@@ -391,7 +392,7 @@ export async function handleCatchupFlow(ctx: BotContext) {
             return;
           }
 // ✅ APPLY MAXSUPPORTABLEDAYS CAP: If evaluation says we can only do X days, don't generate more
-          let cappedWorkingDays = workingDays;
+          let cappedWorkingDays = safeWorkingDays;
           
           // 🚀 LOCAL VARIABLES (Bulletproof against session race conditions)
           const localOriginalDays = workingDays;
