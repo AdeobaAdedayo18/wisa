@@ -34,8 +34,10 @@ model User {
   nextRenewalDate    DateTime?
   freeAiRefinements  Int             @default(5) // 🚀 Bumped to 5
   freeVoiceLogs      Int             @default(5) // 🚀 Bumped to 5
-  onboardingDone     Boolean         @default(false)
-  botBlocked         Boolean         @default(false)
+  onboardingDone                Boolean         @default(false)
+  firstLogPromptSent            Boolean         @default(false)
+  firstLogCompletedInOnboarding Boolean         @default(false)
+  botBlocked                    Boolean         @default(false)
   lastGreetingSentAt DateTime?
   lastGreetingType   GreetingType?
   createdAt          DateTime        @default(now())
