@@ -37,6 +37,7 @@ model User {
   onboardingDone                Boolean         @default(false)
   firstLogPromptSent            Boolean         @default(false)
   firstLogCompletedInOnboarding Boolean         @default(false)
+  hitPaywall                    Boolean         @default(false)
   botBlocked                    Boolean         @default(false)
   lastGreetingSentAt DateTime?
   lastGreetingType   GreetingType?
