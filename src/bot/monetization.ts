@@ -80,6 +80,15 @@ export function getStorageWallText(user: MonetizationUser): string {
 }
 
 export async function sendStorageWall(ctx: BotContext, user: MonetizationUser): Promise<void> {
+  try {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { hitPaywall: true },
+    });
+  } catch (err) {
+    console.warn("[monetization] Failed to mark hitPaywall:", err);
+  }
+
   await ctx.reply(getStorageWallText(user), {
     parse_mode: "Markdown",
     reply_markup: new InlineKeyboard().text("🔓 Unlock storage - ₦1,000", "go_pro"),

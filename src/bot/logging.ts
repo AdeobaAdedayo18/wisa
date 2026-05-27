@@ -213,6 +213,10 @@ export async function handleLogText(
       ctx.session.refiningLogId = undefined;
 
       if (!hasActiveStorage(updatedUser) && updatedUser.logCount === FREE_LOG_LIMIT) {
+        await prisma.user.update({
+          where: { id: dbUser.id },
+          data: { hitPaywall: true },
+        });
         await ctx.reply(getStorageLimitReachedAfterSaveText(), {
           parse_mode: "Markdown",
           reply_markup: new InlineKeyboard().text("🔓 Unlock storage - ₦1,000", "go_pro"),
@@ -333,6 +337,10 @@ export async function handleDoneLogging(ctx: BotContext): Promise<void> {
     });
 
     if (nowLockedAfterSave && updatedUser.logCount === FREE_LOG_LIMIT) {
+      await prisma.user.update({
+        where: { id: dbUser.id },
+        data: { hitPaywall: true },
+      });
       await ctx.reply(getStorageLimitReachedAfterSaveText(), {
         parse_mode: "Markdown",
         reply_markup: new InlineKeyboard().text("🔓 Unlock storage - ₦1,000", "go_pro"),
