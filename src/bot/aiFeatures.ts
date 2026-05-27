@@ -17,6 +17,7 @@ import {
   hasActiveStorage,
   sendStorageWall,
 } from "./monetization";
+import { getMainMenuKeyboard } from "./onboarding";
 
 // ---------------------------------------------------------------------------
 // 8.2 — "✨ Refine with AI" handler (For text logs)
@@ -129,15 +130,19 @@ export async function handleSaveAiLog(ctx: BotContext): Promise<void> {
   const rawText = ctx.session.pendingRawText;
   const refinedText = ctx.session.pendingRefinedText;
   const logId = ctx.session.refiningLogId;
-  const wasVoice = !!ctx.session.pendingVoiceTranscription; 
+  const wasVoice = !!ctx.session.pendingVoiceTranscription;
+  const wasFirstLog = ctx.session.awaitingFirstLog === true;
 
   // SRE FIX: Clear immediately to prevent double-tap races from reusing staged state.
   ctx.session.pendingRawText = undefined;
   ctx.session.pendingRefinedText = undefined;
   ctx.session.pendingRefinedContent = undefined;
   ctx.session.refiningLogId = undefined;
-  ctx.session.pendingVoiceTranscription = undefined; 
-  ctx.session.awaitingLog = false; 
+  ctx.session.pendingVoiceTranscription = undefined;
+  ctx.session.awaitingLog = false;
+  ctx.session.awaitingFirstLog = undefined;
+  ctx.session.firstLogPromptSentAt = undefined;
+  ctx.session.firstLogFollowUpSent = undefined;
 
   if (!rawText || !refinedText) {
     await ctx.reply("Session expired — please refine again.");
@@ -160,8 +165,8 @@ export async function handleSaveAiLog(ctx: BotContext): Promise<void> {
       await prisma.log.update({
         where: { id: logId },
         data: {
-          content: refinedText, 
-          refinedContent: null, 
+          content: refinedText,
+          refinedContent: null,
           isAiRefined: true,
         },
       });
@@ -171,10 +176,10 @@ export async function handleSaveAiLog(ctx: BotContext): Promise<void> {
         prisma.log.create({
           data: {
             userId: dbUser.id,
-            content: refinedText, 
-            refinedContent: null, 
+            content: refinedText,
+            refinedContent: null,
             logDate,
-            isVoice: wasVoice, 
+            isVoice: wasVoice,
             isAiRefined: true,
           },
         }),
@@ -196,6 +201,28 @@ export async function handleSaveAiLog(ctx: BotContext): Promise<void> {
         console.error("Error editing AI save confirmation:", editErr);
       }
     }
+
+    if (wasFirstLog && !logId) {
+      await prisma.user.update({
+        where: { id: dbUser.id },
+        data: { firstLogCompletedInOnboarding: true },
+      });
+      await ctx.reply(
+        `Your first log is saved! 🎉\n\n📒 I'll remind you tomorrow at ${dbUser.reminderTime} to keep going. Students who log consistently in their first week almost never fall behind before defense day.\n\nYou're off to a great start, ${dbUser.firstName} 💪`,
+      );
+      await ctx.reply("Here's your main menu 👇", {
+        reply_markup: getMainMenuKeyboard(
+          hasActiveStorage({
+            id: dbUser.id,
+            firstName: dbUser.firstName,
+            isPro: dbUser.isPro,
+            storageUnlocked: dbUser.storageUnlocked,
+            logCount: dbUser.logCount,
+            nextRenewalDate: dbUser.nextRenewalDate,
+          }),
+        ),
+      });
+    }
   } catch (err) {
     console.error("Error saving AI refined log:", err);
     await ctx.reply("Couldn't save the log. Please try again.");
@@ -212,7 +239,8 @@ export async function handleSaveRawLog(ctx: BotContext): Promise<void> {
   const rawText = ctx.session.pendingRawText;
   const refinedText = ctx.session.pendingRefinedText;
   const logId = ctx.session.refiningLogId;
-  const wasVoice = !!ctx.session.pendingVoiceTranscription; 
+  const wasVoice = !!ctx.session.pendingVoiceTranscription;
+  const wasFirstLog = ctx.session.awaitingFirstLog === true;
 
   // SRE FIX: Clear immediately to prevent double-tap races from reusing staged state.
   ctx.session.pendingRawText = undefined;
@@ -220,7 +248,10 @@ export async function handleSaveRawLog(ctx: BotContext): Promise<void> {
   ctx.session.pendingRefinedContent = undefined;
   ctx.session.refiningLogId = undefined;
   ctx.session.pendingVoiceTranscription = undefined;
-  ctx.session.awaitingLog = false; 
+  ctx.session.awaitingLog = false;
+  ctx.session.awaitingFirstLog = undefined;
+  ctx.session.firstLogPromptSentAt = undefined;
+  ctx.session.firstLogFollowUpSent = undefined;
 
   if (!rawText || !refinedText) {
     await ctx.reply("Session expired — please refine again.");
@@ -243,8 +274,8 @@ export async function handleSaveRawLog(ctx: BotContext): Promise<void> {
       await prisma.log.update({
         where: { id: logId },
         data: {
-          content: rawText,             
-          refinedContent: refinedText,  
+          content: rawText,
+          refinedContent: refinedText,
           isAiRefined: false,
         },
       });
@@ -254,10 +285,10 @@ export async function handleSaveRawLog(ctx: BotContext): Promise<void> {
         prisma.log.create({
           data: {
             userId: dbUser.id,
-            content: rawText,             
-            refinedContent: refinedText,  
+            content: rawText,
+            refinedContent: refinedText,
             logDate,
-            isVoice: wasVoice, 
+            isVoice: wasVoice,
             isAiRefined: false,
           },
         }),
@@ -278,6 +309,28 @@ export async function handleSaveRawLog(ctx: BotContext): Promise<void> {
       if (!message.includes("Message is not modified")) {
         console.error("Error editing raw save confirmation:", editErr);
       }
+    }
+
+    if (wasFirstLog && !logId) {
+      await prisma.user.update({
+        where: { id: dbUser.id },
+        data: { firstLogCompletedInOnboarding: true },
+      });
+      await ctx.reply(
+        `Your first log is saved! 🎉\n\n📒 I'll remind you tomorrow at ${dbUser.reminderTime} to keep going. Students who log consistently in their first week almost never fall behind before defense day.\n\nYou're off to a great start, ${dbUser.firstName} 💪`,
+      );
+      await ctx.reply("Here's your main menu 👇", {
+        reply_markup: getMainMenuKeyboard(
+          hasActiveStorage({
+            id: dbUser.id,
+            firstName: dbUser.firstName,
+            isPro: dbUser.isPro,
+            storageUnlocked: dbUser.storageUnlocked,
+            logCount: dbUser.logCount,
+            nextRenewalDate: dbUser.nextRenewalDate,
+          }),
+        ),
+      });
     }
   } catch (err) {
     console.error("Error saving raw log:", err);
@@ -324,6 +377,8 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
     return;
   }
 
+  const awaitingFirstLog = ctx.session.awaitingFirstLog;
+
   const voice = ctx.message?.voice;
   if (!voice) return;
 
@@ -364,7 +419,7 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
     ctx.session.pendingVoiceTranscription = transcription;
 
     if (!dbUser.courseOfStudy) {
-      ctx.session.awaitingCourseForVoice = true; 
+      ctx.session.awaitingCourseForVoice = true;
       await ctx.api.editMessageText(
         ctx.chat!.id,
         processingMsg.message_id,
@@ -389,11 +444,10 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
       });
     }
 
-    // 👇 EXPLICITLY MAP SESSION STATE FOR SAVE HANDLERS 👇
     ctx.session.pendingRawText = transcription;
     ctx.session.pendingRefinedText = refined;
     ctx.session.refiningLogId = undefined;
-    // 👆 ────────────────────────────────────────────── 👆
+    ctx.session.awaitingFirstLog = awaitingFirstLog;
 
     await showAiComparisonChoice(ctx, processingMsg.message_id, transcription, refined);
 
@@ -416,9 +470,11 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
 // 8.4 — Voice Resume (Called when user replies with their Course of Study)
 // ---------------------------------------------------------------------------
 export async function continueVoiceRefinementAfterCourse(ctx: BotContext, courseOfStudy: string): Promise<void> {
+  const awaitingFirstLog = ctx.session.awaitingFirstLog;
+
   const telegramId = BigInt(ctx.from!.id);
   const transcription = ctx.session.pendingVoiceTranscription;
-  
+
   ctx.session.awaitingCourseForVoice = false;
 
   if (!transcription) {
@@ -447,11 +503,10 @@ export async function continueVoiceRefinementAfterCourse(ctx: BotContext, course
       });
     }
 
-    // 👇 EXPLICITLY MAP SESSION STATE FOR SAVE HANDLERS 👇
     ctx.session.pendingRawText = transcription;
     ctx.session.pendingRefinedText = refined;
-    ctx.session.refiningLogId = undefined; 
-    // 👆 ────────────────────────────────────────────── 👆
+    ctx.session.refiningLogId = undefined;
+    ctx.session.awaitingFirstLog = awaitingFirstLog;
 
     await showAiComparisonChoice(ctx, loadingMsg.message_id, transcription, refined);
   } catch (err) {
