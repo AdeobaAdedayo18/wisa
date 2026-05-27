@@ -69,6 +69,12 @@ export interface SessionData {
   lastLogMessageAt?: number;
   /** True once the "Save what you have?" auto-save prompt has been sent. */
   autoSavePromptSent?: boolean;
+  /** True while the bot is waiting for the user's first log after onboarding. */
+  awaitingFirstLog?: boolean;
+  /** Unix timestamp (ms) when the post-onboarding first log prompt was sent. */
+  firstLogPromptSentAt?: number;
+  /** True once the 30-minute follow-up for the first log prompt has been sent. */
+  firstLogFollowUpSent?: boolean;
 
   /**
    * When a user hits the storage wall mid-action, we set this so that after
@@ -149,6 +155,9 @@ export function clearActiveFlow(session: SessionData): void {
   session.flowStartedAt = undefined;
   session.lastLogMessageAt = undefined;
   session.autoSavePromptSent = undefined;
+  session.awaitingFirstLog = undefined;
+  session.firstLogPromptSentAt = undefined;
+  session.firstLogFollowUpSent = undefined;
 
   // Safely reset Catch-Up state (but do NOT wipe heldLogs if they are pending payment)
   if (session.catchup) {
