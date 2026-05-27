@@ -160,6 +160,32 @@ export async function onboardingConversation(conversation: OnboardingConversatio
 
   // Render the persistent main menu keyboard
   await ctx.reply("Your main menu is ready 👇", { reply_markup: getMainMenuKeyboard(false) });
+
+  // Mark prompt as sent and wait 1.5s before showing the first-log nudge
+  await conversation.external(() =>
+    prisma.user.update({
+      where: { telegramId },
+      data: { firstLogPromptSent: true },
+    }),
+  );
+
+  await conversation.external(() => new Promise<void>((resolve) => setTimeout(resolve, 1500)));
+
+  const todayStr = new Intl.DateTimeFormat("en-CA", {
+    timeZone: dbUser.timezone ?? "Africa/Lagos",
+  }).format(new Date());
+
+  await ctx.reply(
+    "Now let's write your very first log entry 📝\n\nJust tell me what you did at work today — even one sentence is enough. I'll turn it into a polished professional entry ✨",
+  );
+
+  ctx.session.awaitingLog = true;
+  ctx.session.pendingLogParts = [];
+  ctx.session.pendingLogDate = todayStr;
+  ctx.session.awaitingFirstLog = true;
+  ctx.session.firstLogPromptSentAt = Date.now();
+  ctx.session.firstLogFollowUpSent = false;
+  ctx.session.flowStartedAt = Date.now();
 }
 
 // ---------------------------------------------------------------------------
