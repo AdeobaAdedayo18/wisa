@@ -94,6 +94,8 @@ export const UserScalarFieldEnum = {
   freeAiRefinements: 'freeAiRefinements',
   freeVoiceLogs: 'freeVoiceLogs',
   onboardingDone: 'onboardingDone',
+  firstLogPromptSent: 'firstLogPromptSent',
+  firstLogCompletedInOnboarding: 'firstLogCompletedInOnboarding',
   botBlocked: 'botBlocked',
   lastGreetingSentAt: 'lastGreetingSentAt',
   lastGreetingType: 'lastGreetingType',
