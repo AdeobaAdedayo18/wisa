@@ -2,7 +2,7 @@ import { InlineKeyboard, Keyboard } from "grammy";
 import { type Conversation } from "@grammyjs/conversations";
 import { prisma } from "../lib/prisma";
 import { sendScene } from "../utils/constants";
-import { localTimeToUtc, hasLocalTimePassed } from "../utils/dateHelpers";
+import { localTimeToUtc, hasLocalTimePassed, getLocalDayOfWeek } from "../utils/dateHelpers";
 import type { BotContext } from "./types";
 import { clearActiveFlow } from "./types";
 import { hasActiveStorage } from "./monetization";
@@ -125,6 +125,13 @@ export async function onboardingConversation(conversation: OnboardingConversatio
   await timeCtx.answerCallbackQuery();
   const reminderTime = timeCtx.callbackQuery.data.replace("time_", "");
 
+  // ── Step 3b — Area of interest ────────────────────────────────────────────
+  await ctx.reply(
+    "What's your area of interest at your SIWES placement? (e.g. Web Development, Network Administration, Accounting, Electrical Maintenance) 👇",
+  );
+  const courseCtx = await conversation.waitFor("message:text");
+  const courseOfStudy = courseCtx.message.text.trim();
+
   // ── Step 4 — Confirmation + DB save ──────────────────────────────────────
   const telegramId = BigInt(ctx.from!.id);
   const dbUser = await conversation.external(() =>
@@ -134,6 +141,7 @@ export async function onboardingConversation(conversation: OnboardingConversatio
         logFrequency: frequency,
         reminderTime,
         onboardingDone: true,
+        courseOfStudy,
       },
     }),
   );
@@ -153,13 +161,45 @@ export async function onboardingConversation(conversation: OnboardingConversatio
 
   await ctx.reply("What would you like to do first?", {
     parse_mode: "Markdown",
-    reply_markup: new InlineKeyboard()
-      .text("📖 See my logs", "nav_logs")
-      .text("✍️ Write today's log", "nav_write"),
+    reply_markup: new InlineKeyboard().text("📖 See my logs", "nav_logs"),
   });
 
   // Render the persistent main menu keyboard
   await ctx.reply("Your main menu is ready 👇", { reply_markup: getMainMenuKeyboard(false) });
+
+  // Mark prompt as sent and wait 1.5s before showing the first-log nudge
+  await conversation.external(() =>
+    prisma.user.update({
+      where: { telegramId },
+      data: { firstLogPromptSent: true },
+    }),
+  );
+
+  await conversation.external(() => new Promise<void>((resolve) => setTimeout(resolve, 1500)));
+
+  const tz = dbUser.timezone ?? "Africa/Lagos";
+  const dayOfWeek = getLocalDayOfWeek(new Date(), tz);
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+  if (isWeekend) {
+    return;
+  }
+
+  const todayStr = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+  }).format(new Date());
+
+  await ctx.reply(
+    "Now let's write your very first log entry 📝\n\nJust tell me what you did at work today — even one sentence is enough. I'll turn it into a polished professional entry ✨",
+  );
+
+  ctx.session.awaitingLog = true;
+  ctx.session.pendingLogParts = [];
+  ctx.session.pendingLogDate = todayStr;
+  ctx.session.awaitingFirstLog = true;
+  ctx.session.firstLogPromptSentAt = Date.now();
+  ctx.session.firstLogFollowUpSent = false;
+  ctx.session.flowStartedAt = Date.now();
 }
 
 // ---------------------------------------------------------------------------

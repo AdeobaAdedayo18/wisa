@@ -763,6 +763,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
   // ── Auto-save DB Optimizer ──
   const IDLE_PROMPT_MS = 15 * 60 * 1000;
   const IDLE_AUTOSAVE_MS = 30 * 60 * 1000;
+  const FIRST_LOG_FOLLOWUP_MS = 30 * 60 * 1000;
 
   cron.schedule("*/5 * * * *", async () => {
     if (autoSaveCronRunning) return;
@@ -778,7 +779,16 @@ export function startScheduler(bot: Bot<BotContext>): void {
       for (const row of allSessions) {
         try {
           const session: SessionData = JSON.parse(row.value);
-          if (!session.awaitingLog || !session.pendingLogParts?.length || !session.lastLogMessageAt) continue;
+
+          const isAutoSaveCandidate = !!(session.awaitingLog && session.pendingLogParts?.length && session.lastLogMessageAt);
+          const isFirstLogCandidate = !!(
+            session.awaitingFirstLog &&
+            !session.firstLogFollowUpSent &&
+            session.firstLogPromptSentAt &&
+            now - session.firstLogPromptSentAt >= FIRST_LOG_FOLLOWUP_MS
+          );
+
+          if (!isAutoSaveCandidate && !isFirstLogCandidate) continue;
 
           const chatId = parseInt(row.key, 10);
           if (isNaN(chatId)) continue;
@@ -797,10 +807,35 @@ export function startScheduler(bot: Bot<BotContext>): void {
       const userMap = new Map(users.map((u) => [u.telegramId.toString(), u]));
 
       for (const { row, session, chatId } of candidateSessions) {
+        const dbUser = userMap.get(chatId.toString());
+
+        if (
+          session.awaitingFirstLog === true &&
+          !session.firstLogFollowUpSent &&
+          session.firstLogPromptSentAt &&
+          now - session.firstLogPromptSentAt >= FIRST_LOG_FOLLOWUP_MS &&
+          (!session.pendingLogParts || session.pendingLogParts.length === 0)
+        ) {
+          session.firstLogFollowUpSent = true;
+          session.awaitingFirstLog = false;
+          session.awaitingLog = false;
+          await prisma.session.update({ where: { id: row.id }, data: { value: JSON.stringify(session) } });
+          try {
+            await bot.api.sendMessage(
+              chatId,
+              "Whenever you're ready — just send me what you worked on today and I'll handle the rest 📝",
+            );
+          } catch (e: unknown) {
+            if (isBotBlockedError(e) && dbUser) {
+              await markUserBlockedAndSkipPendingJobs(dbUser.id);
+            }
+          }
+          continue;
+        }
+
         const lastActivity = session.lastLogMessageAt;
         if (!lastActivity) continue;
         const idleMs = now - lastActivity;
-        const dbUser = userMap.get(chatId.toString());
         if (!dbUser) continue;
 
         if (session.autoSavePromptSent && idleMs >= IDLE_AUTOSAVE_MS) {

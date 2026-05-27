@@ -59,6 +59,8 @@ export type UserMinAggregateOutputType = {
   freeAiRefinements: number | null
   freeVoiceLogs: number | null
   onboardingDone: boolean | null
+  firstLogPromptSent: boolean | null
+  firstLogCompletedInOnboarding: boolean | null
   botBlocked: boolean | null
   lastGreetingSentAt: Date | null
   lastGreetingType: $Enums.GreetingType | null
@@ -82,6 +84,8 @@ export type UserMaxAggregateOutputType = {
   freeAiRefinements: number | null
   freeVoiceLogs: number | null
   onboardingDone: boolean | null
+  firstLogPromptSent: boolean | null
+  firstLogCompletedInOnboarding: boolean | null
   botBlocked: boolean | null
   lastGreetingSentAt: Date | null
   lastGreetingType: $Enums.GreetingType | null
@@ -105,6 +109,8 @@ export type UserCountAggregateOutputType = {
   freeAiRefinements: number
   freeVoiceLogs: number
   onboardingDone: number
+  firstLogPromptSent: number
+  firstLogCompletedInOnboarding: number
   botBlocked: number
   lastGreetingSentAt: number
   lastGreetingType: number
@@ -146,6 +152,8 @@ export type UserMinAggregateInputType = {
   freeAiRefinements?: true
   freeVoiceLogs?: true
   onboardingDone?: true
+  firstLogPromptSent?: true
+  firstLogCompletedInOnboarding?: true
   botBlocked?: true
   lastGreetingSentAt?: true
   lastGreetingType?: true
@@ -169,6 +177,8 @@ export type UserMaxAggregateInputType = {
   freeAiRefinements?: true
   freeVoiceLogs?: true
   onboardingDone?: true
+  firstLogPromptSent?: true
+  firstLogCompletedInOnboarding?: true
   botBlocked?: true
   lastGreetingSentAt?: true
   lastGreetingType?: true
@@ -192,6 +202,8 @@ export type UserCountAggregateInputType = {
   freeAiRefinements?: true
   freeVoiceLogs?: true
   onboardingDone?: true
+  firstLogPromptSent?: true
+  firstLogCompletedInOnboarding?: true
   botBlocked?: true
   lastGreetingSentAt?: true
   lastGreetingType?: true
@@ -302,6 +314,8 @@ export type UserGroupByOutputType = {
   freeAiRefinements: number
   freeVoiceLogs: number
   onboardingDone: boolean
+  firstLogPromptSent: boolean
+  firstLogCompletedInOnboarding: boolean
   botBlocked: boolean
   lastGreetingSentAt: Date | null
   lastGreetingType: $Enums.GreetingType | null
@@ -348,6 +362,8 @@ export type UserWhereInput = {
   freeAiRefinements?: Prisma.IntFilter<"User"> | number
   freeVoiceLogs?: Prisma.IntFilter<"User"> | number
   onboardingDone?: Prisma.BoolFilter<"User"> | boolean
+  firstLogPromptSent?: Prisma.BoolFilter<"User"> | boolean
+  firstLogCompletedInOnboarding?: Prisma.BoolFilter<"User"> | boolean
   botBlocked?: Prisma.BoolFilter<"User"> | boolean
   lastGreetingSentAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   lastGreetingType?: Prisma.EnumGreetingTypeNullableFilter<"User"> | $Enums.GreetingType | null
@@ -375,6 +391,8 @@ export type UserOrderByWithRelationInput = {
   freeAiRefinements?: Prisma.SortOrder
   freeVoiceLogs?: Prisma.SortOrder
   onboardingDone?: Prisma.SortOrder
+  firstLogPromptSent?: Prisma.SortOrder
+  firstLogCompletedInOnboarding?: Prisma.SortOrder
   botBlocked?: Prisma.SortOrder
   lastGreetingSentAt?: Prisma.SortOrderInput | Prisma.SortOrder
   lastGreetingType?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -405,6 +423,8 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   freeAiRefinements?: Prisma.IntFilter<"User"> | number
   freeVoiceLogs?: Prisma.IntFilter<"User"> | number
   onboardingDone?: Prisma.BoolFilter<"User"> | boolean
+  firstLogPromptSent?: Prisma.BoolFilter<"User"> | boolean
+  firstLogCompletedInOnboarding?: Prisma.BoolFilter<"User"> | boolean
   botBlocked?: Prisma.BoolFilter<"User"> | boolean
   lastGreetingSentAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   lastGreetingType?: Prisma.EnumGreetingTypeNullableFilter<"User"> | $Enums.GreetingType | null
@@ -432,6 +452,8 @@ export type UserOrderByWithAggregationInput = {
   freeAiRefinements?: Prisma.SortOrder
   freeVoiceLogs?: Prisma.SortOrder
   onboardingDone?: Prisma.SortOrder
+  firstLogPromptSent?: Prisma.SortOrder
+  firstLogCompletedInOnboarding?: Prisma.SortOrder
   botBlocked?: Prisma.SortOrder
   lastGreetingSentAt?: Prisma.SortOrderInput | Prisma.SortOrder
   lastGreetingType?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -463,6 +485,8 @@ export type UserScalarWhereWithAggregatesInput = {
   freeAiRefinements?: Prisma.IntWithAggregatesFilter<"User"> | number
   freeVoiceLogs?: Prisma.IntWithAggregatesFilter<"User"> | number
   onboardingDone?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
+  firstLogPromptSent?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
+  firstLogCompletedInOnboarding?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
   botBlocked?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
   lastGreetingSentAt?: Prisma.DateTimeNullableWithAggregatesFilter<"User"> | Date | string | null
   lastGreetingType?: Prisma.EnumGreetingTypeNullableWithAggregatesFilter<"User"> | $Enums.GreetingType | null
@@ -485,6 +509,8 @@ export type UserCreateInput = {
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
+  firstLogPromptSent?: boolean
+  firstLogCompletedInOnboarding?: boolean
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
@@ -512,6 +538,8 @@ export type UserUncheckedCreateInput = {
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
+  firstLogPromptSent?: boolean
+  firstLogCompletedInOnboarding?: boolean
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
@@ -538,6 +566,8 @@ export type UserUpdateInput = {
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogPromptSent?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogCompletedInOnboarding?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
@@ -565,6 +595,8 @@ export type UserUncheckedUpdateInput = {
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogPromptSent?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogCompletedInOnboarding?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
@@ -592,6 +624,8 @@ export type UserCreateManyInput = {
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
+  firstLogPromptSent?: boolean
+  firstLogCompletedInOnboarding?: boolean
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
@@ -614,6 +648,8 @@ export type UserUpdateManyMutationInput = {
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogPromptSent?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogCompletedInOnboarding?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
@@ -637,6 +673,8 @@ export type UserUncheckedUpdateManyInput = {
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogPromptSent?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogCompletedInOnboarding?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
@@ -660,6 +698,8 @@ export type UserCountOrderByAggregateInput = {
   freeAiRefinements?: Prisma.SortOrder
   freeVoiceLogs?: Prisma.SortOrder
   onboardingDone?: Prisma.SortOrder
+  firstLogPromptSent?: Prisma.SortOrder
+  firstLogCompletedInOnboarding?: Prisma.SortOrder
   botBlocked?: Prisma.SortOrder
   lastGreetingSentAt?: Prisma.SortOrder
   lastGreetingType?: Prisma.SortOrder
@@ -691,6 +731,8 @@ export type UserMaxOrderByAggregateInput = {
   freeAiRefinements?: Prisma.SortOrder
   freeVoiceLogs?: Prisma.SortOrder
   onboardingDone?: Prisma.SortOrder
+  firstLogPromptSent?: Prisma.SortOrder
+  firstLogCompletedInOnboarding?: Prisma.SortOrder
   botBlocked?: Prisma.SortOrder
   lastGreetingSentAt?: Prisma.SortOrder
   lastGreetingType?: Prisma.SortOrder
@@ -714,6 +756,8 @@ export type UserMinOrderByAggregateInput = {
   freeAiRefinements?: Prisma.SortOrder
   freeVoiceLogs?: Prisma.SortOrder
   onboardingDone?: Prisma.SortOrder
+  firstLogPromptSent?: Prisma.SortOrder
+  firstLogCompletedInOnboarding?: Prisma.SortOrder
   botBlocked?: Prisma.SortOrder
   lastGreetingSentAt?: Prisma.SortOrder
   lastGreetingType?: Prisma.SortOrder
@@ -845,6 +889,8 @@ export type UserCreateWithoutLogsInput = {
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
+  firstLogPromptSent?: boolean
+  firstLogCompletedInOnboarding?: boolean
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
@@ -871,6 +917,8 @@ export type UserUncheckedCreateWithoutLogsInput = {
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
+  firstLogPromptSent?: boolean
+  firstLogCompletedInOnboarding?: boolean
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
@@ -912,6 +960,8 @@ export type UserUpdateWithoutLogsInput = {
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogPromptSent?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogCompletedInOnboarding?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
@@ -938,6 +988,8 @@ export type UserUncheckedUpdateWithoutLogsInput = {
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogPromptSent?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogCompletedInOnboarding?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
@@ -963,6 +1015,8 @@ export type UserCreateWithoutSubscriptionInput = {
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
+  firstLogPromptSent?: boolean
+  firstLogCompletedInOnboarding?: boolean
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
@@ -989,6 +1043,8 @@ export type UserUncheckedCreateWithoutSubscriptionInput = {
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
+  firstLogPromptSent?: boolean
+  firstLogCompletedInOnboarding?: boolean
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
@@ -1030,6 +1086,8 @@ export type UserUpdateWithoutSubscriptionInput = {
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogPromptSent?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogCompletedInOnboarding?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
@@ -1056,6 +1114,8 @@ export type UserUncheckedUpdateWithoutSubscriptionInput = {
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogPromptSent?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogCompletedInOnboarding?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
@@ -1081,6 +1141,8 @@ export type UserCreateWithoutReminderJobsInput = {
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
+  firstLogPromptSent?: boolean
+  firstLogCompletedInOnboarding?: boolean
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
@@ -1107,6 +1169,8 @@ export type UserUncheckedCreateWithoutReminderJobsInput = {
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
+  firstLogPromptSent?: boolean
+  firstLogCompletedInOnboarding?: boolean
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
@@ -1148,6 +1212,8 @@ export type UserUpdateWithoutReminderJobsInput = {
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogPromptSent?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogCompletedInOnboarding?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
@@ -1174,6 +1240,8 @@ export type UserUncheckedUpdateWithoutReminderJobsInput = {
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogPromptSent?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogCompletedInOnboarding?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
@@ -1199,6 +1267,8 @@ export type UserCreateWithoutManualPaymentsInput = {
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
+  firstLogPromptSent?: boolean
+  firstLogCompletedInOnboarding?: boolean
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
@@ -1225,6 +1295,8 @@ export type UserUncheckedCreateWithoutManualPaymentsInput = {
   freeAiRefinements?: number
   freeVoiceLogs?: number
   onboardingDone?: boolean
+  firstLogPromptSent?: boolean
+  firstLogCompletedInOnboarding?: boolean
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
@@ -1266,6 +1338,8 @@ export type UserUpdateWithoutManualPaymentsInput = {
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogPromptSent?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogCompletedInOnboarding?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
@@ -1292,6 +1366,8 @@ export type UserUncheckedUpdateWithoutManualPaymentsInput = {
   freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
   freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
   onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogPromptSent?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogCompletedInOnboarding?: Prisma.BoolFieldUpdateOperationsInput | boolean
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
@@ -1367,6 +1443,8 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   freeAiRefinements?: boolean
   freeVoiceLogs?: boolean
   onboardingDone?: boolean
+  firstLogPromptSent?: boolean
+  firstLogCompletedInOnboarding?: boolean
   botBlocked?: boolean
   lastGreetingSentAt?: boolean
   lastGreetingType?: boolean
@@ -1395,6 +1473,8 @@ export type UserSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   freeAiRefinements?: boolean
   freeVoiceLogs?: boolean
   onboardingDone?: boolean
+  firstLogPromptSent?: boolean
+  firstLogCompletedInOnboarding?: boolean
   botBlocked?: boolean
   lastGreetingSentAt?: boolean
   lastGreetingType?: boolean
@@ -1418,6 +1498,8 @@ export type UserSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   freeAiRefinements?: boolean
   freeVoiceLogs?: boolean
   onboardingDone?: boolean
+  firstLogPromptSent?: boolean
+  firstLogCompletedInOnboarding?: boolean
   botBlocked?: boolean
   lastGreetingSentAt?: boolean
   lastGreetingType?: boolean
@@ -1441,13 +1523,15 @@ export type UserSelectScalar = {
   freeAiRefinements?: boolean
   freeVoiceLogs?: boolean
   onboardingDone?: boolean
+  firstLogPromptSent?: boolean
+  firstLogCompletedInOnboarding?: boolean
   botBlocked?: boolean
   lastGreetingSentAt?: boolean
   lastGreetingType?: boolean
   createdAt?: boolean
 }
 
-export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "telegramId" | "firstName" | "username" | "paymentEmail" | "courseOfStudy" | "logFrequency" | "reminderTime" | "timezone" | "isPro" | "storageUnlocked" | "logCount" | "nextRenewalDate" | "freeAiRefinements" | "freeVoiceLogs" | "onboardingDone" | "botBlocked" | "lastGreetingSentAt" | "lastGreetingType" | "createdAt", ExtArgs["result"]["user"]>
+export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "telegramId" | "firstName" | "username" | "paymentEmail" | "courseOfStudy" | "logFrequency" | "reminderTime" | "timezone" | "isPro" | "storageUnlocked" | "logCount" | "nextRenewalDate" | "freeAiRefinements" | "freeVoiceLogs" | "onboardingDone" | "firstLogPromptSent" | "firstLogCompletedInOnboarding" | "botBlocked" | "lastGreetingSentAt" | "lastGreetingType" | "createdAt", ExtArgs["result"]["user"]>
 export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   logs?: boolean | Prisma.User$logsArgs<ExtArgs>
   reminderJobs?: boolean | Prisma.User$reminderJobsArgs<ExtArgs>
@@ -1483,6 +1567,8 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     freeAiRefinements: number
     freeVoiceLogs: number
     onboardingDone: boolean
+    firstLogPromptSent: boolean
+    firstLogCompletedInOnboarding: boolean
     botBlocked: boolean
     lastGreetingSentAt: Date | null
     lastGreetingType: $Enums.GreetingType | null
@@ -1930,6 +2016,8 @@ export interface UserFieldRefs {
   readonly freeAiRefinements: Prisma.FieldRef<"User", 'Int'>
   readonly freeVoiceLogs: Prisma.FieldRef<"User", 'Int'>
   readonly onboardingDone: Prisma.FieldRef<"User", 'Boolean'>
+  readonly firstLogPromptSent: Prisma.FieldRef<"User", 'Boolean'>
+  readonly firstLogCompletedInOnboarding: Prisma.FieldRef<"User", 'Boolean'>
   readonly botBlocked: Prisma.FieldRef<"User", 'Boolean'>
   readonly lastGreetingSentAt: Prisma.FieldRef<"User", 'DateTime'>
   readonly lastGreetingType: Prisma.FieldRef<"User", 'GreetingType'>
