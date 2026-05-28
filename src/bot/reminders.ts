@@ -1,9 +1,29 @@
+import { randomUUID } from "node:crypto";
 import { InlineKeyboard } from "grammy";
 import { prisma } from "../lib/prisma";
+import type { Prisma } from "../prisma/client";
 import { localTimeToUtc, skipWeekend } from "../utils/dateHelpers";
 import { sendScene } from "../utils/constants";
 import { startLogging } from "./logging";
 import type { BotContext } from "./types";
+
+async function createReminderEvent(
+  reminderJobId: number,
+  eventType: string,
+  metadata?: Prisma.InputJsonValue
+): Promise<void> {
+  try {
+    await prisma.reminderEvent.create({
+      data: {
+        reminderJobId,
+        eventType,
+        metadata: metadata ?? undefined,
+      },
+    });
+  } catch (err) {
+    console.error(`[reminders] Failed to write reminder event ${eventType} for job ${reminderJobId}:`, err);
+  }
+}
 // ---------------------------------------------------------------------------
 // Dynamic Reminder Message Copy (Time & Ghost Aware)
 // ---------------------------------------------------------------------------
@@ -161,7 +181,7 @@ export async function scheduleNextJob(userId: number, telegramId: bigint, nextTi
     const logDate = new Intl.DateTimeFormat("en-CA", { timeZone: user.timezone }).format(adjustedScheduledFor);
 
     await tx.reminderJob.create({
-      data: { userId, telegramId, scheduledFor: adjustedScheduledFor, status: "pending", logDate },
+      data: { userId, telegramId, scheduledFor: adjustedScheduledFor, status: "pending", logDate, cycleId: randomUUID() },
     });
   });
 }
@@ -210,6 +230,8 @@ export async function handleSnooze(ctx: BotContext): Promise<void> {
       data: { snoozeCount: newSnoozeCount, status: "snoozed", autoNudgeCount: 3 },
     });
 
+    await createReminderEvent(jobId, "snoozed", { count: newSnoozeCount, reason: "user" });
+
     // Build "Write my log" button with the correct date
     const logDate = job.logDate ?? new Intl.DateTimeFormat("en-CA").format(new Date());
 
@@ -249,6 +271,8 @@ export async function handleSnooze(ctx: BotContext): Promise<void> {
         data: { snoozeCount: newSnoozeCount, status: "snoozed", autoNudgeCount: 3 },
       });
 
+      await createReminderEvent(jobId, "snoozed", { count: newSnoozeCount, reason: "user" });
+
       if (!existingNearPending) {
         await prisma.reminderJob.create({
           data: {
@@ -259,6 +283,7 @@ export async function handleSnooze(ctx: BotContext): Promise<void> {
             snoozeCount: newSnoozeCount,
             autoNudgeCount: 0, // reset auto-nudge for the new job
             logDate: job.logDate, // carry forward the original log date
+            cycleId: job.cycleId,
           },
         });
       }
@@ -292,6 +317,8 @@ export async function handleSkip(ctx: BotContext): Promise<void> {
     data: { status: "skipped" },
   });
 
+  await createReminderEvent(jobId, "skipped", { reason: "user" });
+
   await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } });
   await ctx.reply("No wahala! 😊 See you next time 👋");
 }
@@ -318,13 +345,18 @@ export async function handleWriteFromReminder(ctx: BotContext): Promise<void> {
   // Mark the job as interacted-with so auto-nudge stops
   try {
     const job = await prisma.reminderJob.findUnique({ where: { id: jobId } });
+    const shouldConvert = !job?.convertedAt;
     await prisma.reminderJob.update({
       where: { id: jobId },
       data: {
         autoNudgeCount: 3,
-        convertedAt: job?.convertedAt ? undefined : new Date(),
+        convertedAt: shouldConvert ? new Date() : undefined,
       }, // stops auto-nudge; status stays "sent"
     });
+
+    if (shouldConvert) {
+      await createReminderEvent(jobId, "converted", { logDate });
+    }
   } catch {
     // Job might not exist or already be in a different state — that's fine
   }

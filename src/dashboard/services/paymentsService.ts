@@ -1,8 +1,6 @@
 import { prisma } from "../../lib/prisma";
 import { addUtcDays, endOfUtcDay, startOfUtcDay } from "../utils/date";
 
-const STORAGE_PRICE_NGN = 1000;
-
 function percentChange(current: number, previous: number): number {
   if (previous === 0) return current > 0 ? 100 : 0;
   return Math.round(((current - previous) / previous) * 1000) / 10;
@@ -13,33 +11,68 @@ function daysBetween(start: Date, end: Date): number {
   return Math.max(0, diffMs / (24 * 60 * 60 * 1000));
 }
 
+function minorToMajor(amountMinor: number): number {
+  return Math.round(amountMinor / 100);
+}
+
+function startOfUtcWeek(date: Date): Date {
+  const day = date.getUTCDay();
+  const diff = (day + 6) % 7; // Monday as week start
+  return startOfUtcDay(addUtcDays(date, -diff));
+}
+
 export async function getPayments(): Promise<Record<string, unknown>> {
   const now = new Date();
   const monthStart = startOfUtcDay(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)));
   const monthEnd = endOfUtcDay(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)));
   const prevMonthStart = startOfUtcDay(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)));
   const prevMonthEnd = endOfUtcDay(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0)));
-  const weekStart = startOfUtcDay(addUtcDays(now, -7));
-  const prevWeekStart = startOfUtcDay(addUtcDays(now, -14));
-  const prevWeekEnd = endOfUtcDay(addUtcDays(now, -8));
+  const weekStart = startOfUtcWeek(now);
+  const prevWeekStart = addUtcDays(weekStart, -7);
+  const prevWeekEnd = endOfUtcDay(addUtcDays(weekStart, -1));
 
-  const subscriptions = await prisma.subscription.findMany({
-    orderBy: { startDate: "desc" },
+  const transactions = await prisma.paymentTransaction.findMany({
+    orderBy: { paidAt: "desc" },
     include: {
-      user: { select: { firstName: true, username: true, logCount: true, createdAt: true } },
+      user: { select: { firstName: true, username: true, createdAt: true } },
     },
   });
 
-  const totalRevenue = subscriptions.length * STORAGE_PRICE_NGN;
-  const revenueThisMonth = subscriptions.filter((s) => s.startDate >= monthStart && s.startDate <= monthEnd).length * STORAGE_PRICE_NGN;
-  const revenueLastMonth = subscriptions.filter((s) => s.startDate >= prevMonthStart && s.startDate <= prevMonthEnd).length * STORAGE_PRICE_NGN;
-  const revenueThisWeek = subscriptions.filter((s) => s.startDate >= weekStart).length * STORAGE_PRICE_NGN;
-  const revenueLastWeek = subscriptions.filter((s) => s.startDate >= prevWeekStart && s.startDate <= prevWeekEnd).length * STORAGE_PRICE_NGN;
+  const [totalPaidUsers, churnedUsers] = await Promise.all([
+    prisma.user.count({ where: { nextRenewalDate: { not: null } } }),
+    prisma.user.findMany({
+      where: {
+        storageUnlocked: false,
+        nextRenewalDate: { not: null, lt: now },
+      },
+      orderBy: { nextRenewalDate: "desc" },
+      include: {
+        subscription: { select: { startDate: true, endDate: true, status: true } },
+      },
+    }),
+  ]);
 
-  const churned = subscriptions.filter((s) => s.status === "cancelled" || s.status === "expired");
-  const churnRate = subscriptions.length > 0 ? Math.round((churned.length / subscriptions.length) * 1000) / 10 : 0;
+  const totalMinor = transactions.reduce((sum, t) => sum + t.amount, 0);
+  const monthMinor = transactions
+    .filter((t) => t.paidAt >= monthStart && t.paidAt <= monthEnd)
+    .reduce((sum, t) => sum + t.amount, 0);
+  const prevMonthMinor = transactions
+    .filter((t) => t.paidAt >= prevMonthStart && t.paidAt <= prevMonthEnd)
+    .reduce((sum, t) => sum + t.amount, 0);
+  const weekMinor = transactions
+    .filter((t) => t.paidAt >= weekStart)
+    .reduce((sum, t) => sum + t.amount, 0);
+  const prevWeekMinor = transactions
+    .filter((t) => t.paidAt >= prevWeekStart && t.paidAt <= prevWeekEnd)
+    .reduce((sum, t) => sum + t.amount, 0);
 
-  const avgDaysToFirstPayment = computeAvgDaysToFirstPayment(subscriptions);
+  const totalRevenue = minorToMajor(totalMinor);
+  const revenueThisMonth = minorToMajor(monthMinor);
+  const revenueLastMonth = minorToMajor(prevMonthMinor);
+  const revenueThisWeek = minorToMajor(weekMinor);
+  const revenueLastWeek = minorToMajor(prevWeekMinor);
+
+  const avgDaysToFirstPayment = computeAvgDaysToFirstPayment(transactions);
 
   return {
     revenue: {
@@ -50,29 +83,38 @@ export async function getPayments(): Promise<Record<string, unknown>> {
       revenueThisWeekChange: percentChange(revenueThisWeek, revenueLastWeek),
       avgDaysToFirstPayment,
     },
-    mrr: buildMrrSeries(subscriptions),
-    churnRate,
-    churnedUsers: churned.map((s) => ({
-      id: s.id.toString(),
-      userName: s.user.firstName,
-      username: s.user.username ?? null,
-      planEndDate: s.endDate.toISOString(),
-      logsBeforeChurn: s.user.logCount,
-      proDays: Math.round(daysBetween(s.startDate, s.endDate)),
-    })),
-    transactions: subscriptions.map((s) => ({
-      id: s.id.toString(),
-      userName: s.user.firstName,
-      username: s.user.username ?? null,
-      amount: STORAGE_PRICE_NGN,
-      method: "paystack",
-      date: s.startDate.toISOString(),
-      status: s.status,
+    mrr: buildMrrSeries(transactions),
+    churnRate: totalPaidUsers > 0
+      ? Math.round((churnedUsers.length / totalPaidUsers) * 1000) / 10
+      : 0,
+    churnedUsers: churnedUsers.map((u) => {
+      const planEnd = u.subscription?.endDate ?? u.nextRenewalDate;
+      const planStart = u.subscription?.startDate ?? u.createdAt;
+      return {
+        id: u.id.toString(),
+        userName: u.firstName,
+        username: u.username ?? null,
+        planEndDate: planEnd ? planEnd.toISOString() : null,
+        logsBeforeChurn: u.logCount,
+        proDays: planEnd ? Math.round(daysBetween(planStart, planEnd)) : 0,
+        status: u.subscription?.status ?? "expired",
+      };
+    }),
+    transactions: transactions.map((t) => ({
+      id: t.id.toString(),
+      userName: t.user.firstName,
+      username: t.user.username ?? null,
+      amount: minorToMajor(t.amount),
+      method: t.provider,
+      date: t.paidAt.toISOString(),
+      status: "success",
+      reference: t.reference,
+      currency: t.currency,
     })),
   };
 }
 
-function buildMrrSeries(subscriptions: Array<{ startDate: Date }>): Array<{ month: string; value: number; projected?: boolean }> {
+function buildMrrSeries(transactions: Array<{ paidAt: Date; amount: number }>): Array<{ month: string; value: number; projected?: boolean }> {
   const now = new Date();
   const monthLabel = new Intl.DateTimeFormat("en-US", { month: "short", year: "numeric", timeZone: "UTC" });
   const months = [
@@ -83,17 +125,34 @@ function buildMrrSeries(subscriptions: Array<{ startDate: Date }>): Array<{ mont
 
   return months.map((month, index) => {
     const nextMonth = new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + 1, 1));
-    const count = subscriptions.filter((s) => s.startDate >= month && s.startDate < nextMonth).length;
+    const totalMinor = transactions
+      .filter((t) => t.paidAt >= month && t.paidAt < nextMonth)
+      .reduce((sum, t) => sum + t.amount, 0);
     return {
       month: monthLabel.format(month),
-      value: count * STORAGE_PRICE_NGN,
+      value: minorToMajor(totalMinor),
       projected: index === months.length - 1 ? true : undefined,
     };
   });
 }
 
-function computeAvgDaysToFirstPayment(subscriptions: Array<{ startDate: Date; user: { createdAt: Date } }>): number {
-  if (subscriptions.length === 0) return 0;
-  const total = subscriptions.reduce((sum, sub) => sum + daysBetween(sub.user.createdAt, sub.startDate), 0);
-  return Math.round((total / subscriptions.length) * 10) / 10;
+function computeAvgDaysToFirstPayment(
+  transactions: Array<{ userId: number; paidAt: Date; user: { createdAt: Date } }>,
+): number {
+  if (transactions.length === 0) return 0;
+
+  const firstPayments = new Map<number, { paidAt: Date; createdAt: Date }>();
+  for (const transaction of transactions) {
+    const existing = firstPayments.get(transaction.userId);
+    if (!existing || transaction.paidAt < existing.paidAt) {
+      firstPayments.set(transaction.userId, { paidAt: transaction.paidAt, createdAt: transaction.user.createdAt });
+    }
+  }
+
+  const totals = Array.from(firstPayments.values()).reduce(
+    (sum, entry) => sum + daysBetween(entry.createdAt, entry.paidAt),
+    0,
+  );
+
+  return Math.round((totals / firstPayments.size) * 10) / 10;
 }

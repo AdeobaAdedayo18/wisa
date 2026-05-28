@@ -46,6 +46,7 @@ model User {
   reminderJobs       ReminderJob[]
   subscription       Subscription?
   manualPayments     ManualPayment[]
+  paymentTransactions PaymentTransaction[]
 
   @@index([logFrequency, onboardingDone, botBlocked, lastGreetingSentAt])
   @@index([lastGreetingType])
@@ -77,6 +78,7 @@ model Subscription {
 
 model ReminderJob {
   id             Int       @id @default(autoincrement())
+  cycleId        String    @default(cuid())
   userId         Int
   user           User      @relation(fields: [userId], references: [id])
   telegramId     BigInt
@@ -86,12 +88,27 @@ model ReminderJob {
   autoNudgeCount Int       @default(0)
   logDate        String? // ISO date "YYYY-MM-DD" the reminder is for (user's local date)
   bucketSent     String?
+  sentAt         DateTime?
   convertedAt    DateTime?
   createdAt      DateTime  @default(now())
+  reminderEvents ReminderEvent[]
 
+  @@index([cycleId])
   @@index([userId, status, scheduledFor])
   @@index([status, scheduledFor])
   @@index([status, autoNudgeCount])
+  @@index([sentAt])
+}
+
+model ReminderEvent {
+  id            Int         @id @default(autoincrement())
+  reminderJobId Int
+  reminderJob   ReminderJob @relation(fields: [reminderJobId], references: [id])
+  eventType     String // "sent" | "snoozed" | "skipped" | "converted" | "auto_nudged"
+  createdAt     DateTime    @default(now())
+  metadata      Json?
+
+  @@index([reminderJobId, createdAt])
 }
 
 model Session {
@@ -107,6 +124,21 @@ model ManualPayment {
   status    String   @default("pending") // "pending" | "approved" | "rejected"
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model PaymentTransaction {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  amount    Int
+  currency  String
+  provider  String
+  reference String   @unique
+  metadata  Json?
+  paidAt    DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId, paidAt])
 }
 
 model ReplayEvent {

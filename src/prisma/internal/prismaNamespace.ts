@@ -388,8 +388,10 @@ export const ModelName = {
   Log: 'Log',
   Subscription: 'Subscription',
   ReminderJob: 'ReminderJob',
+  ReminderEvent: 'ReminderEvent',
   Session: 'Session',
   ManualPayment: 'ManualPayment',
+  PaymentTransaction: 'PaymentTransaction',
   ReplayEvent: 'ReplayEvent',
   WeeklyQuote: 'WeeklyQuote'
 } as const
@@ -407,7 +409,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "log" | "subscription" | "reminderJob" | "session" | "manualPayment" | "replayEvent" | "weeklyQuote"
+    modelProps: "user" | "log" | "subscription" | "reminderJob" | "reminderEvent" | "session" | "manualPayment" | "paymentTransaction" | "replayEvent" | "weeklyQuote"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -707,6 +709,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    ReminderEvent: {
+      payload: Prisma.$ReminderEventPayload<ExtArgs>
+      fields: Prisma.ReminderEventFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.ReminderEventFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ReminderEventPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.ReminderEventFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ReminderEventPayload>
+        }
+        findFirst: {
+          args: Prisma.ReminderEventFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ReminderEventPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.ReminderEventFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ReminderEventPayload>
+        }
+        findMany: {
+          args: Prisma.ReminderEventFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ReminderEventPayload>[]
+        }
+        create: {
+          args: Prisma.ReminderEventCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ReminderEventPayload>
+        }
+        createMany: {
+          args: Prisma.ReminderEventCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.ReminderEventCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ReminderEventPayload>[]
+        }
+        delete: {
+          args: Prisma.ReminderEventDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ReminderEventPayload>
+        }
+        update: {
+          args: Prisma.ReminderEventUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ReminderEventPayload>
+        }
+        deleteMany: {
+          args: Prisma.ReminderEventDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.ReminderEventUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.ReminderEventUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ReminderEventPayload>[]
+        }
+        upsert: {
+          args: Prisma.ReminderEventUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ReminderEventPayload>
+        }
+        aggregate: {
+          args: Prisma.ReminderEventAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateReminderEvent>
+        }
+        groupBy: {
+          args: Prisma.ReminderEventGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ReminderEventGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.ReminderEventCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ReminderEventCountAggregateOutputType> | number
+        }
+      }
+    }
     Session: {
       payload: Prisma.$SessionPayload<ExtArgs>
       fields: Prisma.SessionFieldRefs
@@ -852,6 +928,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         count: {
           args: Prisma.ManualPaymentCountArgs<ExtArgs>
           result: runtime.Types.Utils.Optional<Prisma.ManualPaymentCountAggregateOutputType> | number
+        }
+      }
+    }
+    PaymentTransaction: {
+      payload: Prisma.$PaymentTransactionPayload<ExtArgs>
+      fields: Prisma.PaymentTransactionFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.PaymentTransactionFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PaymentTransactionPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.PaymentTransactionFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PaymentTransactionPayload>
+        }
+        findFirst: {
+          args: Prisma.PaymentTransactionFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PaymentTransactionPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.PaymentTransactionFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PaymentTransactionPayload>
+        }
+        findMany: {
+          args: Prisma.PaymentTransactionFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PaymentTransactionPayload>[]
+        }
+        create: {
+          args: Prisma.PaymentTransactionCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PaymentTransactionPayload>
+        }
+        createMany: {
+          args: Prisma.PaymentTransactionCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.PaymentTransactionCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PaymentTransactionPayload>[]
+        }
+        delete: {
+          args: Prisma.PaymentTransactionDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PaymentTransactionPayload>
+        }
+        update: {
+          args: Prisma.PaymentTransactionUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PaymentTransactionPayload>
+        }
+        deleteMany: {
+          args: Prisma.PaymentTransactionDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.PaymentTransactionUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.PaymentTransactionUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PaymentTransactionPayload>[]
+        }
+        upsert: {
+          args: Prisma.PaymentTransactionUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$PaymentTransactionPayload>
+        }
+        aggregate: {
+          args: Prisma.PaymentTransactionAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregatePaymentTransaction>
+        }
+        groupBy: {
+          args: Prisma.PaymentTransactionGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.PaymentTransactionGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.PaymentTransactionCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.PaymentTransactionCountAggregateOutputType> | number
         }
       }
     }
@@ -1101,6 +1251,7 @@ export type SubscriptionScalarFieldEnum = (typeof SubscriptionScalarFieldEnum)[k
 
 export const ReminderJobScalarFieldEnum = {
   id: 'id',
+  cycleId: 'cycleId',
   userId: 'userId',
   telegramId: 'telegramId',
   scheduledFor: 'scheduledFor',
@@ -1109,11 +1260,23 @@ export const ReminderJobScalarFieldEnum = {
   autoNudgeCount: 'autoNudgeCount',
   logDate: 'logDate',
   bucketSent: 'bucketSent',
+  sentAt: 'sentAt',
   convertedAt: 'convertedAt',
   createdAt: 'createdAt'
 } as const
 
 export type ReminderJobScalarFieldEnum = (typeof ReminderJobScalarFieldEnum)[keyof typeof ReminderJobScalarFieldEnum]
+
+
+export const ReminderEventScalarFieldEnum = {
+  id: 'id',
+  reminderJobId: 'reminderJobId',
+  eventType: 'eventType',
+  createdAt: 'createdAt',
+  metadata: 'metadata'
+} as const
+
+export type ReminderEventScalarFieldEnum = (typeof ReminderEventScalarFieldEnum)[keyof typeof ReminderEventScalarFieldEnum]
 
 
 export const SessionScalarFieldEnum = {
@@ -1134,6 +1297,21 @@ export const ManualPaymentScalarFieldEnum = {
 } as const
 
 export type ManualPaymentScalarFieldEnum = (typeof ManualPaymentScalarFieldEnum)[keyof typeof ManualPaymentScalarFieldEnum]
+
+
+export const PaymentTransactionScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  amount: 'amount',
+  currency: 'currency',
+  provider: 'provider',
+  reference: 'reference',
+  metadata: 'metadata',
+  paidAt: 'paidAt',
+  createdAt: 'createdAt'
+} as const
+
+export type PaymentTransactionScalarFieldEnum = (typeof PaymentTransactionScalarFieldEnum)[keyof typeof PaymentTransactionScalarFieldEnum]
 
 
 export const ReplayEventScalarFieldEnum = {
@@ -1166,6 +1344,14 @@ export const SortOrder = {
 export type SortOrder = (typeof SortOrder)[keyof typeof SortOrder]
 
 
+export const NullableJsonNullValueInput = {
+  DbNull: DbNull,
+  JsonNull: JsonNull
+} as const
+
+export type NullableJsonNullValueInput = (typeof NullableJsonNullValueInput)[keyof typeof NullableJsonNullValueInput]
+
+
 export const QueryMode = {
   default: 'default',
   insensitive: 'insensitive'
@@ -1180,6 +1366,15 @@ export const NullsOrder = {
 } as const
 
 export type NullsOrder = (typeof NullsOrder)[keyof typeof NullsOrder]
+
+
+export const JsonNullValueFilter = {
+  DbNull: DbNull,
+  JsonNull: JsonNull,
+  AnyNull: AnyNull
+} as const
+
+export type JsonNullValueFilter = (typeof JsonNullValueFilter)[keyof typeof JsonNullValueFilter]
 
 
 
@@ -1262,6 +1457,20 @@ export type EnumGreetingTypeFieldRefInput<$PrismaModel> = FieldRefInputType<$Pri
  * Reference to a field of type 'GreetingType[]'
  */
 export type ListEnumGreetingTypeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'GreetingType[]'>
+    
+
+
+/**
+ * Reference to a field of type 'Json'
+ */
+export type JsonFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Json'>
+    
+
+
+/**
+ * Reference to a field of type 'QueryMode'
+ */
+export type EnumQueryModeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'QueryMode'>
     
 
 
@@ -1392,8 +1601,10 @@ export type GlobalOmitConfig = {
   log?: Prisma.LogOmit
   subscription?: Prisma.SubscriptionOmit
   reminderJob?: Prisma.ReminderJobOmit
+  reminderEvent?: Prisma.ReminderEventOmit
   session?: Prisma.SessionOmit
   manualPayment?: Prisma.ManualPaymentOmit
+  paymentTransaction?: Prisma.PaymentTransactionOmit
   replayEvent?: Prisma.ReplayEventOmit
   weeklyQuote?: Prisma.WeeklyQuoteOmit
 }

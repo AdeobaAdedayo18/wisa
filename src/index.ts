@@ -9,6 +9,7 @@ import { prisma } from "./lib/prisma";
 import { adminRouter } from "./admin/router";
 import { dashboardRouter } from "./dashboard/routes";
 import { flushReplayBuffer, captureReplayError } from "./services/replayCapture";
+import { recordSuccessfulTransaction } from "./services/transactions";
 import { InlineKeyboard } from "grammy";
 
 const app = express();
@@ -73,6 +74,20 @@ app.post("/webhook/paystack", express.raw({ type: "application/json" }), async (
             endDate: renewalDate,
           },
         });
+        try {
+          const paidAt = payload.data?.paid_at ? new Date(payload.data.paid_at) : new Date();
+          await recordSuccessfulTransaction({
+            userId: user.id,
+            amount: Number(payload.data?.amount ?? 0),
+            currency: String(payload.data?.currency ?? "NGN"),
+            provider: "paystack",
+            reference: ref,
+            metadata: payload.data?.metadata ?? null,
+            paidAt,
+          });
+        } catch (recordErr) {
+          console.error("[webhook] Failed to record transaction:", recordErr);
+        }
         console.log(`[webhook] User ${user.id} storage unlocked. Renewal set to ${renewalDate.toISOString()}`);
       } else {
         console.warn(`[webhook] No user found for telegramId=${telegramId}`);
