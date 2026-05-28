@@ -2,6 +2,7 @@ import cron from "node-cron";
 import { Bot } from "grammy";
 import { GreetingType } from "../prisma/enums";
 import { prisma } from "../lib/prisma";
+import type { Prisma } from "../prisma/client";
 import {
   getReminderMessage,
   MORNING_GREETINGS,
@@ -22,6 +23,41 @@ const WAT_OFFSET_MS = 60 * 60 * 1000;
 
 function isBotBlockedError(e: unknown): boolean {
   return e instanceof Error && e.message.includes("bot was blocked by the user");
+}
+
+async function createReminderEvent(
+  reminderJobId: number,
+  eventType: string,
+  metadata?: Prisma.InputJsonValue
+): Promise<void> {
+  try {
+    await prisma.reminderEvent.create({
+      data: {
+        reminderJobId,
+        eventType,
+        metadata: metadata ?? undefined,
+      },
+    });
+  } catch (err) {
+    console.error(`[scheduler] Failed to write reminder event ${eventType} for job ${reminderJobId}:`, err);
+  }
+}
+
+async function createReminderEvents(
+  events: Array<{ reminderJobId: number; eventType: string; metadata?: Prisma.InputJsonValue }>
+): Promise<void> {
+  if (events.length === 0) return;
+  try {
+    await prisma.reminderEvent.createMany({
+      data: events.map((event) => ({
+        reminderJobId: event.reminderJobId,
+        eventType: event.eventType,
+        metadata: event.metadata ?? undefined,
+      })),
+    });
+  } catch (err) {
+    console.error("[scheduler] Failed to write reminder events batch:", err);
+  }
 }
 
 async function markUserBlockedAndSkipPendingJobs(userId: number): Promise<void> {
@@ -422,6 +458,14 @@ export function startScheduler(bot: Bot<BotContext>): void {
           where: { id: { in: duplicateJobIds } },
           data: { status: "skipped" },
         });
+
+        await createReminderEvents(
+          duplicateJobIds.map((id) => ({
+            reminderJobId: id,
+            eventType: "skipped",
+            metadata: { reason: "duplicate" },
+          }))
+        );
       }
 
       const userIds = Array.from(bestJobByUser.keys());
@@ -446,6 +490,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
 
           if (alreadyLoggedToday) {
             await prisma.reminderJob.update({ where: { id: job.id }, data: { status: "sent" } });
+            await createReminderEvent(job.id, "skipped", { reason: "already_logged" });
             await scheduleNextJob(job.userId, job.telegramId);
             continue;
           }
@@ -453,6 +498,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
           const localDow = getLocalDayOfWeek(new Date(), userTz);
           if (localDow === 0 || localDow === 6) {
             await prisma.reminderJob.update({ where: { id: job.id }, data: { status: "skipped" } });
+            await createReminderEvent(job.id, "skipped", { reason: "weekend" });
             await scheduleNextJob(job.userId, job.telegramId);
             continue;
           }
@@ -464,6 +510,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
 
           if (daysSinceLastLog > 14) {
             await prisma.reminderJob.update({ where: { id: job.id }, data: { status: "skipped" } });
+            await createReminderEvent(job.id, "skipped", { reason: "inactive" });
             continue;
           }
 
@@ -495,8 +542,10 @@ export function startScheduler(bot: Bot<BotContext>): void {
 
             await prisma.reminderJob.update({
               where: { id: job.id },
-              data: { status: "sent", logDate, bucketSent: bucket },
+              data: { status: "sent", logDate, bucketSent: bucket, sentAt: new Date() },
             });
+
+            await createReminderEvent(job.id, "sent", { bucket, logDate, silent: isSilent });
 
             await scheduleNextJob(job.userId, job.telegramId);
           } catch (e: unknown) {
@@ -559,6 +608,14 @@ export function startScheduler(bot: Bot<BotContext>): void {
           where: { id: { in: extraSentIds } },
           data: { status: "snoozed", autoNudgeCount: 3 },
         });
+
+        await createReminderEvents(
+          extraSentIds.map((id) => ({
+            reminderJobId: id,
+            eventType: "snoozed",
+            metadata: { reason: "duplicate_sent" },
+          }))
+        );
       }
 
       const userIds = Array.from(bestSentByUser.keys());
@@ -586,6 +643,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
 
           if (alreadyLoggedToday) {
             await prisma.reminderJob.update({ where: { id: job.id }, data: { autoNudgeCount: 3 } });
+            await createReminderEvent(job.id, "skipped", { reason: "already_logged" });
             continue;
           }
 
@@ -613,8 +671,10 @@ export function startScheduler(bot: Bot<BotContext>): void {
                   ]
                 },
               );
+              await createReminderEvent(job.id, "auto_nudged", { nudgeIndex: nudgeIndex + 1 });
               // Final nudge sent, mark as skipped
               await prisma.reminderJob.update({ where: { id: job.id }, data: { status: "skipped" } });
+              await createReminderEvent(job.id, "skipped", { reason: "auto_nudge_final" });
             } else {
               await bot.api.sendMessage(
                 Number(job.telegramId),
@@ -627,6 +687,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
                   }
                 }
               );
+              await createReminderEvent(job.id, "auto_nudged", { nudgeIndex: nudgeIndex + 1 });
             }
           } catch (networkErr: unknown) {
              // Rollback the claim on network failure so it can be retried

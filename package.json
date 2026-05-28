@@ -10,7 +10,8 @@
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
-    "test:refine": "tsx scripts/test-refine.ts"
+    "test:refine": "tsx scripts/test-refine.ts",
+    "stats:onboarding": "tsx scripts/onboarding-activation-report.ts"
   },
   "engines": {
     "node": "^20.19 || ^22.12 || >=24.0"

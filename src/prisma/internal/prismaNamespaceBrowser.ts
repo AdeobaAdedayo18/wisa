@@ -55,6 +55,7 @@ export const ModelName = {
   Log: 'Log',
   Subscription: 'Subscription',
   ReminderJob: 'ReminderJob',
+  ReminderEvent: 'ReminderEvent',
   Session: 'Session',
   ManualPayment: 'ManualPayment',
   ReplayEvent: 'ReplayEvent',
@@ -95,6 +96,7 @@ export const UserScalarFieldEnum = {
   freeVoiceLogs: 'freeVoiceLogs',
   onboardingDone: 'onboardingDone',
   botBlocked: 'botBlocked',
+  hitPaywall: 'hitPaywall',
   lastGreetingSentAt: 'lastGreetingSentAt',
   lastGreetingType: 'lastGreetingType',
   createdAt: 'createdAt'
@@ -133,6 +135,7 @@ export type SubscriptionScalarFieldEnum = (typeof SubscriptionScalarFieldEnum)[k
 
 export const ReminderJobScalarFieldEnum = {
   id: 'id',
+  cycleId: 'cycleId',
   userId: 'userId',
   telegramId: 'telegramId',
   scheduledFor: 'scheduledFor',
@@ -141,11 +144,23 @@ export const ReminderJobScalarFieldEnum = {
   autoNudgeCount: 'autoNudgeCount',
   logDate: 'logDate',
   bucketSent: 'bucketSent',
+  sentAt: 'sentAt',
   convertedAt: 'convertedAt',
   createdAt: 'createdAt'
 } as const
 
 export type ReminderJobScalarFieldEnum = (typeof ReminderJobScalarFieldEnum)[keyof typeof ReminderJobScalarFieldEnum]
+
+
+export const ReminderEventScalarFieldEnum = {
+  id: 'id',
+  reminderJobId: 'reminderJobId',
+  eventType: 'eventType',
+  createdAt: 'createdAt',
+  metadata: 'metadata'
+} as const
+
+export type ReminderEventScalarFieldEnum = (typeof ReminderEventScalarFieldEnum)[keyof typeof ReminderEventScalarFieldEnum]
 
 
 export const SessionScalarFieldEnum = {
@@ -198,6 +213,14 @@ export const SortOrder = {
 export type SortOrder = (typeof SortOrder)[keyof typeof SortOrder]
 
 
+export const NullableJsonNullValueInput = {
+  DbNull: DbNull,
+  JsonNull: JsonNull
+} as const
+
+export type NullableJsonNullValueInput = (typeof NullableJsonNullValueInput)[keyof typeof NullableJsonNullValueInput]
+
+
 export const QueryMode = {
   default: 'default',
   insensitive: 'insensitive'
@@ -212,4 +235,13 @@ export const NullsOrder = {
 } as const
 
 export type NullsOrder = (typeof NullsOrder)[keyof typeof NullsOrder]
+
+
+export const JsonNullValueFilter = {
+  DbNull: DbNull,
+  JsonNull: JsonNull,
+  AnyNull: AnyNull
+} as const
+
+export type JsonNullValueFilter = (typeof JsonNullValueFilter)[keyof typeof JsonNullValueFilter]
 

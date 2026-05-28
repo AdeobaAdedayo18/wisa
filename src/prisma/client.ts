@@ -60,6 +60,11 @@ export type Subscription = Prisma.SubscriptionModel
  */
 export type ReminderJob = Prisma.ReminderJobModel
 /**
+ * Model ReminderEvent
+ * 
+ */
+export type ReminderEvent = Prisma.ReminderEventModel
+/**
  * Model Session
  * 
  */
