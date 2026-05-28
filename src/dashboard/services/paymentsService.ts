@@ -15,15 +15,21 @@ function minorToMajor(amountMinor: number): number {
   return Math.round(amountMinor / 100);
 }
 
+function startOfUtcWeek(date: Date): Date {
+  const day = date.getUTCDay();
+  const diff = (day + 6) % 7; // Monday as week start
+  return startOfUtcDay(addUtcDays(date, -diff));
+}
+
 export async function getPayments(): Promise<Record<string, unknown>> {
   const now = new Date();
   const monthStart = startOfUtcDay(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)));
   const monthEnd = endOfUtcDay(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)));
   const prevMonthStart = startOfUtcDay(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)));
   const prevMonthEnd = endOfUtcDay(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0)));
-  const weekStart = startOfUtcDay(addUtcDays(now, -7));
-  const prevWeekStart = startOfUtcDay(addUtcDays(now, -14));
-  const prevWeekEnd = endOfUtcDay(addUtcDays(now, -8));
+  const weekStart = startOfUtcWeek(now);
+  const prevWeekStart = addUtcDays(weekStart, -7);
+  const prevWeekEnd = endOfUtcDay(addUtcDays(weekStart, -1));
 
   const transactions = await prisma.paymentTransaction.findMany({
     orderBy: { paidAt: "desc" },
@@ -31,6 +37,17 @@ export async function getPayments(): Promise<Record<string, unknown>> {
       user: { select: { firstName: true, username: true, createdAt: true } },
     },
   });
+
+  const [totalSubscriptions, churnedSubscriptions] = await Promise.all([
+    prisma.subscription.count(),
+    prisma.subscription.findMany({
+      where: { status: { in: ["cancelled", "expired"] } },
+      orderBy: { endDate: "desc" },
+      include: {
+        user: { select: { firstName: true, username: true, logCount: true } },
+      },
+    }),
+  ]);
 
   const totalMinor = transactions.reduce((sum, t) => sum + t.amount, 0);
   const monthMinor = transactions
@@ -64,8 +81,18 @@ export async function getPayments(): Promise<Record<string, unknown>> {
       avgDaysToFirstPayment,
     },
     mrr: buildMrrSeries(transactions),
-    churnRate: 0,
-    churnedUsers: [],
+    churnRate: totalSubscriptions > 0
+      ? Math.round((churnedSubscriptions.length / totalSubscriptions) * 1000) / 10
+      : 0,
+    churnedUsers: churnedSubscriptions.map((s) => ({
+      id: s.id.toString(),
+      userName: s.user.firstName,
+      username: s.user.username ?? null,
+      planEndDate: s.endDate.toISOString(),
+      logsBeforeChurn: s.user.logCount,
+      proDays: Math.round(daysBetween(s.startDate, s.endDate)),
+      status: s.status,
+    })),
     transactions: transactions.map((t) => ({
       id: t.id.toString(),
       userName: t.user.firstName,
