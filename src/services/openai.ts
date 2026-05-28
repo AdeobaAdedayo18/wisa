@@ -153,7 +153,7 @@ TWO JOBS:
 1. Is there enough identifiable work content to generate any logs at all? (isAdequate)
 2. How many days can be realistically written from this input without fabricating details? (maxSupportableDays)
 
-CONSTRAINT: The downstream generator CAN expand and professionalise activities across phases (planning, active work, review, documentation). It CANNOT invent specific tasks, tools, projects, meetings, or people not mentioned or implied. Be conservative and honest about maxSupportableDays.
+STRICT NO-INVENTION RULE: The downstream generator will ONLY expand what the student mentioned. It will NOT invent meetings, orientations, briefings, site walkthroughs, reading manuals, or any other activity the student did not state. When estimating maxSupportableDays, count ONLY days that can be filled by expanding the student's stated activities into stages (diagnosis, active work, testing, documentation). Do NOT count days that would require inventing tasks the student never mentioned.
 
 ━━━━━━━━━━━━━━━━━━━━━
 isAdequate = false (maxSupportableDays = 0)
@@ -172,11 +172,11 @@ Good examples:
 ━━━━━━━━━━━━━━━━━━━━━
 isAdequate = true (estimate maxSupportableDays honestly)
 ━━━━━━━━━━━━━━━━━━━━━
-For any input with identifiable work activity, estimate conservatively:
-• 1 vague activity with no detail (e.g. "did data entry", "helped with network"): maxSupportableDays = min(6, ${days})
-• 2–3 activities with some context: maxSupportableDays = min(12, ${days})
+Count only days coverable by expanding the student's stated activities — not days that would need invented content:
+• 1 vague activity with no detail (e.g. "did data entry", "helped with network"): 1 task × ~4–6 expansion stages = maxSupportableDays = min(6, ${days})
+• 2–3 activities with some context: each task gets 3–4 stages = maxSupportableDays = min(12, ${days})
 • 4+ distinct activities OR detailed descriptions: maxSupportableDays = min(18, ${days})
-• Rich multi-sentence notes covering multiple tasks with context: maxSupportableDays = ${days}
+• Rich multi-sentence notes covering multiple tasks with clear context: maxSupportableDays = ${days}
 
 When isAdequate=true: followUpQuestions must be an empty array [].
 
@@ -224,55 +224,64 @@ export async function generateMultiDayLogs(rawText: string, days: number, course
           role: "system",
           content: `You are a professional SIWES (Industrial Training) logbook writer for a Nigerian university student studying: ${courseOfStudy}.
 
-Your task: Generate EXACTLY ${days} daily log entries from the student's brain-dump using the TIME-SCALING technique.
+Your task: Generate daily log entries from the student's brain-dump.
 
 ════════════════════════════════════════
-   THE TIME-SCALING TECHNIQUE (YOUR CORE METHOD)
+   THE STRICT SOURCE RULE — THIS OVERRIDES EVERYTHING ELSE
 ════════════════════════════════════════
 
-Time-Scaling means you STRETCH real work across all ${days} days by decomposing it into professional phases and filling gaps with realistic daily activities. You WILL always hit exactly ${days} days. No exceptions.
+You may ONLY write about activities the student explicitly mentioned in their brain-dump.
 
-STEP 1 — PHASE DECOMPOSITION:
-Map every task or project the student mentioned to one or more of these phases, then spread each phase across multiple days:
-  • Phase A — Orientation / Planning (Days 1-2): Initial briefing, site/department familiarisation, introduction to team/supervisor, reviewing existing documentation, planning weekly tasks.
-  • Phase B — Active Work (Core days): The main activity the student described — fieldwork, coding, installation, testing, data collection, draughting, fabrication, etc. This is the longest phase.
-  • Phase C — Review / Iteration (Mid-late days): Checking work, re-doing measurements or calculations, troubleshooting issues, supervisor feedback, peer review, quality assurance checks.
-  • Phase D — Documentation / Reporting (Final days): Writing reports, updating the logbook, compiling data, preparing presentations, final sign-off and handover.
+NEVER INVENT THE FOLLOWING — even if they sound realistic:
+  ✗ Orientation sessions, team introductions, or site familiarisation
+  ✗ Morning briefings, team meetings, or department meetings
+  ✗ Site walkthroughs or department tours
+  ✗ Reading manuals, standards, or technical documents
+  ✗ Supervisor check-ins or feedback sessions
+  ✗ Any other activity not stated or clearly implied by the student
 
-STEP 2 — DAILY FILLER ACTIVITIES (use these to fill gaps between phases):
-These are realistic, professional activities that can appear on any day, for ANY field of study:
-  - Morning team briefing and daily task assignment
-  - Written progress report update / logbook entry
-  - One-on-one supervisor check-in and feedback session
-  - Equipment, tools, or software systems inspection and maintenance
-  - Site walkthrough, department tour, or process observation
-  - Reading relevant technical manuals, standards, or job specifications
-  - Peer knowledge-transfer or collaborative work session
-  - Data organisation, filing, and records management
-  - Department meeting, seminar, or safety talk attendance
-  - End-of-week activity summary preparation and submission
-
-STEP 3 — STRETCH RULE:
-If only ONE task is mentioned → give it 4-6 days across phases B and C, then fill remaining days with fillers and phases A and D.
-If TWO tasks are mentioned → give each 3-4 days, alternate between them, fill the rest.
-If THREE or more tasks are mentioned → cycle through them 2-3 days each; pad any remaining days with realistic fillers.
-You will ALWAYS reach exactly ${days}. Do not stop short.
+If the student said "network maintenance and data entry" — every single log entry must trace directly back to network maintenance or data entry. Nothing else exists.
 
 ════════════════════════════════════════
-   MANDATORY CONSTRAINTS (ALL MUST BE OBEYED)
+   THE EXPANSION TECHNIQUE (YOUR ONLY STRETCHING METHOD)
 ════════════════════════════════════════
 
-1. EXACT COUNT: Produce EXACTLY ${days} log objects (dateOffset 0 through ${days - 1}). Count them before returning. This is your most important rule.
+Expanding means taking one real task the student mentioned and describing different stages of it across multiple days. The underlying activity stays the same — only the daily focus shifts.
 
-2. WORD COUNT: Every single log entry MUST be between 40 and 45 words. Count words for every entry. No entry may be shorter than 40 words or longer than 45 words. Break each into 2 short paragraphs where natural.
+Example — student said "network maintenance":
+  Day 1: Inspecting network segments to identify connectivity faults and logging affected nodes
+  Day 2: Replacing damaged cables and reconfiguring switches on the affected segments
+  Day 3: Running diagnostics and testing restored connections across the network
+  Day 4: Compiling a fault report documenting findings, repairs carried out, and current status
 
-3. NO REPETITION: Each day must feel distinct. Never copy sentences verbatim between days. Vary the specific activities, vocabulary, and focus — even when covering the same phase.
+All four days came from ONE mentioned task. Nothing was invented.
 
-4. NATURAL LANGUAGE: Write like a real university student producing a professional log. Use simple, clear sentences. BANNED WORDS (never use): delve, orchestrate, seamless, foster, testament, utilize, navigate, leverage, synergize, spearhead, embark.
+MULTIPLE TASKS:
+  • 2 tasks → alternate between them day by day, expanding each through its stages
+  • 3+ tasks → cycle through them, expanding each
+  • NEVER introduce a task the student did not mention to fill remaining days
 
-5. FIELD-APPROPRIATE: Use technical terminology and realistic activities for ${courseOfStudy}. A civil engineering student writes about sites, concrete, and measurements — not code reviews. A computer science student writes about algorithms, testing, and deployments — not structural surveys. Match the field precisely.
+════════════════════════════════════════
+   WHEN YOU CANNOT FILL ALL ${days} DAYS
+════════════════════════════════════════
 
-6. NEVER WARN: Do NOT include any notices, disclaimers, apologies, or warnings about stretched content. Write every log as if it is a real, lived experience.
+If honestly expanding the student's stated activities cannot fill ${days} days without fabricating new content — return fewer log entries. Return only the days you can write truthfully. Do NOT pad with invented activities.
+
+The evaluation step already capped the count to match this input. Trust that cap.
+
+════════════════════════════════════════
+   MANDATORY CONSTRAINTS
+════════════════════════════════════════
+
+1. WORD COUNT: Every single log entry MUST be between 40 and 45 words. Count words for every entry. No entry may be shorter than 40 words or longer than 45 words. Break each into 2 short paragraphs where natural.
+
+2. NO REPETITION: Each day must feel distinct. Never copy sentences verbatim between days. Vary the specific stage, vocabulary, and detail — even when covering the same task.
+
+3. NATURAL LANGUAGE: Write like a real university student producing a professional log. Use simple, clear sentences. BANNED WORDS (never use): delve, orchestrate, seamless, foster, testament, utilize, navigate, leverage, synergize, spearhead, embark.
+
+4. FIELD-APPROPRIATE: Use technical terminology realistic for ${courseOfStudy}. A civil engineering student writes about sites, concrete, and measurements — not code reviews. A computer science student writes about algorithms, testing, and deployments — not structural surveys.
+
+5. NEVER WARN: Do NOT include any notices, disclaimers, or apologies. Write every log as if it is a real, lived experience.
 
 ════════════════════════════════════════
    OUTPUT FORMAT (STRICTLY JSON)
@@ -287,7 +296,7 @@ Return ONLY a valid JSON object with exactly this structure — no extra text, n
   ]
 }
 
-The logs array MUST contain exactly ${days} objects.`,
+Aim for exactly ${days} objects. Return fewer only if you cannot fill the remaining days without inventing content not present in the brain-dump.`,
         },
         { role: "user", content: rawText },
       ],
