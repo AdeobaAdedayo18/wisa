@@ -58,6 +58,7 @@ export const ModelName = {
   ReminderEvent: 'ReminderEvent',
   Session: 'Session',
   ManualPayment: 'ManualPayment',
+  PaymentTransaction: 'PaymentTransaction',
   ReplayEvent: 'ReplayEvent',
   WeeklyQuote: 'WeeklyQuote'
 } as const
@@ -183,6 +184,21 @@ export const ManualPaymentScalarFieldEnum = {
 } as const
 
 export type ManualPaymentScalarFieldEnum = (typeof ManualPaymentScalarFieldEnum)[keyof typeof ManualPaymentScalarFieldEnum]
+
+
+export const PaymentTransactionScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  amount: 'amount',
+  currency: 'currency',
+  provider: 'provider',
+  reference: 'reference',
+  metadata: 'metadata',
+  paidAt: 'paidAt',
+  createdAt: 'createdAt'
+} as const
+
+export type PaymentTransactionScalarFieldEnum = (typeof PaymentTransactionScalarFieldEnum)[keyof typeof PaymentTransactionScalarFieldEnum]
 
 
 export const ReplayEventScalarFieldEnum = {

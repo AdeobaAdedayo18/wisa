@@ -6,6 +6,7 @@ import { initializeTransaction, verifyTransaction } from "../services/paystack";
 import { getMainMenuKeyboard } from "./onboarding";
 import { getMonetizationUserByTelegramId, hasActiveStorage, STORAGE_PRICE_LABEL } from "./monetization";
 import { parseISO, addDays } from "date-fns"; 
+import { recordSuccessfulTransaction } from "../services/transactions";
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -183,6 +184,21 @@ export async function handleCheckPayment(ctx: BotContext): Promise<void> {
 
     // 1. Activate storage normally (Pass the expiration date so it safely stacks the 30 days)
     await activateStorageForUser(user.id, user.nextRenewalDate);
+
+    try {
+      const paidAt = result.paid_at ? new Date(result.paid_at) : new Date();
+      await recordSuccessfulTransaction({
+        userId: user.id,
+        amount: result.amount,
+        currency: result.currency ?? "NGN",
+        provider: "paystack",
+        reference: result.reference,
+        metadata: result.metadata ?? null,
+        paidAt,
+      });
+    } catch (recordErr) {
+      console.error("[payments] Failed to record transaction:", recordErr);
+    }
 
     // 2. CATCH-UP ENGINE: THE CLIFFHANGER RESOLUTION
     const catchupState = ctx.session.catchup;

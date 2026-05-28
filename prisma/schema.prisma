@@ -46,6 +46,7 @@ model User {
   reminderJobs       ReminderJob[]
   subscription       Subscription?
   manualPayments     ManualPayment[]
+  paymentTransactions PaymentTransaction[]
 
   @@index([logFrequency, onboardingDone, botBlocked, lastGreetingSentAt])
   @@index([lastGreetingType])
@@ -123,6 +124,21 @@ model ManualPayment {
   status    String   @default("pending") // "pending" | "approved" | "rejected"
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model PaymentTransaction {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  amount    Int
+  currency  String
+  provider  String
+  reference String   @unique
+  metadata  Json?
+  paidAt    DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId, paidAt])
 }
 
 model ReplayEvent {

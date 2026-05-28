@@ -785,7 +785,13 @@ export function startScheduler(bot: Bot<BotContext>): void {
         }
 
         if (user.storageUnlocked && renewalLocalDate === lagosYesterday) {
-          await prisma.user.update({ where: { id: user.id }, data: { storageUnlocked: false, isPro: false } });
+          await prisma.$transaction([
+            prisma.user.update({ where: { id: user.id }, data: { storageUnlocked: false, isPro: false } }),
+            prisma.subscription.updateMany({
+              where: { userId: user.id },
+              data: { status: "expired", endDate: renewalDate },
+            }),
+          ]);
           try {
             await bot.api.sendMessage(
               Number(user.telegramId),

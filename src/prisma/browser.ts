@@ -53,6 +53,11 @@ export type Session = Prisma.SessionModel
  */
 export type ManualPayment = Prisma.ManualPaymentModel
 /**
+ * Model PaymentTransaction
+ * 
+ */
+export type PaymentTransaction = Prisma.PaymentTransactionModel
+/**
  * Model ReplayEvent
  * 
  */

@@ -27,8 +27,10 @@ export async function verifyTransaction(reference: string) {
     status: string;              // "success" | "failed" | "abandoned"
     reference: string;
     amount: number;
+    currency?: string;
     metadata: { telegramId?: string };
     customer: { email: string };
+    paid_at?: string;
   };
 }
 
