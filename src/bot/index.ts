@@ -410,7 +410,7 @@ bot.callbackQuery(/^skip_\d+$/, handleSkip);
 bot.callbackQuery("trigger_catchup", startCatchupFlow);
 
 // 🚀 ROUTE CALENDAR CLICKS TO CATCHUP HANDLER
-bot.callbackQuery(/^ccal_/, handleCatchupCallback);
+bot.callbackQuery(/^(ccal_|catchup_)/, handleCatchupCallback);
 
 // Logging flow
 bot.callbackQuery(/^write_log_\d+_\d{4}-\d{2}-\d{2}$/, handleWriteFromReminder);

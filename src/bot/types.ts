@@ -69,6 +69,12 @@ export interface SessionData {
   lastLogMessageAt?: number;
   /** True once the "Save what you have?" auto-save prompt has been sent. */
   autoSavePromptSent?: boolean;
+  /** True while the bot is waiting for the user's first log after onboarding. */
+  awaitingFirstLog?: boolean;
+  /** Unix timestamp (ms) when the post-onboarding first log prompt was sent. */
+  firstLogPromptSentAt?: number;
+  /** True once the 30-minute follow-up for the first log prompt has been sent. */
+  firstLogFollowUpSent?: boolean;
 
   /**
    * When a user hits the storage wall mid-action, we set this so that after
@@ -97,20 +103,20 @@ export interface SessionData {
    */
   catchup?: {
     active: boolean;
-    step: 'none' | 'awaiting_start_date' | 'awaiting_end_date' | 'awaiting_braindump' | 'interrogation' | 'awaiting_course';
-    startDate?: string; // ISO date string YYYY-MM-DD
-    endDate?: string;   // ISO date string YYYY-MM-DD
+    step: 'none' | 'awaiting_start_date' | 'awaiting_end_date' | 'awaiting_braindump' | 'interrogation' | 'awaiting_course' | 'awaiting_more_detail';
+    startDate?: string;
+    endDate?: string;
     workingDays?: number;
     rawDump?: string;
     questionCount?: number;
     courseOfStudy?: string;
-    // THE HOLDING CELL: Stores unpaid logs awaiting Paystack success
-    heldLogs?: Array<{ content: string; logDate: string; dateOffset: number }>; 
-    savedLogsCount?: number; // Track how many logs were saved vs held
-    // ✅ PERMANENT WARNING TRACKING: Store when days are capped by AI evaluation
-    wasCapped?: boolean; // True if maxSupportableDays < workingDays
-    originalRequestedDays?: number; // Original workingDays before capping (user's request)
-    cappedWorkingDays?: number; // The final capped value after AI evaluation (what we actually generate)
+    heldLogs?: Array<{ content: string; logDate: string; dateOffset: number }>;
+    savedLogsCount?: number;
+    wasCapped?: boolean;
+    originalRequestedDays?: number;
+    cappedWorkingDays?: number;
+    cappedAt?: number;      // how many days were generated in the first pass
+    remainingDays?: number; // how many days still need to be generated
   };
 }
 
@@ -149,6 +155,9 @@ export function clearActiveFlow(session: SessionData): void {
   session.flowStartedAt = undefined;
   session.lastLogMessageAt = undefined;
   session.autoSavePromptSent = undefined;
+  session.awaitingFirstLog = undefined;
+  session.firstLogPromptSentAt = undefined;
+  session.firstLogFollowUpSent = undefined;
 
   // Safely reset Catch-Up state (but do NOT wipe heldLogs if they are pending payment)
   if (session.catchup) {
