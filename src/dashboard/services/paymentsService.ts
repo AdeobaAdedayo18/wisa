@@ -38,13 +38,16 @@ export async function getPayments(): Promise<Record<string, unknown>> {
     },
   });
 
-  const [totalSubscriptions, churnedSubscriptions] = await Promise.all([
-    prisma.subscription.count(),
-    prisma.subscription.findMany({
-      where: { status: { in: ["cancelled", "expired"] } },
-      orderBy: { endDate: "desc" },
+  const [totalPaidUsers, churnedUsers] = await Promise.all([
+    prisma.user.count({ where: { nextRenewalDate: { not: null } } }),
+    prisma.user.findMany({
+      where: {
+        storageUnlocked: false,
+        nextRenewalDate: { not: null, lt: now },
+      },
+      orderBy: { nextRenewalDate: "desc" },
       include: {
-        user: { select: { firstName: true, username: true, logCount: true } },
+        subscription: { select: { startDate: true, endDate: true, status: true } },
       },
     }),
   ]);
@@ -81,18 +84,22 @@ export async function getPayments(): Promise<Record<string, unknown>> {
       avgDaysToFirstPayment,
     },
     mrr: buildMrrSeries(transactions),
-    churnRate: totalSubscriptions > 0
-      ? Math.round((churnedSubscriptions.length / totalSubscriptions) * 1000) / 10
+    churnRate: totalPaidUsers > 0
+      ? Math.round((churnedUsers.length / totalPaidUsers) * 1000) / 10
       : 0,
-    churnedUsers: churnedSubscriptions.map((s) => ({
-      id: s.id.toString(),
-      userName: s.user.firstName,
-      username: s.user.username ?? null,
-      planEndDate: s.endDate.toISOString(),
-      logsBeforeChurn: s.user.logCount,
-      proDays: Math.round(daysBetween(s.startDate, s.endDate)),
-      status: s.status,
-    })),
+    churnedUsers: churnedUsers.map((u) => {
+      const planEnd = u.subscription?.endDate ?? u.nextRenewalDate;
+      const planStart = u.subscription?.startDate ?? u.createdAt;
+      return {
+        id: u.id.toString(),
+        userName: u.firstName,
+        username: u.username ?? null,
+        planEndDate: planEnd ? planEnd.toISOString() : null,
+        logsBeforeChurn: u.logCount,
+        proDays: planEnd ? Math.round(daysBetween(planStart, planEnd)) : 0,
+        status: u.subscription?.status ?? "expired",
+      };
+    }),
     transactions: transactions.map((t) => ({
       id: t.id.toString(),
       userName: t.user.firstName,
