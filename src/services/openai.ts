@@ -145,33 +145,42 @@ export async function evaluateCatchupDetail(rawText: string, days: number, cours
       messages: [
         {
           role: "system",
-          content: `You are a gatekeeper for a SIWES (Industrial Training) logbook generator for Nigerian university students studying ${courseOfStudy}.
+          content: `You are evaluating a SIWES (Industrial Training) logbook brain-dump for a Nigerian university student studying ${courseOfStudy}.
 
-The student wants logs for ${days} working days and has given you a brain-dump of their work activities.
+They want logs for ${days} working days.
 
-YOUR SOLE PURPOSE: Identify the tiny minority of inputs so worthless that even a creative AI cannot salvage them. Everything else must pass. You are NOT here to count sentences or activities.
+TWO JOBS:
+1. Is there enough identifiable work content to generate any logs at all? (isAdequate)
+2. How many days can be realistically written from this input without fabricating details? (maxSupportableDays)
 
-════════════════════════════════════════
-  CASES THAT FAIL (isAdequate=false, maxSupportableDays=0)
-════════════════════════════════════════
-1. Pure gibberish or keyboard smash with no word structure (e.g., "hjhj", "asdfghjk", "qwerty123").
-2. Completely empty or only whitespace.
-3. A lone greeting with zero work context (e.g., "hi", "hello", "hey", "good morning" alone).
-4. EXCEPTIONAL LAZINESS: Fewer than 10 total words for a 10+ day request, OR fewer than 5 meaningful words for ANY request size, with no identifiable work activity.
+CONSTRAINT: The downstream generator CAN expand and professionalise activities across phases (planning, active work, review, documentation). It CANNOT invent specific tasks, tools, projects, meetings, or people not mentioned or implied. Be conservative and honest about maxSupportableDays.
 
-════════════════════════════════════════
-  EVERYTHING ELSE PASSES (isAdequate=true, maxSupportableDays=${days})
-════════════════════════════════════════
-Even a single sentence like "I attended meetings and helped with data entry" fully supports ${days} days. The downstream generator uses TIME-SCALING — it breaks work into professional phases (orientation → core work → review → documentation → wrap-up) and fills each day with realistic field-specific activities. You do NOT need to estimate capacity from sentence count. Your only job is to block truly empty/nonsense input. Trust the generator.
+━━━━━━━━━━━━━━━━━━━━━
+isAdequate = false (maxSupportableDays = 0)
+━━━━━━━━━━━━━━━━━━━━━
+• Pure gibberish or keyboard smash
+• Empty text or whitespace only
+• Lone greeting with no work context ("hi", "hello")
+• Fewer than 3 meaningful words with no identifiable work activity (e.g. "I was there", "nothing much", "just stuff")
 
-════════════════════════════════════════
-  FOLLOW-UP QUESTIONS (only when failing)
-════════════════════════════════════════
-- If failing due to exceptional laziness (had some content, just too sparse): ask ONE short, friendly question about the specific work they mentioned.
-- If failing due to gibberish/empty: ask them to simply describe what they were doing at their placement.
-- If passing: followUpQuestions must be an empty array [].
+When isAdequate=false: provide 1–2 targeted follow-up questions addressing the specific gap. Make them concrete and specific. Do NOT ask generic questions like "Can you tell me more?"
 
-Return ONLY valid JSON with exactly these keys:
+Good examples:
+- "What kind of network tasks were you doing — hardware setup, software configuration, cabling, or fault diagnosis?"
+- "What data were you entering and which system — a spreadsheet, accounting software, or a custom database?"
+
+━━━━━━━━━━━━━━━━━━━━━
+isAdequate = true (estimate maxSupportableDays honestly)
+━━━━━━━━━━━━━━━━━━━━━
+For any input with identifiable work activity, estimate conservatively:
+• 1 vague activity with no detail (e.g. "did data entry", "helped with network"): maxSupportableDays = min(6, ${days})
+• 2–3 activities with some context: maxSupportableDays = min(12, ${days})
+• 4+ distinct activities OR detailed descriptions: maxSupportableDays = min(18, ${days})
+• Rich multi-sentence notes covering multiple tasks with context: maxSupportableDays = ${days}
+
+When isAdequate=true: followUpQuestions must be an empty array [].
+
+Return ONLY valid JSON:
 {
   "isAdequate": boolean,
   "maxSupportableDays": number,
