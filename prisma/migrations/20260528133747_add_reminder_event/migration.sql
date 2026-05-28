@@ -56,6 +56,3 @@ ALTER TABLE "ReminderJob" ADD CONSTRAINT "ReminderJob_userId_fkey" FOREIGN KEY (
 
 -- AddForeignKey
 ALTER TABLE "ReminderEvent" ADD CONSTRAINT "ReminderEvent_reminderJobId_fkey" FOREIGN KEY ("reminderJobId") REFERENCES "ReminderJob"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- RenameIndex
-ALTER INDEX "User_logFrequency_onboardingDone_botBlocked_lastGreetingSentAt_" RENAME TO "User_logFrequency_onboardingDone_botBlocked_lastGreetingSen_idx";
