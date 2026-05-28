@@ -103,20 +103,20 @@ export interface SessionData {
    */
   catchup?: {
     active: boolean;
-    step: 'none' | 'awaiting_start_date' | 'awaiting_end_date' | 'awaiting_braindump' | 'interrogation' | 'awaiting_course';
-    startDate?: string; // ISO date string YYYY-MM-DD
-    endDate?: string;   // ISO date string YYYY-MM-DD
+    step: 'none' | 'awaiting_start_date' | 'awaiting_end_date' | 'awaiting_braindump' | 'interrogation' | 'awaiting_course' | 'awaiting_more_detail';
+    startDate?: string;
+    endDate?: string;
     workingDays?: number;
     rawDump?: string;
     questionCount?: number;
     courseOfStudy?: string;
-    // THE HOLDING CELL: Stores unpaid logs awaiting Paystack success
-    heldLogs?: Array<{ content: string; logDate: string; dateOffset: number }>; 
-    savedLogsCount?: number; // Track how many logs were saved vs held
-    // ✅ PERMANENT WARNING TRACKING: Store when days are capped by AI evaluation
-    wasCapped?: boolean; // True if maxSupportableDays < workingDays
-    originalRequestedDays?: number; // Original workingDays before capping (user's request)
-    cappedWorkingDays?: number; // The final capped value after AI evaluation (what we actually generate)
+    heldLogs?: Array<{ content: string; logDate: string; dateOffset: number }>;
+    savedLogsCount?: number;
+    wasCapped?: boolean;
+    originalRequestedDays?: number;
+    cappedWorkingDays?: number;
+    cappedAt?: number;      // how many days were generated in the first pass
+    remainingDays?: number; // how many days still need to be generated
   };
 }
 

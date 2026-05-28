@@ -5,7 +5,7 @@ import type { BotContext } from "./types";
 import { clearActiveFlow } from "./types";
 import { calculateWorkingDays } from "../utils/dateHelpers";
 import { evaluateCatchupDetail, generateMultiDayLogs } from "../services/openai";
-import { getMonetizationUserByTelegramId, hasActiveStorage, FREE_LOG_LIMIT } from "./monetization";
+import { getMonetizationUserByTelegramId, hasActiveStorage, FREE_LOG_LIMIT, canCreateLog, sendStorageWall } from "./monetization";
 
 // ----------------------------------------------------------------------------
 // CALENDAR GENERATOR
@@ -65,44 +65,68 @@ export function generateCatchupCalendar(year: number, month: number, mode: 'star
 }
 
 // ----------------------------------------------------------------------------
+// DATE HELPERS (used for >20-day split guidance)
+// ----------------------------------------------------------------------------
+
+function addWorkingDays(date: Date, n: number): Date {
+  let d = new Date(date);
+  let counted = 0;
+  while (counted < n) {
+    d = addDays(d, 1);
+    const dow = getDay(d);
+    if (dow !== 0 && dow !== 6) counted++;
+  }
+  return d;
+}
+
+function nextWorkingDay(date: Date): Date {
+  let d = addDays(date, 1);
+  while (getDay(d) === 0 || getDay(d) === 6) d = addDays(d, 1);
+  return d;
+}
+
+// ----------------------------------------------------------------------------
 // START UP FLOW
 // ----------------------------------------------------------------------------
 export async function startCatchupFlow(ctx: BotContext) {
   clearActiveFlow(ctx.session);
 
   const telegramId = BigInt(ctx.from!.id);
+
+  // Fix 1: Check storage limit before doing anything else
+  const monUser = await getMonetizationUserByTelegramId(telegramId);
+  if (monUser && !canCreateLog(monUser)) {
+    await sendStorageWall(ctx, monUser);
+    await ctx.reply("Once you've unlocked storage, run /catchup to try again.");
+    return;
+  }
+
   const dbUser = await prisma.user.findUnique({ where: { telegramId } });
 
-
   if (dbUser && !dbUser.courseOfStudy) {
-
     ctx.session.catchup = {
       active: true,
       step: 'awaiting_course',
-      questionCount: 0, 
+      questionCount: 0,
       rawDump: undefined,
       heldLogs: undefined,
     };
-    
+
     await ctx.reply(
-      "✨ Welcome to Catch-Up Mode!\n\nBefore we generate your logs, I need to know your Area of Study or your department at work so I can use the right technical terms\n_Please type it below:_ ✨",
+      "Before we start, what's your area of study or department at your placement? 👇\n\n_(e.g. Computer Science, Electrical Engineering, Accounting)_",
       { parse_mode: "Markdown" }
     );
     return;
   }
 
-  // If they already have a course, go straight to the calendar
-  // 🚀 Added 'await' for robustness
   await triggerCatchupCalendar(ctx);
 }
 
-// Helper to launch the calendar cleanly
 async function triggerCatchupCalendar(ctx: BotContext) {
-  // ✅ FIX #7: Initialize fresh state with all fields
   ctx.session.catchup = {
     active: true,
     step: 'awaiting_start_date',
-    questionCount: 0,  // ✅ Reset
+    questionCount: 0,
     rawDump: undefined,
     heldLogs: undefined,
   };
@@ -111,8 +135,8 @@ async function triggerCatchupCalendar(ctx: BotContext) {
   const calendarKb = generateCatchupCalendar(now.getFullYear(), now.getMonth(), 'start');
 
   await ctx.reply(
-    "🚀 **Catch-Up Mode Activated**\n\nLet's get your logbook up to date.\n\n👇 **Tap the START DATE of your missing logs below:**",
-    { parse_mode: "Markdown", reply_markup: calendarKb }
+    "Let's get your logbook caught up. 📅\n\nTap the start date of the period you missed:",
+    { reply_markup: calendarKb }
   );
 }
 
@@ -134,6 +158,30 @@ export async function handleCatchupCallback(ctx: BotContext) {
     await ctx.editMessageText("Catch-up cancelled. Let me know when you're ready! 🏠", {
       reply_markup: new InlineKeyboard().text("🏠 Menu", "nav_menu")
     });
+    await ctx.answerCallbackQuery();
+    return;
+  }
+
+  if (data === "catchup_more_detail") {
+    if (!state?.active) {
+      await ctx.answerCallbackQuery("This flow has expired. Please type /catchup again.");
+      return;
+    }
+    state.step = 'awaiting_more_detail';
+    ctx.session.catchup = state;
+    await ctx.editMessageText(
+      "Tell me more about what you were doing during the rest of that period — rough notes are fine. 📝"
+    );
+    await ctx.answerCallbackQuery();
+    return;
+  }
+
+  if (data === "catchup_skip") {
+    clearActiveFlow(ctx.session);
+    await ctx.editMessageText(
+      "No problem — the logs I generated are already in your logbook. 👍",
+      { reply_markup: new InlineKeyboard().text("📅 View calendar", "nav_calendar").text("🏠 Menu", "nav_menu") }
+    );
     await ctx.answerCallbackQuery();
     return;
   }
@@ -188,8 +236,17 @@ export async function handleCatchupCallback(ctx: BotContext) {
       const workingDays = calculateWorkingDays(parseISO(state.startDate!), parseISO(state.endDate), timezone);
 
       if (workingDays === 0) {
-        clearActiveFlow(ctx.session);
-        await ctx.editMessageText("That timeframe falls entirely on a weekend! 🏖️ SIWES logs are for working days only. Try /catchup again.");
+        state.endDate = undefined;
+        state.step = 'awaiting_end_date';
+        ctx.session.catchup = state;
+
+        const [y, m] = state.startDate!.split("-").map(Number);
+        const endKb = generateCatchupCalendar(y, m - 1, 'end');
+
+        await ctx.editMessageText(
+          "That range is all weekend days — no working days to log. Please pick a range that includes weekdays.",
+          { reply_markup: endKb }
+        );
         await ctx.answerCallbackQuery();
         return;
       }
@@ -212,8 +269,25 @@ export async function handleCatchupCallback(ctx: BotContext) {
       }
 
       if (workingDays > 20) {
-        clearActiveFlow(ctx.session);
-        await ctx.editMessageText("Whoa, that's a lot of time! 😅 My brain can only generate up to 20 working days at a time.\n\nPlease type /catchup and try doing it in smaller chunks!");
+        const startDate = parseISO(state.startDate!);
+        const endDate = parseISO(selectedDate);
+        const session1End = addWorkingDays(startDate, 20);
+        const session2Start = nextWorkingDay(session1End);
+        const fmt = (d: Date) => format(d, 'MMM d, yyyy');
+
+        // Reset to start-date picker — keep flow active so the user can tap immediately
+        state.step = 'awaiting_start_date';
+        state.startDate = undefined;
+        state.endDate = undefined;
+        ctx.session.catchup = state;
+
+        const [sy, sm] = format(startDate, 'yyyy-MM').split('-').map(Number);
+        const startKb = generateCatchupCalendar(sy, sm - 1, 'start');
+
+        await ctx.editMessageText(
+          `That's ${workingDays} working days — I can only do 20 at a time.\n\nHere's how to split it:\n• *Session 1:* ${fmt(startDate)} → ${fmt(session1End)}\n• *Session 2:* ${fmt(session2Start)} → ${fmt(endDate)}\n\nStart with Session 1 — tap the dates below when you're ready.`,
+          { parse_mode: "Markdown", reply_markup: startKb }
+        );
         await ctx.answerCallbackQuery();
         return;
       }
@@ -222,10 +296,7 @@ export async function handleCatchupCallback(ctx: BotContext) {
       state.step = 'awaiting_braindump';
 
       await ctx.editMessageText(
-        `Perfect! That timeframe gives us **${workingDays} working days** (excluding weekends). \n\n` +
-        `🧠 **Time for the Brain-Dump!**\n\n` +
-        `Let's get those days logged! No need to write a novel—just give me a quick summary of what you've been up to. What was your main focus or project?\n\n_(Don't worry about making it perfect. Just give me the gist (you can also use a voice note), and I'll help you fill in the blanks if we need more context to cover the ${workingDays} days!)_`,
-        { parse_mode: "Markdown" }
+        `Got it — ${workingDays} working day${workingDays === 1 ? '' : 's'}. 📝\n\nTell me what you were up to during that period — type it out or just send a voice note. Anything you remember, even rough notes 🎤`
       );
     }
     await ctx.answerCallbackQuery();
@@ -235,8 +306,13 @@ export async function handleCatchupCallback(ctx: BotContext) {
 // ----------------------------------------------------------------------------
 // TEXT HANDLER (Handles the Brain-dump text and Gatekeeper)
 // ----------------------------------------------------------------------------
-export async function handleCatchupFlow(ctx: BotContext) {
-  const text = ctx.message?.text?.trim();
+
+/**
+ * Core text-processing logic for the catch-up flow.
+ * Exported separately so voice transcriptions can be fed in directly without
+ * going through ctx.message.text.
+ */
+export async function handleCatchupFlowWithText(ctx: BotContext, text: string): Promise<void> {
   const state = ctx.session.catchup;
 
   if (!text || !state) return;
@@ -249,7 +325,6 @@ export async function handleCatchupFlow(ctx: BotContext) {
     return;
   }
 
-// ✅ ESCAPE HATCH: If user taps the "Catch up missed days" button, restart the flow seamlessly
   if (/^[^a-zA-Z0-9]*(catch up|fill missed days|catch up missed days)[^a-zA-Z0-9]*$/i.test(text)) {
     return startCatchupFlow(ctx);
   }
@@ -291,7 +366,7 @@ export async function handleCatchupFlow(ctx: BotContext) {
 
         // ✅ Only allow alphanumeric, spaces, and common course characters
         if (!/^[a-zA-Z0-9\s&().\-/]+$/.test(courseText)) {
-          await ctx.reply("Course names should only contain letters, numbers, and spaces. Try again!");
+          await ctx.reply("Please use letters and numbers only — no commas or colons. For example: 'Computer Science and Software Engineering' or 'Electrical Engineering'");
           return;
         }
 
@@ -301,16 +376,15 @@ export async function handleCatchupFlow(ctx: BotContext) {
           data: { courseOfStudy: courseText },
         });
 
-        // Transition immediately to the calendar
         state.step = 'awaiting_start_date';
-        state.questionCount = 0;  // ✅ Reset for next phase
+        state.questionCount = 0;
         ctx.session.catchup = state;
-        
+
         const now = new Date();
         const calendarKb = generateCatchupCalendar(now.getFullYear(), now.getMonth(), 'start');
 
         await ctx.reply(
-          `✅ Got it! Your logs will be tailored perfectly for **${courseText}**.\n\n👇 **Now, tap the START DATE of your missing logs below:**`,
+          `Got it — I'll write your logs for *${courseText}*. 📅\n\nTap the start date of the period you missed:`,
           { parse_mode: "Markdown", reply_markup: calendarKb }
         );
         break;
@@ -325,118 +399,103 @@ export async function handleCatchupFlow(ctx: BotContext) {
 
       case 'awaiting_braindump':
       case 'interrogation': {
-        state.rawDump = state.rawDump ? `${state.rawDump}\n\nUser added: ${text}` : text;
         const workingDays = state.workingDays!;
-        const safeWorkingDays = Math.min(workingDays, 20);
 
-        // 🚀 Initialize or increment the question counter
-        if (state.step === 'awaiting_braindump') {
-          state.questionCount = 0;
-        } else {
-          state.questionCount = (state.questionCount || 0) + 1;
+        // Fix 3: 30-word check on first submission only
+        if (state.step === 'awaiting_braindump' && !state.rawDump) {
+          const wordCount = text.split(/\s+/).filter(Boolean).length;
+          if (wordCount < 30) {
+            await ctx.reply(
+              "That's a bit short for me to work with. Can you add a little more detail? Just tell me more about what you were actually doing — rough notes are fine."
+            );
+            return;
+          }
         }
-        ctx.session.catchup = state; 
 
-        const loadingMsg = await ctx.reply("⏳ Let me look at this data...");
+        state.rawDump = state.rawDump ? `${state.rawDump}\n\nUser added: ${text}` : text;
+        ctx.session.catchup = state;
 
-        // 🚀 Start continuous "typing..." indicator
+        const loadingMsg = await ctx.reply("⏳");
+
         let isProcessing = true;
         const typingInterval = setInterval(() => {
           if (isProcessing) ctx.api.sendChatAction(ctx.chat!.id, "typing").catch(() => {});
         }, 4000);
 
         try {
-          // 🚀 THE 2-STRIKE HARD LIMIT
-          let isAdequate = false;
-          let questions: string[] = [];
-          let maxSupportableDays = Infinity; // Default: allow all days (will be capped below)
-
           const dbUser = await prisma.user.findUnique({ where: { telegramId } });
           const courseOfStudy = dbUser?.courseOfStudy ?? "IT";
 
-          // ✅ ALWAYS call evaluateCatchupDetail to get maxSupportableDays, even if 2-strike rule is hit
-          const evaluation = await evaluateCatchupDetail(state.rawDump, safeWorkingDays, courseOfStudy);
-          isAdequate = state.questionCount >= 2 ? true : evaluation.isAdequate; // 2-strike forces adequacy
-          questions = evaluation.followUpQuestions;
-          maxSupportableDays = evaluation.maxSupportableDays; // ✅ ALWAYS capture the cap
-          
-          // 🔥 DEBUG: Log AI evaluation results
-          console.log("🔥 [CATCHUP] AI EVALUATION COMPLETE:", {
-            userRequestedDays: workingDays,
-            maxSupportableDays: maxSupportableDays,
-            rawDumpLength: state.rawDump?.length ?? 0,
-            willCapDays: maxSupportableDays < workingDays,
-            isAdequate: isAdequate
-          });
+          const evaluation = await evaluateCatchupDetail(state.rawDump, workingDays, courseOfStudy);
+
+          // From 'interrogation': one round of questions already happened — force proceed
+          const isAdequate = state.step === 'interrogation' ? true : evaluation.isAdequate;
+          const isInterrogationFallback = state.step === 'interrogation' && evaluation.maxSupportableDays === 0;
+          const maxSupportableDays = isInterrogationFallback
+            ? Math.min(5, workingDays)
+            : (evaluation.maxSupportableDays > 0 ? evaluation.maxSupportableDays : workingDays);
 
           if (!isAdequate) {
             state.step = 'interrogation';
-            ctx.session.catchup = state; 
+            ctx.session.catchup = state;
             isProcessing = false;
             clearInterval(typingInterval);
-            
-            const formattedQuestions = questions.map(q => `• ${q}`).join('\n');
-            
-            let prefix = `Good start! ✨ To make sure I can spread this smoothly across all **${workingDays} days**, just give me a quick hint on these:`;
-            
-            if (state.questionCount === 1) {
-              prefix = `Thanks! 🙏 Just to make sure the logs don't sound repetitive, could you add a tiny bit more about:`;
-            }
+
+            const formattedQuestions = evaluation.followUpQuestions.map(q => `• ${q}`).join('\n');
 
             await ctx.api.editMessageText(
               ctx.chat!.id,
               loadingMsg.message_id,
-              `${prefix}\n\n${formattedQuestions}\n\n_(You can just drop a brief voice note or a messy text reply!)_`,
+              `I need a bit more to work with. 🤔\n\n${formattedQuestions}\n\n_(A rough reply is fine — just give me the gist)_`,
               { parse_mode: "Markdown" }
             );
             return;
           }
-// ✅ APPLY MAXSUPPORTABLEDAYS CAP: If evaluation says we can only do X days, don't generate more
-          let cappedWorkingDays = safeWorkingDays;
-          
-          // 🚀 LOCAL VARIABLES (Bulletproof against session race conditions)
+
+          const cappedWorkingDays = Math.min(maxSupportableDays, workingDays);
           const localOriginalDays = workingDays;
-          let localWasCapped = false;
-          
-          if (maxSupportableDays < workingDays) {
-            cappedWorkingDays = maxSupportableDays;
-            localWasCapped = true;
-            
-            // 🔥 DEBUG: Confirm capping is triggered
-            console.log("🔥 [CATCHUP] CAPPING TRIGGERED:", {
-              localWasCapped: localWasCapped,
-              localOriginalDays: localOriginalDays,
-              cappedWorkingDays: cappedWorkingDays,
-              cappedByAI: maxSupportableDays
-            });
-            
-            // Show warning message ONCE and leave it there while it loads
+          const localWasCapped = cappedWorkingDays < localOriginalDays;
+
+          if (isInterrogationFallback) {
             await ctx.api.editMessageText(
               ctx.chat!.id,
               loadingMsg.message_id,
-              `⚠️ **Notice:** Your summary only supports **${cappedWorkingDays} days** without hallucinating.\n\n⏳ Generating ${cappedWorkingDays} authentic days now...`,
+              "I don't have much to work with, but I'll generate a few days based on your area of interest. You can always edit them from your calendar after."
+            );
+          } else if (localWasCapped) {
+            await ctx.api.editMessageText(
+              ctx.chat!.id,
+              loadingMsg.message_id,
+              `Your notes cover about *${cappedWorkingDays} days* realistically. Generating those now — give me a moment. ✨`,
               { parse_mode: "Markdown" }
             );
           } else {
-             // Normal loading message
-             console.log("🔥 [CATCHUP] NO CAPPING - Full days allowed:", { localWasCapped, cappedWorkingDays, workingDays });
-             await ctx.api.editMessageText(
+            await ctx.api.editMessageText(
               ctx.chat!.id,
               loadingMsg.message_id,
-              `Data looks great! ✨ Time-traveling and generating ${cappedWorkingDays} days of logs. This might take a minute...`
+              "Got it. Generating your logs now — give me a moment. ✨"
             );
           }
 
+          let progressTimer: ReturnType<typeof setTimeout> | undefined;
+          if (cappedWorkingDays >= 10) {
+            progressTimer = setTimeout(async () => {
+              if (isProcessing) {
+                await ctx.reply("Still working on it — longer periods take a bit more time ⏳").catch(() => {});
+              }
+            }, 20000);
+          }
+
           const generated = await generateMultiDayLogs(state.rawDump, cappedWorkingDays, courseOfStudy);
+          if (progressTimer) clearTimeout(progressTimer);
 
           isProcessing = false;
           clearInterval(typingInterval);
-          
-          // ✅ FIX #2: CRITICAL — Re-fetch user state JUST BEFORE slicing
-          // The logCount may have changed during the 45 seconds of AI generation
+
+          // Re-fetch user state after AI generation — logCount may have changed
           const freshDbUser = await prisma.user.findUnique({
             where: { telegramId },
-            select: { id: true }
+            select: { id: true },
           });
 
           const freshMonUser = await getMonetizationUserByTelegramId(telegramId);
@@ -446,7 +505,6 @@ export async function handleCatchupFlow(ctx: BotContext) {
           const logsToSave = generated.logs.slice(0, freshRemainingQuota);
           const logsToHold = generated.logs.slice(freshRemainingQuota);
 
-          // 1. Save whatever we are allowed to save to the database first
           if (logsToSave.length > 0) {
             const insertData = logsToSave.map(log => ({
               userId: freshDbUser!.id,
@@ -456,38 +514,25 @@ export async function handleCatchupFlow(ctx: BotContext) {
               logDate: addDays(parseISO(state.startDate!), log.dateOffset),
             }));
 
-            // ✅ Atomic: Save logs AND increment counter in one transaction
             await prisma.$transaction([
               prisma.log.createMany({ data: insertData }),
               prisma.user.update({
                 where: { id: freshDbUser!.id },
-                data: { logCount: { increment: logsToSave.length } }
-              })
+                data: { logCount: { increment: logsToSave.length } },
+              }),
             ]);
           }
 
-          // Delete the loading message now that we are done generating
           await ctx.api.deleteMessage(ctx.chat!.id, loadingMsg.message_id).catch(() => {});
-          
-          // 🔥 DEBUG: Right before building final messages, confirm capping state
-          console.log("🔥 [CATCHUP] PRE-FINAL MESSAGE - Capping State:", {
-            localWasCapped: localWasCapped,
-            localOriginalDays: localOriginalDays,
-            cappedWorkingDays: cappedWorkingDays,
-            generatedLogsCount: generated.logs.length,
-            logsToSaveCount: logsToSave.length,
-            logsToHoldCount: logsToHold.length
-          });
 
-          // 2. Decide which UI to show based on if they hit the paywall
           if (logsToHold.length > 0) {
-            // 🚨 THEY HIT THE STORAGE LIMIT (Show 2 items max)
+            // Paywall hit after generation
             state.heldLogs = logsToHold.map(log => ({
               content: log.content,
               logDate: addDays(parseISO(state.startDate!), log.dateOffset).toISOString(),
               dateOffset: log.dateOffset,
             }));
-            state.savedLogsCount = logsToSave.length;  
+            state.savedLogsCount = logsToSave.length;
 
             if (freshDbUser) {
               await prisma.user.update({
@@ -495,32 +540,15 @@ export async function handleCatchupFlow(ctx: BotContext) {
                 data: { hitPaywall: true },
               });
             }
-            
-            // 🚀 MATHEMATICAL COMPARISON: Check if days were actually reduced
-            const isCapped = localOriginalDays > cappedWorkingDays;
-            let peekText = '';
-            
-            console.log("🔥 [CATCHUP] PAYWALL PATH - Computing isCapped:", {
-              localOriginalDays,
-              cappedWorkingDays,
-              isCapped: isCapped
-            });
-            
-            if (isCapped) {
-              peekText += `⚠️ **Notice:** You requested **${localOriginalDays} days**, but the details provided can only realistically cover **${cappedWorkingDays} days** without making things up. We stopped here to keep your logbook authentic!\n\n`;
-              peekText += `✅ **Generated ${cappedWorkingDays} days successfully!** Here is a peek:\n\n`;
-              console.log("🔥 [CATCHUP] PAYWALL PATH - Warning INCLUDED (isCapped=true)");
-            } else {
-              peekText += `✅ **Generated all ${cappedWorkingDays} days successfully!** Here is a peek:\n\n`;
-              console.log("🔥 [CATCHUP] PAYWALL PATH - No warning (isCapped=false)");
-            }
-            const peekLogs = generated.logs.slice(0, 2);
-            
-            peekLogs.forEach((log, index) => {
+
+            let peekText = localWasCapped
+              ? `⚠️ Your notes covered *${cappedWorkingDays} days* (out of ${localOriginalDays} requested). Here's a peek:\n\n`
+              : `✅ *${cappedWorkingDays} days generated.* Here's a peek:\n\n`;
+
+            generated.logs.slice(0, 2).forEach((log, index) => {
               const logDate = addDays(parseISO(state.startDate!), log.dateOffset);
               const dateStr = logDate.toLocaleDateString('en-GB', { weekday: 'short', month: 'short', day: 'numeric' });
-              peekText += `📌 **Day ${index + 1}** • _${dateStr}_\n`;
-              peekText += `> ${log.content}\n\n`;
+              peekText += `📌 *Day ${index + 1}* • _${dateStr}_\n> ${log.content}\n\n`;
             });
 
             if (generated.logs.length > 2) {
@@ -528,62 +556,173 @@ export async function handleCatchupFlow(ctx: BotContext) {
             }
 
             await ctx.reply(peekText, { parse_mode: "Markdown" });
-            console.log("🔥 [CATCHUP] FINAL PAYWALL MESSAGE SENT:", { peekTextLength: peekText.length, hasWarning: peekText.includes("Notice"), logsHeld: logsToHold.length });
-            
             await ctx.reply(
-              `⚠️ **Storage Limit Reached!**\n\nI saved the first ${logsToSave.length} days to your logbook, but you are out of free storage. \n\nI have the remaining **${logsToHold.length} days** generated and ready. Unlock Wisa Pro for ₦1,000 to save them immediately!`,
-              { 
+              `You've hit your free storage limit.\n\nI saved the first *${logsToSave.length} day${logsToSave.length === 1 ? '' : 's'}* and I'm holding the remaining *${logsToHold.length}*. Unlock Pro for ₦1,000 to save them. 🔓`,
+              {
                 parse_mode: "Markdown",
-                reply_markup: new InlineKeyboard().text("🔓 Unlock Storage - ₦1,000", "go_pro")
+                reply_markup: new InlineKeyboard().text("🔓 Unlock Storage - ₦1,000", "go_pro"),
               }
             );
-          } else {
-            // 🎉 FULL SUCCESS (No Paywall Hit, Show 3 items max)
-            
-            // 🚀 MATHEMATICAL COMPARISON: Check if days were actually reduced
-            const isCapped = localOriginalDays > cappedWorkingDays;
-            let successText = '';
-            
-            console.log("🔥 [CATCHUP] FULL SUCCESS PATH - Computing isCapped:", {
-              localOriginalDays,
-              cappedWorkingDays,
-              isCapped: isCapped
-            });
-            
-            if (isCapped) {
-              successText += `⚠️ **Notice:** You requested **${localOriginalDays} days**, but the details provided can only realistically cover **${cappedWorkingDays} days** without making things up. We stopped here to keep your logbook authentic!\n\n`;
-              successText += `✅ **Generated ${cappedWorkingDays} days successfully!** Here is a quick preview:\n\n`;
-              console.log("🔥 [CATCHUP] FULL SUCCESS PATH - Warning INCLUDED (isCapped=true)");
-            } else {
-              successText += `✅ **Generated all ${cappedWorkingDays} days successfully!** Here is a quick preview:\n\n`;
-              console.log("🔥 [CATCHUP] FULL SUCCESS PATH - No warning (isCapped=false)");
-            }
-            const previewLogs = generated.logs.slice(0, 3);
-            
-            previewLogs.forEach((log, index) => {
+            // Deactivate so further text input doesn't re-trigger generation.
+            // heldLogs intentionally preserved for the payment webhook.
+            if (ctx.session.catchup) ctx.session.catchup.active = false;
+          } else if (localWasCapped) {
+            // Fix 4: Honest capping — offer to add more detail for remaining days
+            const remainingDays = localOriginalDays - cappedWorkingDays;
+            state.cappedAt = cappedWorkingDays;
+            state.remainingDays = remainingDays;
+            ctx.session.catchup = state;
+
+            let successText = `Based on what you shared, I was able to generate *${cappedWorkingDays} realistic day${cappedWorkingDays === 1 ? '' : 's'}*. The information wasn't detailed enough for the remaining *${remainingDays} day${remainingDays === 1 ? '' : 's'}* — if you can tell me more about what you did during that period, I can fill in the rest.\n\n`;
+
+            generated.logs.slice(0, 2).forEach((log, index) => {
               const logDate = addDays(parseISO(state.startDate!), log.dateOffset);
               const dateStr = logDate.toLocaleDateString('en-GB', { weekday: 'short', month: 'short', day: 'numeric' });
-              successText += `📌 **Day ${index + 1}** • _${dateStr}_\n`;
-              successText += `> ${log.content}\n\n`;
+              successText += `📌 *Day ${index + 1}* • _${dateStr}_\n> ${log.content}\n\n`;
             });
 
-            if (generated.logs.length > 3) {
-              successText += `✨ _...plus ${generated.logs.length - 3} more days perfectly written!_\n\n`;
+            if (generated.logs.length > 2) {
+              successText += `✨ _...plus ${generated.logs.length - 2} more days._\n\n`;
             }
 
             await ctx.reply(successText, { parse_mode: "Markdown" });
-            console.log("🔥 [CATCHUP] FINAL SUCCESS MESSAGE SENT:", { successTextLength: successText.length, hasWarning: successText.includes("Notice"), logsCount: cappedWorkingDays });
-            await ctx.reply(`🎉 All ${cappedWorkingDays} days have been safely stored in your logbook! Tap below to read them all.`, {
-              reply_markup: new InlineKeyboard().text("📅 View calendar", "nav_calendar").text("🏠 Menu", "nav_menu")
+            await ctx.reply("What would you like to do?", {
+              reply_markup: new InlineKeyboard()
+                .text("📝 Add more details", "catchup_more_detail")
+                .text("✅ I'm done", "catchup_skip"),
+            });
+          } else {
+            // Full success
+            let successText = `✅ *${cappedWorkingDays} day${cappedWorkingDays === 1 ? '' : 's'} logged!* Here's a quick preview:\n\n`;
+
+            generated.logs.slice(0, 3).forEach((log, index) => {
+              const logDate = addDays(parseISO(state.startDate!), log.dateOffset);
+              const dateStr = logDate.toLocaleDateString('en-GB', { weekday: 'short', month: 'short', day: 'numeric' });
+              successText += `📌 *Day ${index + 1}* • _${dateStr}_\n> ${log.content}\n\n`;
             });
 
-            // 🚀 Move clearActiveFlow to the VERY END so date reading works
+            if (generated.logs.length > 3) {
+              successText += `✨ _...plus ${generated.logs.length - 3} more days perfectly written._\n\n`;
+            }
+
+            await ctx.reply(successText, { parse_mode: "Markdown" });
+            await ctx.reply("All done — they're in your logbook. 🎉", {
+              reply_markup: new InlineKeyboard().text("📅 View calendar", "nav_calendar").text("🏠 Menu", "nav_menu"),
+            });
+
             clearActiveFlow(ctx.session);
           }
         } catch (innerErr) {
           isProcessing = false;
           clearInterval(typingInterval);
-          throw innerErr; 
+          throw innerErr;
+        }
+        break;
+      }
+
+      case 'awaiting_more_detail': {
+        // Fix 4: User provided more context for the remaining days
+        state.rawDump = `${state.rawDump ?? ''}\n\nMore context: ${text}`;
+        const remainingDays = state.remainingDays!;
+        const cappedAt = state.cappedAt!;
+        ctx.session.catchup = state;
+
+        const loadingMsg = await ctx.reply("Got it. Generating the remaining days — give me a moment. ✨");
+
+        let isProcessing = true;
+        const typingInterval = setInterval(() => {
+          if (isProcessing) ctx.api.sendChatAction(ctx.chat!.id, "typing").catch(() => {});
+        }, 4000);
+
+        try {
+          const dbUser = await prisma.user.findUnique({ where: { telegramId } });
+          const courseOfStudy = dbUser?.courseOfStudy ?? "IT";
+
+          let progressTimer: ReturnType<typeof setTimeout> | undefined;
+          if (remainingDays >= 10) {
+            progressTimer = setTimeout(async () => {
+              if (isProcessing) {
+                await ctx.reply("Still working on it — longer periods take a bit more time ⏳").catch(() => {});
+              }
+            }, 20000);
+          }
+
+          const generated = await generateMultiDayLogs(state.rawDump, remainingDays, courseOfStudy);
+          if (progressTimer) clearTimeout(progressTimer);
+
+          isProcessing = false;
+          clearInterval(typingInterval);
+
+          const freshDbUser = await prisma.user.findUnique({
+            where: { telegramId },
+            select: { id: true },
+          });
+          const freshMonUser = await getMonetizationUserByTelegramId(telegramId);
+          const freshIsPro = hasActiveStorage(freshMonUser!);
+          const freshRemainingQuota = freshIsPro ? 9999 : Math.max(0, FREE_LOG_LIMIT - freshMonUser!.logCount);
+
+          const logsToSave = generated.logs.slice(0, freshRemainingQuota);
+          const logsToHold = generated.logs.slice(freshRemainingQuota);
+
+          if (logsToSave.length > 0) {
+            const insertData = logsToSave.map(log => ({
+              userId: freshDbUser!.id,
+              content: log.content,
+              isAiRefined: true,
+              isVoice: false,
+              // offset by cappedAt so dates continue from where we left off
+              logDate: addDays(parseISO(state.startDate!), log.dateOffset + cappedAt),
+            }));
+
+            await prisma.$transaction([
+              prisma.log.createMany({ data: insertData }),
+              prisma.user.update({
+                where: { id: freshDbUser!.id },
+                data: { logCount: { increment: logsToSave.length } },
+              }),
+            ]);
+          }
+
+          await ctx.api.deleteMessage(ctx.chat!.id, loadingMsg.message_id).catch(() => {});
+
+          if (logsToHold.length > 0) {
+            if (freshDbUser) {
+              await prisma.user.update({ where: { id: freshDbUser.id }, data: { hitPaywall: true } });
+            }
+            state.heldLogs = logsToHold.map(log => ({
+              content: log.content,
+              logDate: addDays(parseISO(state.startDate!), log.dateOffset + cappedAt).toISOString(),
+              dateOffset: log.dateOffset + cappedAt,
+            }));
+            state.savedLogsCount = (state.savedLogsCount ?? 0) + logsToSave.length;
+            await ctx.reply(
+              `I saved *${logsToSave.length} more day${logsToSave.length === 1 ? '' : 's'}* but your free storage is now full. The remaining *${logsToHold.length}* are ready — unlock Pro to save them. 🔓`,
+              {
+                parse_mode: "Markdown",
+                reply_markup: new InlineKeyboard().text("🔓 Unlock Storage - ₦1,000", "go_pro"),
+              }
+            );
+            await ctx.reply("For any remaining days, just run /catchup again and pick up where you left off.");
+            if (ctx.session.catchup) ctx.session.catchup.active = false;
+          } else {
+            const totalDays = cappedAt + logsToSave.length;
+            const stillCapped = generated.logs.length < remainingDays;
+            await ctx.reply(
+              `All *${totalDays} day${totalDays === 1 ? '' : 's'}* are now in your logbook. 🎉`,
+              {
+                parse_mode: "Markdown",
+                reply_markup: new InlineKeyboard().text("📅 View calendar", "nav_calendar").text("🏠 Menu", "nav_menu"),
+              }
+            );
+            if (stillCapped) {
+              await ctx.reply("For any remaining days, just run /catchup again and pick up where you left off.");
+            }
+            clearActiveFlow(ctx.session);
+          }
+        } catch (innerErr) {
+          isProcessing = false;
+          clearInterval(typingInterval);
+          throw innerErr;
         }
         break;
       }
@@ -595,4 +734,11 @@ export async function handleCatchupFlow(ctx: BotContext) {
     });
     clearActiveFlow(ctx.session);
   }
+}
+
+export async function handleCatchupFlow(ctx: BotContext): Promise<void> {
+  const text = ctx.message?.text?.trim();
+  const state = ctx.session.catchup;
+  if (!text || !state) return;
+  await handleCatchupFlowWithText(ctx, text);
 }

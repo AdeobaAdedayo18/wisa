@@ -18,6 +18,7 @@ import {
   sendStorageWall,
 } from "./monetization";
 import { getMainMenuKeyboard } from "./onboarding";
+import { handleCatchupFlowWithText } from "./catchupFlow";
 
 // ---------------------------------------------------------------------------
 // 8.2 — "✨ Refine with AI" handler (For text logs)
@@ -343,6 +344,63 @@ export async function handleSaveRawLog(ctx: BotContext): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function handleVoiceLog(ctx: BotContext): Promise<void> {
+  // Intercept voice notes sent during an active catch-up brain dump
+  const catchupState = ctx.session.catchup;
+  const catchupBrainDumpPhases = ['awaiting_braindump', 'interrogation', 'awaiting_more_detail'] as const;
+  if (
+    catchupState?.active === true &&
+    catchupBrainDumpPhases.includes(catchupState.step as typeof catchupBrainDumpPhases[number])
+  ) {
+    const voice = ctx.message?.voice;
+    if (!voice) return;
+
+    const processingMsg = await ctx.reply("🎤 Got your voice note! Transcribing…");
+    let localPath: string | null = null;
+
+    try {
+      const fileInfo = await ctx.api.getFile(voice.file_id);
+      const filePath = fileInfo.file_path!;
+      const downloadUrl = `https://api.telegram.org/file/bot${process.env.TELEGRAM_BOT_TOKEN}/${filePath}`;
+
+      const tempDir = os.tmpdir();
+      if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+      localPath = path.join(tempDir, `${voice.file_id}.ogg`);
+
+      const response = await axios.get<ArrayBuffer>(downloadUrl, { responseType: "arraybuffer" });
+      fs.writeFileSync(localPath, Buffer.from(response.data));
+
+      const transcription = await transcribeVoice(localPath);
+
+      if (!transcription) {
+        await ctx.api.editMessageText(
+          ctx.chat!.id,
+          processingMsg.message_id,
+          "🎤 Oops, it sounded a bit noisy! Try recording again in a quieter spot, or just type it out.",
+        ).catch(() => {});
+        return;
+      }
+
+      // Delete the transcribing message then hand off to the catch-up text handler
+      await ctx.api.deleteMessage(ctx.chat!.id, processingMsg.message_id).catch(() => {});
+      await handleCatchupFlowWithText(ctx, transcription);
+    } catch (err) {
+      console.error("Voice transcription error (catch-up intercept):", err);
+      await ctx.api.editMessageText(
+        ctx.chat!.id,
+        processingMsg.message_id,
+        "Something went wrong transcribing your voice note 😢 Please try again or type it out.",
+      ).catch(() => {});
+    } finally {
+      if (localPath && fs.existsSync(localPath)) fs.unlinkSync(localPath);
+    }
+    return;
+  }
+
+  if (catchupState?.active === true && catchupState.step === 'awaiting_course') {
+    await ctx.reply("Just type your area of study and we'll continue from there 👇");
+    return;
+  }
+
   if (!ctx.session.awaitingLog) {
     await ctx.reply(
       "🎤 You sent a voice note, but you aren't currently writing a log!\n\nTo use voice logging, tap **✍️ Write my log** from the menu or a reminder first.",
