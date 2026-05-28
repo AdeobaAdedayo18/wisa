@@ -99,7 +99,6 @@ export const UserScalarFieldEnum = {
   firstLogCompletedInOnboarding: 'firstLogCompletedInOnboarding',
   hitPaywall: 'hitPaywall',
   botBlocked: 'botBlocked',
-  hitPaywall: 'hitPaywall',
   lastGreetingSentAt: 'lastGreetingSentAt',
   lastGreetingType: 'lastGreetingType',
   createdAt: 'createdAt'
