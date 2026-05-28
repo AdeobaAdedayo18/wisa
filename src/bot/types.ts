@@ -117,6 +117,7 @@ export interface SessionData {
     cappedWorkingDays?: number;
     cappedAt?: number;      // how many days were generated in the first pass
     remainingDays?: number; // how many days still need to be generated
+    startedAt?: number;     // Unix ms when the session was opened — used for 2-hour expiry
   };
 }
 

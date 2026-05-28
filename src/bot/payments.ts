@@ -5,7 +5,8 @@ import { captureReplayError } from "../services/replayCapture";
 import { initializeTransaction, verifyTransaction } from "../services/paystack";
 import { getMainMenuKeyboard } from "./onboarding";
 import { getMonetizationUserByTelegramId, hasActiveStorage, STORAGE_PRICE_LABEL } from "./monetization";
-import { parseISO, addDays } from "date-fns"; 
+import { parseISO } from "date-fns";
+import { nthWorkingDayFrom } from "./catchupFlow";
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -189,29 +190,48 @@ export async function handleCheckPayment(ctx: BotContext): Promise<void> {
     if (catchupState?.heldLogs && catchupState.heldLogs.length > 0 && catchupState.startDate) {
       const logsToSave = catchupState.heldLogs;
       const startDate = parseISO(catchupState.startDate);
+      const candidateDates = logsToSave.map(log => nthWorkingDayFrom(startDate, log.dateOffset));
 
-      const insertData = logsToSave.map(log => ({
-        userId: user.id,
-        content: log.content,
-        isAiRefined: true,
-        isVoice: false,
-        logDate: addDays(startDate, log.dateOffset),
-      }));
-
-      await prisma.$transaction([
-        prisma.log.createMany({ data: insertData }),
-        prisma.user.update({
-          where: { id: user.id },
-          data: { logCount: { increment: logsToSave.length } }
-        })
-      ]);
-
-      let peekText = `🔓 **Storage Unlocked!**\n\nAs promised, I have successfully saved the remaining **${logsToSave.length} days** to your logbook:\n\n`;
-      logsToSave.forEach(log => {
-        const logDate = addDays(startDate, log.dateOffset);
-        const dateStr = logDate.toLocaleDateString('en-GB', { weekday: 'short', month: 'short', day: 'numeric' });
-        peekText += `📅 **${dateStr}**\n${log.content}\n\n`;
+      const existingLogs = await prisma.log.findMany({
+        where: {
+          userId: user.id,
+          logDate: { gte: candidateDates[0], lte: candidateDates[candidateDates.length - 1] },
+        },
+        select: { logDate: true },
       });
+      const existingDates = new Set(existingLogs.map(l => l.logDate.toISOString().split('T')[0]));
+
+      const insertData = logsToSave
+        .map((log, i) => ({ log, logDate: candidateDates[i] }))
+        .filter(({ logDate }) => !existingDates.has(logDate.toISOString().split('T')[0]))
+        .map(({ log, logDate }) => ({
+          userId: user.id,
+          content: log.content,
+          isAiRefined: true,
+          isVoice: false,
+          logDate,
+        }));
+
+      const skippedDuplicates = logsToSave.length - insertData.length;
+
+      if (insertData.length > 0) {
+        await prisma.$transaction([
+          prisma.log.createMany({ data: insertData }),
+          prisma.user.update({
+            where: { id: user.id },
+            data: { logCount: { increment: insertData.length } }
+          })
+        ]);
+      }
+
+      let peekText = `🔓 **Storage Unlocked!**\n\nAs promised, I have successfully saved the remaining **${insertData.length} days** to your logbook:\n\n`;
+      insertData.forEach(item => {
+        const dateStr = item.logDate.toLocaleDateString('en-GB', { weekday: 'short', month: 'short', day: 'numeric' });
+        peekText += `📅 **${dateStr}**\n${item.content}\n\n`;
+      });
+      if (skippedDuplicates > 0) {
+        peekText += `_${skippedDuplicates} day${skippedDuplicates === 1 ? '' : 's'} skipped — you already had logs for those dates._\n\n`;
+      }
       peekText += `✅ All caught up!`;
 
       await ctx.reply(peekText, { parse_mode: "Markdown" });

@@ -85,6 +85,19 @@ function nextWorkingDay(date: Date): Date {
   return d;
 }
 
+/**
+ * Returns the nth working day (Mon–Fri) from startDate.
+ * n=0 returns startDate itself (or the next Monday if startDate is a weekend).
+ * n=1 returns the next working day after the base; etc.
+ */
+export function nthWorkingDayFrom(startDate: Date, n: number): Date {
+  let base = new Date(startDate);
+  const dow = getDay(base);
+  if (dow === 6) base = addDays(base, 2); // Sat → Mon
+  else if (dow === 0) base = addDays(base, 1); // Sun → Mon
+  return addWorkingDays(base, n);
+}
+
 // ----------------------------------------------------------------------------
 // START UP FLOW
 // ----------------------------------------------------------------------------
@@ -110,6 +123,7 @@ export async function startCatchupFlow(ctx: BotContext) {
       questionCount: 0,
       rawDump: undefined,
       heldLogs: undefined,
+      startedAt: Date.now(),
     };
 
     await ctx.reply(
@@ -129,6 +143,7 @@ async function triggerCatchupCalendar(ctx: BotContext) {
     questionCount: 0,
     rawDump: undefined,
     heldLogs: undefined,
+    startedAt: Date.now(),
   };
 
   const now = new Date();
@@ -317,6 +332,15 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
 
   if (!text || !state) return;
 
+  const CATCHUP_TIMEOUT_MS = 2 * 60 * 60 * 1000;
+  if (state.startedAt && Date.now() - state.startedAt > CATCHUP_TIMEOUT_MS) {
+    clearActiveFlow(ctx.session);
+    await ctx.reply(
+      "Your catch-up session expired after 2 hours of inactivity. Type /catchup to start a new one 👇"
+    );
+    return;
+  }
+
   if (text.toLowerCase() === 'cancel' || text === '/cancel') {
     clearActiveFlow(ctx.session);
     await ctx.reply("Catch-up cancelled. Let me know when you're ready! 🏠", {
@@ -333,23 +357,23 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
 
   try {
     switch (state.step) {
-      // 🚀 HANDLE THE COURSE OF STUDY INPUT
+      
       case 'awaiting_course': {
         const courseText = text.trim();
 
-        // ✅ FIX #4: Comprehensive validation
+        
         if (courseText.length < 2) {
           await ctx.reply("Please enter a valid Course of Study!");
           return;
         }
 
-        // ✅ Max length to prevent prompt injection
+       
         if (courseText.length > 100) {
           await ctx.reply("Course of Study is too long. Please keep it under 100 characters.");
           return;
         }
 
-        // ✅ Reject if it contains suspicious patterns
+        
         const suspiciousPatterns = [
           /[\n\r]/,  // Newlines that could escape the prompt
           /`+/,      // Backticks (markdown code)
@@ -492,6 +516,15 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
           isProcessing = false;
           clearInterval(typingInterval);
 
+          if (!generated.logs || generated.logs.length === 0) {
+            if (ctx.session.catchup) ctx.session.catchup.active = false;
+            await ctx.api.deleteMessage(ctx.chat!.id, loadingMsg.message_id).catch(() => {});
+            await ctx.reply(
+              "I wasn't able to generate any log entries from what you shared 😔\n\nTry giving me a bit more detail about what you worked on and run /catchup again."
+            );
+            return;
+          }
+
           // Re-fetch user state after AI generation — logCount may have changed
           const freshDbUser = await prisma.user.findUnique({
             where: { telegramId },
@@ -505,22 +538,42 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
           const logsToSave = generated.logs.slice(0, freshRemainingQuota);
           const logsToHold = generated.logs.slice(freshRemainingQuota);
 
+          let skippedDuplicates = 0;
           if (logsToSave.length > 0) {
-            const insertData = logsToSave.map(log => ({
-              userId: freshDbUser!.id,
-              content: log.content,
-              isAiRefined: true,
-              isVoice: false,
-              logDate: addDays(parseISO(state.startDate!), log.dateOffset),
-            }));
+            const startDateParsed = parseISO(state.startDate!);
+            const candidateDates = logsToSave.map(log => nthWorkingDayFrom(startDateParsed, log.dateOffset));
 
-            await prisma.$transaction([
-              prisma.log.createMany({ data: insertData }),
-              prisma.user.update({
-                where: { id: freshDbUser!.id },
-                data: { logCount: { increment: logsToSave.length } },
-              }),
-            ]);
+            const existingLogs = await prisma.log.findMany({
+              where: {
+                userId: freshDbUser!.id,
+                logDate: { gte: candidateDates[0], lte: candidateDates[candidateDates.length - 1] },
+              },
+              select: { logDate: true },
+            });
+            const existingDates = new Set(existingLogs.map(l => l.logDate.toISOString().split('T')[0]));
+
+            const insertData = logsToSave
+              .map((log, i) => ({ log, logDate: candidateDates[i] }))
+              .filter(({ logDate }) => !existingDates.has(logDate.toISOString().split('T')[0]))
+              .map(({ log, logDate }) => ({
+                userId: freshDbUser!.id,
+                content: log.content,
+                isAiRefined: true,
+                isVoice: false,
+                logDate,
+              }));
+
+            skippedDuplicates = logsToSave.length - insertData.length;
+
+            if (insertData.length > 0) {
+              await prisma.$transaction([
+                prisma.log.createMany({ data: insertData }),
+                prisma.user.update({
+                  where: { id: freshDbUser!.id },
+                  data: { logCount: { increment: insertData.length } },
+                }),
+              ]);
+            }
           }
 
           await ctx.api.deleteMessage(ctx.chat!.id, loadingMsg.message_id).catch(() => {});
@@ -529,7 +582,7 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
             // Paywall hit after generation
             state.heldLogs = logsToHold.map(log => ({
               content: log.content,
-              logDate: addDays(parseISO(state.startDate!), log.dateOffset).toISOString(),
+              logDate: nthWorkingDayFrom(parseISO(state.startDate!), log.dateOffset).toISOString(),
               dateOffset: log.dateOffset,
             }));
             state.savedLogsCount = logsToSave.length;
@@ -546,7 +599,7 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
               : `✅ *${cappedWorkingDays} days generated.* Here's a peek:\n\n`;
 
             generated.logs.slice(0, 2).forEach((log, index) => {
-              const logDate = addDays(parseISO(state.startDate!), log.dateOffset);
+              const logDate = nthWorkingDayFrom(parseISO(state.startDate!), log.dateOffset);
               const dateStr = logDate.toLocaleDateString('en-GB', { weekday: 'short', month: 'short', day: 'numeric' });
               peekText += `📌 *Day ${index + 1}* • _${dateStr}_\n> ${log.content}\n\n`;
             });
@@ -557,7 +610,8 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
 
             await ctx.reply(peekText, { parse_mode: "Markdown" });
             await ctx.reply(
-              `You've hit your free storage limit.\n\nI saved the first *${logsToSave.length} day${logsToSave.length === 1 ? '' : 's'}* and I'm holding the remaining *${logsToHold.length}*. Unlock Pro for ₦1,000 to save them. 🔓`,
+              `You've hit your free storage limit.\n\nI saved the first *${logsToSave.length} day${logsToSave.length === 1 ? '' : 's'}* and I'm holding the remaining *${logsToHold.length}*. Unlock Pro for ₦1,000 to save them. 🔓` +
+              (skippedDuplicates > 0 ? `\n\n_${skippedDuplicates} day${skippedDuplicates === 1 ? '' : 's'} skipped — you already had logs for those dates._` : ''),
               {
                 parse_mode: "Markdown",
                 reply_markup: new InlineKeyboard().text("🔓 Unlock Storage - ₦1,000", "go_pro"),
@@ -576,13 +630,17 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
             let successText = `Based on what you shared, I was able to generate *${cappedWorkingDays} realistic day${cappedWorkingDays === 1 ? '' : 's'}*. The information wasn't detailed enough for the remaining *${remainingDays} day${remainingDays === 1 ? '' : 's'}* — if you can tell me more about what you did during that period, I can fill in the rest.\n\n`;
 
             generated.logs.slice(0, 2).forEach((log, index) => {
-              const logDate = addDays(parseISO(state.startDate!), log.dateOffset);
+              const logDate = nthWorkingDayFrom(parseISO(state.startDate!), log.dateOffset);
               const dateStr = logDate.toLocaleDateString('en-GB', { weekday: 'short', month: 'short', day: 'numeric' });
               successText += `📌 *Day ${index + 1}* • _${dateStr}_\n> ${log.content}\n\n`;
             });
 
             if (generated.logs.length > 2) {
               successText += `✨ _...plus ${generated.logs.length - 2} more days._\n\n`;
+            }
+
+            if (skippedDuplicates > 0) {
+              successText += `_${skippedDuplicates} day${skippedDuplicates === 1 ? '' : 's'} skipped — you already had logs for those dates._\n\n`;
             }
 
             await ctx.reply(successText, { parse_mode: "Markdown" });
@@ -596,13 +654,17 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
             let successText = `✅ *${cappedWorkingDays} day${cappedWorkingDays === 1 ? '' : 's'} logged!* Here's a quick preview:\n\n`;
 
             generated.logs.slice(0, 3).forEach((log, index) => {
-              const logDate = addDays(parseISO(state.startDate!), log.dateOffset);
+              const logDate = nthWorkingDayFrom(parseISO(state.startDate!), log.dateOffset);
               const dateStr = logDate.toLocaleDateString('en-GB', { weekday: 'short', month: 'short', day: 'numeric' });
               successText += `📌 *Day ${index + 1}* • _${dateStr}_\n> ${log.content}\n\n`;
             });
 
             if (generated.logs.length > 3) {
               successText += `✨ _...plus ${generated.logs.length - 3} more days perfectly written._\n\n`;
+            }
+
+            if (skippedDuplicates > 0) {
+              successText += `_${skippedDuplicates} day${skippedDuplicates === 1 ? '' : 's'} skipped — you already had logs for those dates._\n\n`;
             }
 
             await ctx.reply(successText, { parse_mode: "Markdown" });
@@ -653,6 +715,15 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
           isProcessing = false;
           clearInterval(typingInterval);
 
+          if (!generated.logs || generated.logs.length === 0) {
+            if (ctx.session.catchup) ctx.session.catchup.active = false;
+            await ctx.api.deleteMessage(ctx.chat!.id, loadingMsg.message_id).catch(() => {});
+            await ctx.reply(
+              "I wasn't able to generate any log entries from what you shared 😔\n\nTry giving me a bit more detail about what you worked on and run /catchup again."
+            );
+            return;
+          }
+
           const freshDbUser = await prisma.user.findUnique({
             where: { telegramId },
             select: { id: true },
@@ -664,23 +735,42 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
           const logsToSave = generated.logs.slice(0, freshRemainingQuota);
           const logsToHold = generated.logs.slice(freshRemainingQuota);
 
+          let skippedDuplicates = 0;
           if (logsToSave.length > 0) {
-            const insertData = logsToSave.map(log => ({
-              userId: freshDbUser!.id,
-              content: log.content,
-              isAiRefined: true,
-              isVoice: false,
-              // offset by cappedAt so dates continue from where we left off
-              logDate: addDays(parseISO(state.startDate!), log.dateOffset + cappedAt),
-            }));
+            const startDateParsed = parseISO(state.startDate!);
+            const candidateDates = logsToSave.map(log => nthWorkingDayFrom(startDateParsed, log.dateOffset + cappedAt));
 
-            await prisma.$transaction([
-              prisma.log.createMany({ data: insertData }),
-              prisma.user.update({
-                where: { id: freshDbUser!.id },
-                data: { logCount: { increment: logsToSave.length } },
-              }),
-            ]);
+            const existingLogs = await prisma.log.findMany({
+              where: {
+                userId: freshDbUser!.id,
+                logDate: { gte: candidateDates[0], lte: candidateDates[candidateDates.length - 1] },
+              },
+              select: { logDate: true },
+            });
+            const existingDates = new Set(existingLogs.map(l => l.logDate.toISOString().split('T')[0]));
+
+            const insertData = logsToSave
+              .map((log, i) => ({ log, logDate: candidateDates[i] }))
+              .filter(({ logDate }) => !existingDates.has(logDate.toISOString().split('T')[0]))
+              .map(({ log, logDate }) => ({
+                userId: freshDbUser!.id,
+                content: log.content,
+                isAiRefined: true,
+                isVoice: false,
+                logDate,
+              }));
+
+            skippedDuplicates = logsToSave.length - insertData.length;
+
+            if (insertData.length > 0) {
+              await prisma.$transaction([
+                prisma.log.createMany({ data: insertData }),
+                prisma.user.update({
+                  where: { id: freshDbUser!.id },
+                  data: { logCount: { increment: insertData.length } },
+                }),
+              ]);
+            }
           }
 
           await ctx.api.deleteMessage(ctx.chat!.id, loadingMsg.message_id).catch(() => {});
@@ -691,12 +781,13 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
             }
             state.heldLogs = logsToHold.map(log => ({
               content: log.content,
-              logDate: addDays(parseISO(state.startDate!), log.dateOffset + cappedAt).toISOString(),
+              logDate: nthWorkingDayFrom(parseISO(state.startDate!), log.dateOffset + cappedAt).toISOString(),
               dateOffset: log.dateOffset + cappedAt,
             }));
             state.savedLogsCount = (state.savedLogsCount ?? 0) + logsToSave.length;
             await ctx.reply(
-              `I saved *${logsToSave.length} more day${logsToSave.length === 1 ? '' : 's'}* but your free storage is now full. The remaining *${logsToHold.length}* are ready — unlock Pro to save them. 🔓`,
+              `I saved *${logsToSave.length} more day${logsToSave.length === 1 ? '' : 's'}* but your free storage is now full. The remaining *${logsToHold.length}* are ready — unlock Pro to save them. 🔓` +
+              (skippedDuplicates > 0 ? `\n\n_${skippedDuplicates} day${skippedDuplicates === 1 ? '' : 's'} skipped — you already had logs for those dates._` : ''),
               {
                 parse_mode: "Markdown",
                 reply_markup: new InlineKeyboard().text("🔓 Unlock Storage - ₦1,000", "go_pro"),
@@ -708,7 +799,8 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
             const totalDays = cappedAt + logsToSave.length;
             const stillCapped = generated.logs.length < remainingDays;
             await ctx.reply(
-              `All *${totalDays} day${totalDays === 1 ? '' : 's'}* are now in your logbook. 🎉`,
+              `All *${totalDays} day${totalDays === 1 ? '' : 's'}* are now in your logbook. 🎉` +
+              (skippedDuplicates > 0 ? `\n\n_${skippedDuplicates} day${skippedDuplicates === 1 ? '' : 's'} skipped — you already had logs for those dates._` : ''),
               {
                 parse_mode: "Markdown",
                 reply_markup: new InlineKeyboard().text("📅 View calendar", "nav_calendar").text("🏠 Menu", "nav_menu"),
@@ -729,10 +821,10 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
     }
   } catch (error) {
     console.error("Error in catchup flow:", error);
-    await ctx.reply("Oops, something went wrong while processing that. Please try /catchup again.", {
-      reply_markup: new InlineKeyboard().text("🏠 Menu", "nav_menu")
-    });
-    clearActiveFlow(ctx.session);
+    if (ctx.session.catchup) ctx.session.catchup.active = false;
+    await ctx.reply(
+      "Something went wrong on our end 😔\n\nYour dates and notes are still saved. Type /catchup to try again — you won't have to start over."
+    );
   }
 }
 

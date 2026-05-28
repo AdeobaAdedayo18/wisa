@@ -401,6 +401,14 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
     return;
   }
 
+  if (
+    catchupState?.active === true &&
+    (catchupState.step === 'awaiting_start_date' || catchupState.step === 'awaiting_end_date')
+  ) {
+    await ctx.reply("You're picking your dates right now 📅 — just tap the calendar to select them.");
+    return;
+  }
+
   if (!ctx.session.awaitingLog) {
     await ctx.reply(
       "🎤 You sent a voice note, but you aren't currently writing a log!\n\nTo use voice logging, tap **✍️ Write my log** from the menu or a reminder first.",
