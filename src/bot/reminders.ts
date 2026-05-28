@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { InlineKeyboard } from "grammy";
 import { prisma } from "../lib/prisma";
 import type { Prisma } from "../prisma/client";
@@ -180,7 +181,7 @@ export async function scheduleNextJob(userId: number, telegramId: bigint, nextTi
     const logDate = new Intl.DateTimeFormat("en-CA", { timeZone: user.timezone }).format(adjustedScheduledFor);
 
     await tx.reminderJob.create({
-      data: { userId, telegramId, scheduledFor: adjustedScheduledFor, status: "pending", logDate },
+      data: { userId, telegramId, scheduledFor: adjustedScheduledFor, status: "pending", logDate, cycleId: randomUUID() },
     });
   });
 }

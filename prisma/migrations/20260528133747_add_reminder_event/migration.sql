@@ -5,8 +5,18 @@
 
 */
 -- AlterTable
-ALTER TABLE "ReminderJob" ADD COLUMN     "cycleId" TEXT NOT NULL,
+LOCK TABLE "ReminderJob" IN ACCESS EXCLUSIVE MODE;
+
+ALTER TABLE "ReminderJob" ADD COLUMN     "cycleId" TEXT,
 ADD COLUMN     "sentAt" TIMESTAMP(3);
+
+ALTER TABLE "ReminderJob" ALTER COLUMN "cycleId" SET DEFAULT CONCAT('cycle_', md5(random()::text || clock_timestamp()::text));
+
+UPDATE "ReminderJob"
+SET "cycleId" = COALESCE("cycleId", CONCAT('cycle_', "id"::text))
+WHERE "cycleId" IS NULL;
+
+ALTER TABLE "ReminderJob" ALTER COLUMN "cycleId" SET NOT NULL;
 
 -- AlterTable
 ALTER TABLE "User" ALTER COLUMN "freeAiRefinements" SET DEFAULT 5,
