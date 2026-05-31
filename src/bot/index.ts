@@ -3,7 +3,8 @@ import { replayMiddleware, replayTransformer, captureReplayError } from "../serv
 import { conversations, createConversation } from "@grammyjs/conversations";
 import { PrismaAdapter } from "@grammyjs/storage-prisma";
 import { prisma } from "../lib/prisma";
-import { parseISO } from "date-fns";
+import { parseISO, differenceInDays } from "date-fns";
+import { localTimeToUtc } from "../utils/dateHelpers";
 import { refineLog } from "../services/openai";
 import { onboardingConversation, handleStart, handleLetsGo, handleMenu, getMainMenuKeyboard } from "./onboarding";
 import { handleSnooze, handleSkip, handleWriteFromReminder, scheduleNextJob } from "./reminders";
@@ -88,23 +89,104 @@ bot.use(conversations());
 // ── Conversations ──────────────────────────────────────────────────────────
 bot.use(createConversation(onboardingConversation, "onboarding"));
 
-// ── Bot-unblock recovery ───────────────────────────────────────────────────
-// If a user previously blocked the bot but then comes back, clear the flag
-// and re-queue their reminders so they start receiving them again.
+// ── Bot-unblock recovery + returning-dormant detection ────────────────────
+// Single middleware to handle both cases with one DB round-trip per request.
+//
+// Bot-unblock: if a user who previously blocked the bot interacts again,
+// clear the flag and restore their reminder schedule.
+//
+// Returning dormant: if an onboarded user who has been silent for 3+ days
+// (and hasn't been contacted in the last 3 days) interacts, send a welcome
+// message and immediately reschedule their reminder to their normal cadence.
+const DORMANT_WELCOME_COOLDOWN_MS = 3 * 24 * 60 * 60 * 1000; // 3 days
+
 bot.use(async (ctx, next) => {
-  if (ctx.from) {
-    const user = await prisma.user.findUnique({
-      where: { telegramId: BigInt(ctx.from.id) },
-      select: { id: true, telegramId: true, botBlocked: true, onboardingDone: true },
-    });
-    if (user?.botBlocked) {
-      await prisma.user.update({ where: { id: user.id }, data: { botBlocked: false } });
-      if (user.onboardingDone) {
-        await scheduleNextJob(user.id, user.telegramId);
+  if (!ctx.from) return next();
+
+  const telegramId = BigInt(ctx.from.id);
+  const user = await prisma.user.findUnique({
+    where: { telegramId },
+    select: {
+      id: true,
+      telegramId: true,
+      botBlocked: true,
+      onboardingDone: true,
+      firstName: true,
+      lastContactedAt: true,
+      reminderTime: true,
+      timezone: true,
+      createdAt: true,
+    },
+  });
+
+  if (!user) return next();
+
+  // ── Bot-unblock ──
+  if (user.botBlocked) {
+    await prisma.user.update({ where: { id: user.id }, data: { botBlocked: false } });
+    if (user.onboardingDone) {
+      await scheduleNextJob(user.id, user.telegramId);
+    }
+    console.log(`[bot] User ${user.id} unblocked the bot — reminders re-enabled`);
+    return next();
+  }
+
+  // ── Returning-dormant detection ──
+  // Only applies to fully onboarded users. Gate with lastContactedAt first to
+  // avoid running a log query on every request from an active user.
+  if (user.onboardingDone) {
+    const msSinceContacted = user.lastContactedAt
+      ? Date.now() - user.lastContactedAt.getTime()
+      : Infinity;
+
+    if (msSinceContacted > DORMANT_WELCOME_COOLDOWN_MS) {
+      const lastLog = await prisma.log.findFirst({
+        where: { userId: user.id },
+        orderBy: { logDate: "desc" },
+        select: { logDate: true },
+      });
+
+      const daysSinceLastLog = lastLog
+        ? differenceInDays(new Date(), lastLog.logDate)
+        : differenceInDays(new Date(), user.createdAt);
+
+      if (daysSinceLastLog > 3) {
+        // User is returning from the dormant window — welcome them back and
+        // immediately reschedule their reminder to their normal cadence.
+        try {
+          await ctx.reply(
+            `Welcome back ${user.firstName} 👋 — ready to pick up where you left off?`,
+            { reply_markup: { inline_keyboard: [[{ text: "Write today's log ✍️", callback_data: "write_log" }]] } }
+          );
+        } catch {
+          // Non-fatal — proceed even if the welcome message fails
+        }
+
+        // Reschedule to their normal reminder time (today if upcoming, else tomorrow)
+        if (user.reminderTime && user.timezone) {
+          try {
+            const candidateToday = localTimeToUtc(user.reminderTime, user.timezone, 0);
+            const nextReminderTime =
+              candidateToday > new Date()
+                ? candidateToday
+                : localTimeToUtc(user.reminderTime, user.timezone, 1);
+            await scheduleNextJob(user.id, user.telegramId, nextReminderTime);
+          } catch {
+            // Fall back to default scheduling if time computation fails
+            await scheduleNextJob(user.id, user.telegramId);
+          }
+        } else {
+          await scheduleNextJob(user.id, user.telegramId);
+        }
+
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { lastContactedAt: new Date() },
+        });
       }
-      console.log(`[bot] User ${user.id} unblocked the bot — reminders re-enabled`);
     }
   }
+
   return next();
 });
 

@@ -41,6 +41,10 @@ model User {
   botBlocked                    Boolean         @default(false)
   lastGreetingSentAt DateTime?
   lastGreetingType   GreetingType?
+  nudgeCount         Int             @default(0)
+  lastNudgeSentAt    DateTime?
+  nudgingPaused      Boolean         @default(false)
+  lastContactedAt    DateTime?
   createdAt          DateTime        @default(now())
   logs               Log[]
   reminderJobs       ReminderJob[]

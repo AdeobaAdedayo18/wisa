@@ -102,6 +102,10 @@ export const UserScalarFieldEnum = {
   botBlocked: 'botBlocked',
   lastGreetingSentAt: 'lastGreetingSentAt',
   lastGreetingType: 'lastGreetingType',
+  nudgeCount: 'nudgeCount',
+  lastNudgeSentAt: 'lastNudgeSentAt',
+  nudgingPaused: 'nudgingPaused',
+  lastContactedAt: 'lastContactedAt',
   createdAt: 'createdAt'
 } as const
 

@@ -187,6 +187,59 @@ export async function scheduleNextJob(userId: number, telegramId: bigint, nextTi
 }
 
 // ---------------------------------------------------------------------------
+// Dormant message content — segmented by logCount and silence window
+// Used by the scheduler for days-4+ silent users.
+// ---------------------------------------------------------------------------
+
+export function getDormantMessage(
+  firstName: string,
+  logCount: number,
+  jobId: number,
+  logDate: string,
+  daysSinceSilent: number
+): { text: string; keyboard: { inline_keyboard: Array<Array<{ text: string; callback_data: string }>> } } {
+  // Days 31+: pure urgency with catch-up path — ignore logCount
+  if (daysSinceSilent > 30) {
+    return {
+      text: `${firstName} — defense season is coming.\nstudents who start logging now still have time to catch up. Wisa's catch-up mode can fill your missing days in minutes.\ndon't leave it too late 👇`,
+      keyboard: { inline_keyboard: [[{ text: "Catch up now 🔄", callback_data: "trigger_catchup" }]] },
+    };
+  }
+
+  const logButton = [{ text: "Log right now 📝", callback_data: `write_log_${jobId}_${logDate}` }];
+
+  // Bucket A — logCount 0
+  if (logCount === 0) {
+    return {
+      text: `hey ${firstName} 👋 you set up Wisa but haven't written your first log yet.\n\nyour SIWES is still going. your supervisor is still going to ask for that logbook.\n\nlet's get you started — it takes 2 minutes 📝`,
+      keyboard: { inline_keyboard: [logButton] },
+    };
+  }
+
+  // Bucket A — logCount 1–3
+  if (logCount <= 3) {
+    return {
+      text: `hey ${firstName} 👋 you logged ${logCount} time${logCount === 1 ? "" : "s"} and then went quiet.\n\nyour SIWES is still going. your supervisor is still going to ask for that logbook.\n\nlet's get you back on track — it takes 2 minutes 📝`,
+      keyboard: { inline_keyboard: [logButton] },
+    };
+  }
+
+  // Bucket B — logCount 4–9
+  if (logCount <= 9) {
+    return {
+      text: `you logged ${logCount} times and were building something real, ${firstName} 👀\n\ndon't let that momentum die. students who reach 10 logs almost never fall behind before defense day.\n\nyou're ${10 - logCount} log${10 - logCount === 1 ? "" : "s"} away — let's go 💪`,
+      keyboard: { inline_keyboard: [logButton] },
+    };
+  }
+
+  // Bucket C — logCount 10+
+  return {
+    text: `${firstName} you've logged ${logCount} times — you clearly know how this works 👀\n\nsomething got in the way. that's fine. but your defense is coming and those missing days add up.\n\npick up where you left off 📝`,
+    keyboard: { inline_keyboard: [logButton] },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Snooze handler — callback: `snooze_<jobId>`
 // ---------------------------------------------------------------------------
 

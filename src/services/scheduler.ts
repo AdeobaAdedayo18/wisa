@@ -5,13 +5,13 @@ import { prisma } from "../lib/prisma";
 import type { Prisma } from "../prisma/client";
 import {
   getReminderMessage,
+  getDormantMessage,
   MORNING_GREETINGS,
   MOTIVATIONAL_SHORTS,
   pickRandomMessage,
   scheduleNextJob,
 } from "../bot/reminders";
 import { sendSceneViaApi } from "../utils/constants";
-import { captureReplayError } from "./replayCapture";
 import { getLocalDayOfWeek, localTimeToUtc } from "../utils/dateHelpers";
 import type { BotContext, SessionData } from "../bot/types";
 import { parseISO, differenceInDays } from "date-fns";
@@ -198,7 +198,7 @@ export async function sendWeeklyRecap(bot: Bot<BotContext>): Promise<{ sent: num
     try {
       const userLogs = logsByUserId.get(user.id) || [];
       const logsByDay = new Map<number, string>();
-      
+
       for (const log of userLogs) {
         const offsetMs = log.logDate.getTime() - monday.getTime();
         const dayOffset = Math.round(offsetMs / (24 * 60 * 60 * 1000));
@@ -295,7 +295,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
       if (dayOfWeek === 0 || dayOfWeek === 6) return;
 
       const startOfToday = getStartOfTodayInWAT();
-      
+
       const totalDailyUsers = await prisma.user.count({
         where: { onboardingDone: true, botBlocked: false, logFrequency: "daily" },
       });
@@ -336,7 +336,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
               OR: [{ lastGreetingType: GreetingType.AFTERNOON }, { AND: [{ lastGreetingType: null }] }],
               AND: [{ OR: [{ lastGreetingSentAt: null }, { lastGreetingSentAt: { lt: startOfToday } }] }],
             },
-            data: { lastGreetingSentAt: claimedAt, lastGreetingType: GreetingType.MORNING },
+            data: { lastGreetingSentAt: claimedAt, lastGreetingType: GreetingType.MORNING, lastContactedAt: claimedAt },
           });
 
           if (claim.count === 0) continue;
@@ -369,9 +369,9 @@ export function startScheduler(bot: Bot<BotContext>): void {
     try {
       const dayOfWeek = new Date().getDay();
       if (dayOfWeek === 0 || dayOfWeek === 6) return;
-      
+
       const startOfToday = getStartOfTodayInWAT();
-      
+
       const candidates = await prisma.user.findMany({
         where: {
           onboardingDone: true, botBlocked: false, logFrequency: "daily",
@@ -394,7 +394,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
               id: user.id, onboardingDone: true, botBlocked: false, logFrequency: "daily",
               OR: [{ lastGreetingSentAt: null }, { lastGreetingSentAt: { lt: startOfToday } }],
             },
-            data: { lastGreetingSentAt: claimedAt, lastGreetingType: GreetingType.AFTERNOON },
+            data: { lastGreetingSentAt: claimedAt, lastGreetingType: GreetingType.AFTERNOON, lastContactedAt: claimedAt },
           });
 
           if (claim.count === 0) continue;
@@ -478,13 +478,13 @@ export function startScheduler(bot: Bot<BotContext>): void {
 
       for (const [, job] of bestJobByUser) {
         try {
-          const userForTz = job.user; 
-          if (!userForTz) continue; 
-          
+          const userForTz = job.user;
+          if (!userForTz) continue;
+
           const userTz = userForTz.timezone ?? "Africa/Lagos";
           const todayStart = localTimeToUtc("00:00", userTz, 0);
           const tomorrowStart = localTimeToUtc("00:00", userTz, 1);
-          
+
           const lastLog = latestLogMap.get(job.userId);
           const alreadyLoggedToday = lastLog && lastLog.logDate >= todayStart && lastLog.logDate < tomorrowStart;
 
@@ -504,53 +504,136 @@ export function startScheduler(bot: Bot<BotContext>): void {
           }
 
           const nowTime = new Date();
-          let daysSinceLastLog = lastLog 
+          const daysSinceLastLog = lastLog
             ? differenceInDays(nowTime, lastLog.logDate)
             : (userForTz.createdAt ? differenceInDays(nowTime, userForTz.createdAt) : 0);
 
-          if (daysSinceLastLog > 14) {
-            await prisma.reminderJob.update({ where: { id: job.id }, data: { status: "skipped" } });
-            await createReminderEvent(job.id, "skipped", { reason: "inactive" });
-            continue;
-          }
-
-          const localHour = Number(new Intl.DateTimeFormat("en-US", { timeZone: userTz, hour: "2-digit", hour12: false }).format(nowTime));
-          const { text, isSilent, bucket } = getReminderMessage(localHour, daysSinceLastLog);
           const logDate = job.logDate ?? new Intl.DateTimeFormat("en-CA", { timeZone: userTz }).format(job.scheduledFor);
 
-          // Atomic Claim
+          // Atomic claim (shared by both dormant and normal flows)
           const claim = await prisma.reminderJob.updateMany({
             where: { id: job.id, status: "pending" },
             data: { status: "snoozed" },
           });
           if (claim.count === 0) continue;
 
-          try {
-            await sendSceneViaApi(
-              bot.api,
-              Number(job.telegramId),
-              "scene5",
-              text, 
-              { inline_keyboard: [
-                  [{ text: "✍️ Write my log", callback_data: `write_log_${job.id}_${logDate}` }],
-                  [{ text: "⏳ Remind me in 30 mins", callback_data: `snooze_${job.id}` }],
-                  [{ text: "🙈 Skip today", callback_data: `skip_${job.id}` }],
-                ]
-              },
-              isSilent 
+          if (daysSinceLastLog > 3) {
+            // ── DORMANT FLOW ──
+            // Determine message frequency for this silence window
+            let minDaysBetween: number;
+            let nextJobDelayDays: number;
+
+            if (daysSinceLastLog <= 14) {
+              minDaysBetween = 3;
+              nextJobDelayDays = 3;
+            } else if (daysSinceLastLog <= 30) {
+              minDaysBetween = 7;
+              nextJobDelayDays = 7;
+            } else {
+              minDaysBetween = 30;
+              nextJobDelayDays = 30;
+            }
+
+            const lastContactedAt = userForTz.lastContactedAt;
+
+            // Already contacted recently? Undo claim, skip, schedule next contact date.
+            if (lastContactedAt && differenceInDays(nowTime, lastContactedAt) < minDaysBetween) {
+              await prisma.reminderJob.update({ where: { id: job.id }, data: { status: "skipped" } });
+              await createReminderEvent(job.id, "skipped", {
+                reason: "recently_contacted",
+                daysSinceSilent: daysSinceLastLog,
+              });
+              const nextContactDate = new Date(lastContactedAt.getTime() + nextJobDelayDays * 24 * 60 * 60 * 1000);
+              await scheduleNextJob(job.userId, job.telegramId, nextContactDate);
+              continue;
+            }
+
+            try {
+              // Fetch freshest logCount — do not use the cached value from the join
+              const freshUser = await prisma.user.findUnique({
+                where: { id: job.userId },
+                select: { logCount: true },
+              });
+              const logCount = freshUser?.logCount ?? 0;
+
+              const { text: dormantText, keyboard: dormantKeyboard } = getDormantMessage(
+                userForTz.firstName,
+                logCount,
+                job.id,
+                logDate,
+                daysSinceLastLog
+              );
+
+              await bot.api.sendMessage(Number(job.telegramId), dormantText, {
+                reply_markup: dormantKeyboard,
+              });
+
+              const contactedAt = new Date();
+              await prisma.reminderJob.update({
+                where: { id: job.id },
+                // autoNudgeCount: 3 prevents the auto-nudge cron from firing follow-ups on dormant messages
+                data: { status: "sent", logDate, sentAt: contactedAt, autoNudgeCount: 3 },
+              });
+              await prisma.user.update({
+                where: { id: job.userId },
+                data: { lastContactedAt: contactedAt },
+              });
+              await createReminderEvent(job.id, "sent", {
+                bucket: `DORMANT_D${daysSinceLastLog}`,
+                logCount,
+              });
+
+              // Always schedule the next dormant contact — never rely on the healer for dormant users
+              const nextContactDate = new Date(contactedAt.getTime() + nextJobDelayDays * 24 * 60 * 60 * 1000);
+              await scheduleNextJob(job.userId, job.telegramId, nextContactDate);
+            } catch (e: unknown) {
+              await prisma.reminderJob.update({ where: { id: job.id }, data: { status: "pending" } });
+              throw e;
+            }
+          } else {
+            // ── NORMAL REMINDER FLOW (days 1–3 silent) ──
+            const localHour = Number(
+              new Intl.DateTimeFormat("en-US", {
+                timeZone: userTz,
+                hour: "2-digit",
+                hour12: false,
+              }).format(nowTime)
             );
+            const { text, isSilent, bucket } = getReminderMessage(localHour, daysSinceLastLog);
 
-            await prisma.reminderJob.update({
-              where: { id: job.id },
-              data: { status: "sent", logDate, bucketSent: bucket, sentAt: new Date() },
-            });
+            try {
+              await sendSceneViaApi(
+                bot.api,
+                Number(job.telegramId),
+                "scene5",
+                text,
+                {
+                  inline_keyboard: [
+                    [{ text: "✍️ Write my log", callback_data: `write_log_${job.id}_${logDate}` }],
+                    [{ text: "⏳ Remind me in 30 mins", callback_data: `snooze_${job.id}` }],
+                    [{ text: "🙈 Skip today", callback_data: `skip_${job.id}` }],
+                  ],
+                },
+                isSilent
+              );
 
-            await createReminderEvent(job.id, "sent", { bucket, logDate, silent: isSilent });
+              const sentAt = new Date();
+              await prisma.reminderJob.update({
+                where: { id: job.id },
+                data: { status: "sent", logDate, bucketSent: bucket, sentAt },
+              });
+              await prisma.user.update({
+                where: { id: job.userId },
+                data: { lastContactedAt: sentAt },
+              });
 
-            await scheduleNextJob(job.userId, job.telegramId);
-          } catch (e: unknown) {
-            await prisma.reminderJob.update({ where: { id: job.id }, data: { status: "pending" } });
-            throw e;
+              await createReminderEvent(job.id, "sent", { bucket, logDate, silent: isSilent });
+
+              await scheduleNextJob(job.userId, job.telegramId);
+            } catch (e: unknown) {
+              await prisma.reminderJob.update({ where: { id: job.id }, data: { status: "pending" } });
+              throw e;
+            }
           }
         } catch (e: unknown) {
           if (isBotBlockedError(e)) {
@@ -567,11 +650,12 @@ export function startScheduler(bot: Bot<BotContext>): void {
     }
   });
 
-  // ── Auto-nudge CAS (every 5 min) ──
+  // ── Auto-nudge escalation (every 5 min) ──
+  // T+30min: message 2 — only if before 11:30PM WAT
+  // T+60min: message 3 (final) — only if before 11:30PM WAT, then mark job skipped
   const AUTO_NUDGE_MESSAGES = [
-    `Hey! 👋 Just checking in — haven't heard from you yet. Ready to write your log?`,
-    `Still there? 😊 Your logbook is waiting. Even a few sentences is better than nothing!`,
-    `Last nudge for today! 😅 Just write something quick — your future self will thank you 🙏`,
+    `Hey! 👋 Just checking in — haven't heard from you yet. Ready to log?`,
+    `Last nudge for today 😅 — even one sentence is enough, I'll handle the rest.`,
   ];
 
   cron.schedule("*/5 * * * *", async () => {
@@ -628,12 +712,18 @@ export function startScheduler(bot: Bot<BotContext>): void {
 
       for (const [, job] of bestSentByUser) {
         try {
-          const nextNudgeAt = new Date(job.scheduledFor.getTime() + (job.autoNudgeCount + 1) * 20 * 60 * 1000);
-          if (now < nextNudgeAt) continue; 
+          // nudgeIndex = job.autoNudgeCount before any increment (0 = message 2, 1 = message 3)
+          const nudgeIndex = job.autoNudgeCount;
 
-          const userForTz = job.user; 
+          // Scheduled send time for this nudge step (30 min per step from original scheduledFor)
+          const scheduledSendTime = new Date(job.scheduledFor.getTime() + (nudgeIndex + 1) * 30 * 60 * 1000);
+
+          // Not time yet
+          if (now < scheduledSendTime) continue;
+
+          const userForTz = job.user;
           if (!userForTz) continue;
-          
+
           const userTz = userForTz.timezone ?? "Africa/Lagos";
           const todayStart = localTimeToUtc("00:00", userTz, 0);
           const tomorrowStart = localTimeToUtc("00:00", userTz, 1);
@@ -647,57 +737,80 @@ export function startScheduler(bot: Bot<BotContext>): void {
             continue;
           }
 
-          // ATOMIC CAS CLAIM: Optimistically claim this nudge to prevent overlapping cron runs
-          const claim = await prisma.reminderJob.updateMany({
-            where: { id: job.id, status: "sent", autoNudgeCount: job.autoNudgeCount },
-            data: { autoNudgeCount: job.autoNudgeCount + 1 }
-          });
-          if (claim.count === 0) continue; // Another process claimed it
+          // 11:30PM WAT cutoff — check against the scheduled send time, not wall-clock now.
+          // WAT = UTC+1; add WAT_OFFSET_MS then read UTC fields to get WAT H:M.
+          const watSendTime = new Date(scheduledSendTime.getTime() + WAT_OFFSET_MS);
+          const watHour = watSendTime.getUTCHours();
+          const watMin = watSendTime.getUTCMinutes();
+          // Past cutoff: at/after 23:30 WAT, or midnight-to-4:59am WAT (handles rollover edge case)
+          const pastCutoff = (watHour === 23 && watMin >= 30) || watHour < 5;
 
-          const nudgeIndex = job.autoNudgeCount; 
+          if (pastCutoff) {
+            await prisma.reminderJob.updateMany({
+              where: { id: job.id, status: "sent", autoNudgeCount: nudgeIndex },
+              data: { autoNudgeCount: 3, status: "skipped" },
+            });
+            await createReminderEvent(job.id, "skipped", {
+              reason: "past_cutoff_11_30pm",
+              nudgeIndex,
+            });
+            continue;
+          }
+
+          // Guard for any jobs left over from the old 3-nudge system (nudgeIndex >= 2)
+          if (nudgeIndex >= 2) {
+            await prisma.reminderJob.updateMany({
+              where: { id: job.id, status: "sent", autoNudgeCount: nudgeIndex },
+              data: { autoNudgeCount: 3, status: "skipped" },
+            });
+            await createReminderEvent(job.id, "skipped", { reason: "nudge_limit_reached" });
+            continue;
+          }
+
+          // Atomic CAS claim
+          const claim = await prisma.reminderJob.updateMany({
+            where: { id: job.id, status: "sent", autoNudgeCount: nudgeIndex },
+            data: { autoNudgeCount: nudgeIndex + 1 },
+          });
+          if (claim.count === 0) continue;
+
           const nudgeMessage = AUTO_NUDGE_MESSAGES[nudgeIndex];
           const logDate = job.logDate ?? new Intl.DateTimeFormat("en-CA").format(job.scheduledFor);
 
           try {
-            if (nudgeIndex === 2) {
-              await sendSceneViaApi(
-                bot.api,
-                Number(job.telegramId),
-                "scene6",
-                nudgeMessage,
-                { inline_keyboard: [
+            await bot.api.sendMessage(
+              Number(job.telegramId),
+              nudgeMessage,
+              {
+                reply_markup: {
+                  inline_keyboard: [
                     [{ text: "✍️ Write my log", callback_data: `write_log_${job.id}_${logDate}` }],
-                    [{ text: "🙈 Skip today", callback_data: `skip_${job.id}` }],
-                  ]
+                  ],
                 },
-              );
-              await createReminderEvent(job.id, "auto_nudged", { nudgeIndex: nudgeIndex + 1 });
-              // Final nudge sent, mark as skipped
+              }
+            );
+
+            await createReminderEvent(job.id, "auto_nudged", { nudgeIndex: nudgeIndex + 1 });
+
+            const contactedAt = new Date();
+            await prisma.user.update({
+              where: { id: job.userId },
+              data: { lastContactedAt: contactedAt },
+            });
+
+            // Final nudge (index 1 = message 3): mark the job as skipped — escalation is over for today
+            if (nudgeIndex === 1) {
               await prisma.reminderJob.update({ where: { id: job.id }, data: { status: "skipped" } });
               await createReminderEvent(job.id, "skipped", { reason: "auto_nudge_final" });
-            } else {
-              await bot.api.sendMessage(
-                Number(job.telegramId),
-                nudgeMessage,
-                { reply_markup: {
-                    inline_keyboard: [
-                      [{ text: "✍️ Write my log", callback_data: `write_log_${job.id}_${logDate}` }],
-                      [{ text: "🙈 Skip today", callback_data: `skip_${job.id}` }],
-                    ],
-                  }
-                }
-              );
-              await createReminderEvent(job.id, "auto_nudged", { nudgeIndex: nudgeIndex + 1 });
             }
           } catch (networkErr: unknown) {
-             // Rollback the claim on network failure so it can be retried
-             await prisma.reminderJob.updateMany({
-               where: { id: job.id, autoNudgeCount: job.autoNudgeCount + 1 },
-               data: { autoNudgeCount: job.autoNudgeCount }
-             });
-             throw networkErr;
+            // Rollback the CAS increment so the nudge can be retried
+            await prisma.reminderJob.updateMany({
+              where: { id: job.id, autoNudgeCount: nudgeIndex + 1 },
+              data: { autoNudgeCount: nudgeIndex },
+            });
+            throw networkErr;
           }
-
         } catch (e: unknown) {
           if (isBotBlockedError(e)) {
             await markUserBlockedAndSkipPendingJobs(job.userId);
@@ -713,24 +826,73 @@ export function startScheduler(bot: Bot<BotContext>): void {
     }
   });
 
-  // ── Onboarding nudge ──
+  // ── Onboarding nudge (capped at 3, with per-nudge cooldowns) ──
   cron.schedule("0 19 * * *", async () => {
     if (onboardingNudgeCronRunning) return;
     onboardingNudgeCronRunning = true;
 
     try {
+      const now = new Date();
+
       const incompleteUsers = await prisma.user.findMany({
-        where: { onboardingDone: false, botBlocked: false },
-        select: { telegramId: true, firstName: true, id: true },
+        where: {
+          onboardingDone: false,
+          botBlocked: false,
+          nudgingPaused: false,
+          nudgeCount: { lt: 3 },
+        },
+        select: { telegramId: true, firstName: true, id: true, nudgeCount: true, lastNudgeSentAt: true },
       });
 
       for (const user of incompleteUsers) {
         try {
+          const nudgeCount = user.nudgeCount;
+
+          // nudge 1 requires 2+ days since the first nudge
+          if (nudgeCount === 1) {
+            if (!user.lastNudgeSentAt || differenceInDays(now, user.lastNudgeSentAt) < 2) continue;
+          }
+          // nudge 2 (final) requires 4+ days since nudge 1
+          if (nudgeCount === 2) {
+            if (!user.lastNudgeSentAt || differenceInDays(now, user.lastNudgeSentAt) < 4) continue;
+          }
+
+          let message: string;
+          if (nudgeCount === 0) {
+            message =
+              `hey ${user.firstName} 👋\nyou started setting up your Wisa but never finished 😅\n\n` +
+              `which means right now you have not started taking your logs and your IT days are already going by 👀\n\n` +
+              `it'll take you about 20 seconds to finish. literally just pick how often you want to log and what time you want to be reminded. that's it.\n\n` +
+              `after that the bot handles everything 🙏`;
+          } else if (nudgeCount === 1) {
+            message =
+              `hey ${user.firstName} — still haven't set up your Wisa 👀\n\n` +
+              `your coursemates are already logging daily. your SIWES days are passing. setup is literally 3 taps.\n\n` +
+              `don't let the backlog pile up before you even start 🙏`;
+          } else {
+            message =
+              `this is the last time I'll remind you, ${user.firstName}.\n\n` +
+              `your SIWES logbook won't fill itself. when your supervisor asks to see it, you'll wish you started earlier.\n\n` +
+              `20 seconds. that's all it takes to get set up 👇`;
+          }
+
           await bot.api.sendMessage(
             Number(user.telegramId),
-            `hey ${user.firstName} 👋\nyou started setting up your Wisa but never finished 😅\n\nwhich means right now you have not started taking your logs and your IT days are already going by 👀\n\nit'll take you about 20 seconds to finish. literally just pick how often you want to log and what time you want to be reminded. that's it.\n\nafter that the bot handles everything 🙏`,
+            message,
             { reply_markup: { inline_keyboard: [[{ text: "Finish my setup ✅", callback_data: "start_onboarding" }]] } }
           );
+
+          const newNudgeCount = nudgeCount + 1;
+          await prisma.user.update({
+            where: { id: user.id },
+            data: {
+              nudgeCount: newNudgeCount,
+              lastNudgeSentAt: now,
+              // Silently pause after the third nudge — no goodbye message
+              nudgingPaused: newNudgeCount >= 3,
+              lastContactedAt: now,
+            },
+          });
         } catch (e: unknown) {
           if (isBotBlockedError(e)) {
             await markUserBlockedAndSkipPendingJobs(user.id);

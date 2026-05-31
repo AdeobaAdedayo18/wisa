@@ -425,19 +425,22 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
       case 'interrogation': {
         const workingDays = state.workingDays!;
 
-        // Fix 3: 30-word check on first submission only
-        if (state.step === 'awaiting_braindump' && !state.rawDump) {
-          const wordCount = text.split(/\s+/).filter(Boolean).length;
-          if (wordCount < 30) {
-            await ctx.reply(
-              "That's a bit short for me to work with. Can you add a little more detail? Just tell me more about what you were actually doing — rough notes are fine."
-            );
+        if (state.step === 'awaiting_braindump') {
+          // Accumulate all messages before evaluating the total — never test a single
+          // message in isolation, which caused the infinite "too short" loop.
+          state.rawDump = state.rawDump ? `${state.rawDump}\n${text}` : text;
+          ctx.session.catchup = state;
+
+          const totalWordCount = state.rawDump.split(/\s+/).filter(Boolean).length;
+          if (totalWordCount < 15) {
+            await ctx.reply("Got it — tell me a bit more and I'll put it all together 📝");
             return;
           }
+        } else {
+          // interrogation: user answered follow-up questions — accumulate and proceed
+          state.rawDump = `${state.rawDump ?? ''}\n\nUser added: ${text}`;
+          ctx.session.catchup = state;
         }
-
-        state.rawDump = state.rawDump ? `${state.rawDump}\n\nUser added: ${text}` : text;
-        ctx.session.catchup = state;
 
         const loadingMsg = await ctx.reply("⏳");
 

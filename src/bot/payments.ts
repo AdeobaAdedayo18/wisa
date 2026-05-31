@@ -40,7 +40,7 @@ function unlockKeyboard(url?: string): InlineKeyboard {
   const kb = new InlineKeyboard();
   if (url) kb.url("💳 Pay with Paystack", url).row();
   
-  // 🚀 ADDED THIS LINE: The missing verification button!
+ 
   kb.text("✅ I've paid", "check_payment"); 
   
   return kb;

@@ -32,6 +32,7 @@ export type UserAvgAggregateOutputType = {
   logCount: number | null
   freeAiRefinements: number | null
   freeVoiceLogs: number | null
+  nudgeCount: number | null
 }
 
 export type UserSumAggregateOutputType = {
@@ -40,6 +41,7 @@ export type UserSumAggregateOutputType = {
   logCount: number | null
   freeAiRefinements: number | null
   freeVoiceLogs: number | null
+  nudgeCount: number | null
 }
 
 export type UserMinAggregateOutputType = {
@@ -65,6 +67,10 @@ export type UserMinAggregateOutputType = {
   botBlocked: boolean | null
   lastGreetingSentAt: Date | null
   lastGreetingType: $Enums.GreetingType | null
+  nudgeCount: number | null
+  lastNudgeSentAt: Date | null
+  nudgingPaused: boolean | null
+  lastContactedAt: Date | null
   createdAt: Date | null
 }
 
@@ -91,6 +97,10 @@ export type UserMaxAggregateOutputType = {
   botBlocked: boolean | null
   lastGreetingSentAt: Date | null
   lastGreetingType: $Enums.GreetingType | null
+  nudgeCount: number | null
+  lastNudgeSentAt: Date | null
+  nudgingPaused: boolean | null
+  lastContactedAt: Date | null
   createdAt: Date | null
 }
 
@@ -117,6 +127,10 @@ export type UserCountAggregateOutputType = {
   botBlocked: number
   lastGreetingSentAt: number
   lastGreetingType: number
+  nudgeCount: number
+  lastNudgeSentAt: number
+  nudgingPaused: number
+  lastContactedAt: number
   createdAt: number
   _all: number
 }
@@ -128,6 +142,7 @@ export type UserAvgAggregateInputType = {
   logCount?: true
   freeAiRefinements?: true
   freeVoiceLogs?: true
+  nudgeCount?: true
 }
 
 export type UserSumAggregateInputType = {
@@ -136,6 +151,7 @@ export type UserSumAggregateInputType = {
   logCount?: true
   freeAiRefinements?: true
   freeVoiceLogs?: true
+  nudgeCount?: true
 }
 
 export type UserMinAggregateInputType = {
@@ -161,6 +177,10 @@ export type UserMinAggregateInputType = {
   botBlocked?: true
   lastGreetingSentAt?: true
   lastGreetingType?: true
+  nudgeCount?: true
+  lastNudgeSentAt?: true
+  nudgingPaused?: true
+  lastContactedAt?: true
   createdAt?: true
 }
 
@@ -187,6 +207,10 @@ export type UserMaxAggregateInputType = {
   botBlocked?: true
   lastGreetingSentAt?: true
   lastGreetingType?: true
+  nudgeCount?: true
+  lastNudgeSentAt?: true
+  nudgingPaused?: true
+  lastContactedAt?: true
   createdAt?: true
 }
 
@@ -213,6 +237,10 @@ export type UserCountAggregateInputType = {
   botBlocked?: true
   lastGreetingSentAt?: true
   lastGreetingType?: true
+  nudgeCount?: true
+  lastNudgeSentAt?: true
+  nudgingPaused?: true
+  lastContactedAt?: true
   createdAt?: true
   _all?: true
 }
@@ -326,6 +354,10 @@ export type UserGroupByOutputType = {
   botBlocked: boolean
   lastGreetingSentAt: Date | null
   lastGreetingType: $Enums.GreetingType | null
+  nudgeCount: number
+  lastNudgeSentAt: Date | null
+  nudgingPaused: boolean
+  lastContactedAt: Date | null
   createdAt: Date
   _count: UserCountAggregateOutputType | null
   _avg: UserAvgAggregateOutputType | null
@@ -375,6 +407,10 @@ export type UserWhereInput = {
   botBlocked?: Prisma.BoolFilter<"User"> | boolean
   lastGreetingSentAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   lastGreetingType?: Prisma.EnumGreetingTypeNullableFilter<"User"> | $Enums.GreetingType | null
+  nudgeCount?: Prisma.IntFilter<"User"> | number
+  lastNudgeSentAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
+  nudgingPaused?: Prisma.BoolFilter<"User"> | boolean
+  lastContactedAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"User"> | Date | string
   logs?: Prisma.LogListRelationFilter
   reminderJobs?: Prisma.ReminderJobListRelationFilter
@@ -406,6 +442,10 @@ export type UserOrderByWithRelationInput = {
   botBlocked?: Prisma.SortOrder
   lastGreetingSentAt?: Prisma.SortOrderInput | Prisma.SortOrder
   lastGreetingType?: Prisma.SortOrderInput | Prisma.SortOrder
+  nudgeCount?: Prisma.SortOrder
+  lastNudgeSentAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  nudgingPaused?: Prisma.SortOrder
+  lastContactedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   logs?: Prisma.LogOrderByRelationAggregateInput
   reminderJobs?: Prisma.ReminderJobOrderByRelationAggregateInput
@@ -440,6 +480,10 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   botBlocked?: Prisma.BoolFilter<"User"> | boolean
   lastGreetingSentAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   lastGreetingType?: Prisma.EnumGreetingTypeNullableFilter<"User"> | $Enums.GreetingType | null
+  nudgeCount?: Prisma.IntFilter<"User"> | number
+  lastNudgeSentAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
+  nudgingPaused?: Prisma.BoolFilter<"User"> | boolean
+  lastContactedAt?: Prisma.DateTimeNullableFilter<"User"> | Date | string | null
   createdAt?: Prisma.DateTimeFilter<"User"> | Date | string
   logs?: Prisma.LogListRelationFilter
   reminderJobs?: Prisma.ReminderJobListRelationFilter
@@ -471,6 +515,10 @@ export type UserOrderByWithAggregationInput = {
   botBlocked?: Prisma.SortOrder
   lastGreetingSentAt?: Prisma.SortOrderInput | Prisma.SortOrder
   lastGreetingType?: Prisma.SortOrderInput | Prisma.SortOrder
+  nudgeCount?: Prisma.SortOrder
+  lastNudgeSentAt?: Prisma.SortOrderInput | Prisma.SortOrder
+  nudgingPaused?: Prisma.SortOrder
+  lastContactedAt?: Prisma.SortOrderInput | Prisma.SortOrder
   createdAt?: Prisma.SortOrder
   _count?: Prisma.UserCountOrderByAggregateInput
   _avg?: Prisma.UserAvgOrderByAggregateInput
@@ -505,6 +553,10 @@ export type UserScalarWhereWithAggregatesInput = {
   botBlocked?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
   lastGreetingSentAt?: Prisma.DateTimeNullableWithAggregatesFilter<"User"> | Date | string | null
   lastGreetingType?: Prisma.EnumGreetingTypeNullableWithAggregatesFilter<"User"> | $Enums.GreetingType | null
+  nudgeCount?: Prisma.IntWithAggregatesFilter<"User"> | number
+  lastNudgeSentAt?: Prisma.DateTimeNullableWithAggregatesFilter<"User"> | Date | string | null
+  nudgingPaused?: Prisma.BoolWithAggregatesFilter<"User"> | boolean
+  lastContactedAt?: Prisma.DateTimeNullableWithAggregatesFilter<"User"> | Date | string | null
   createdAt?: Prisma.DateTimeWithAggregatesFilter<"User"> | Date | string
 }
 
@@ -530,6 +582,10 @@ export type UserCreateInput = {
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
+  nudgeCount?: number
+  lastNudgeSentAt?: Date | string | null
+  nudgingPaused?: boolean
+  lastContactedAt?: Date | string | null
   createdAt?: Date | string
   logs?: Prisma.LogCreateNestedManyWithoutUserInput
   reminderJobs?: Prisma.ReminderJobCreateNestedManyWithoutUserInput
@@ -561,6 +617,10 @@ export type UserUncheckedCreateInput = {
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
+  nudgeCount?: number
+  lastNudgeSentAt?: Date | string | null
+  nudgingPaused?: boolean
+  lastContactedAt?: Date | string | null
   createdAt?: Date | string
   logs?: Prisma.LogUncheckedCreateNestedManyWithoutUserInput
   reminderJobs?: Prisma.ReminderJobUncheckedCreateNestedManyWithoutUserInput
@@ -591,6 +651,10 @@ export type UserUpdateInput = {
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
+  nudgeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastNudgeSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  nudgingPaused?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastContactedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUpdateManyWithoutUserNestedInput
   reminderJobs?: Prisma.ReminderJobUpdateManyWithoutUserNestedInput
@@ -622,6 +686,10 @@ export type UserUncheckedUpdateInput = {
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
+  nudgeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastNudgeSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  nudgingPaused?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastContactedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUncheckedUpdateManyWithoutUserNestedInput
   reminderJobs?: Prisma.ReminderJobUncheckedUpdateManyWithoutUserNestedInput
@@ -653,6 +721,10 @@ export type UserCreateManyInput = {
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
+  nudgeCount?: number
+  lastNudgeSentAt?: Date | string | null
+  nudgingPaused?: boolean
+  lastContactedAt?: Date | string | null
   createdAt?: Date | string
 }
 
@@ -678,6 +750,10 @@ export type UserUpdateManyMutationInput = {
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
+  nudgeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastNudgeSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  nudgingPaused?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastContactedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -704,6 +780,10 @@ export type UserUncheckedUpdateManyInput = {
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
+  nudgeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastNudgeSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  nudgingPaused?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastContactedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -730,6 +810,10 @@ export type UserCountOrderByAggregateInput = {
   botBlocked?: Prisma.SortOrder
   lastGreetingSentAt?: Prisma.SortOrder
   lastGreetingType?: Prisma.SortOrder
+  nudgeCount?: Prisma.SortOrder
+  lastNudgeSentAt?: Prisma.SortOrder
+  nudgingPaused?: Prisma.SortOrder
+  lastContactedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -739,6 +823,7 @@ export type UserAvgOrderByAggregateInput = {
   logCount?: Prisma.SortOrder
   freeAiRefinements?: Prisma.SortOrder
   freeVoiceLogs?: Prisma.SortOrder
+  nudgeCount?: Prisma.SortOrder
 }
 
 export type UserMaxOrderByAggregateInput = {
@@ -764,6 +849,10 @@ export type UserMaxOrderByAggregateInput = {
   botBlocked?: Prisma.SortOrder
   lastGreetingSentAt?: Prisma.SortOrder
   lastGreetingType?: Prisma.SortOrder
+  nudgeCount?: Prisma.SortOrder
+  lastNudgeSentAt?: Prisma.SortOrder
+  nudgingPaused?: Prisma.SortOrder
+  lastContactedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -790,6 +879,10 @@ export type UserMinOrderByAggregateInput = {
   botBlocked?: Prisma.SortOrder
   lastGreetingSentAt?: Prisma.SortOrder
   lastGreetingType?: Prisma.SortOrder
+  nudgeCount?: Prisma.SortOrder
+  lastNudgeSentAt?: Prisma.SortOrder
+  nudgingPaused?: Prisma.SortOrder
+  lastContactedAt?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
 }
 
@@ -799,6 +892,7 @@ export type UserSumOrderByAggregateInput = {
   logCount?: Prisma.SortOrder
   freeAiRefinements?: Prisma.SortOrder
   freeVoiceLogs?: Prisma.SortOrder
+  nudgeCount?: Prisma.SortOrder
 }
 
 export type UserScalarRelationFilter = {
@@ -938,6 +1032,10 @@ export type UserCreateWithoutLogsInput = {
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
+  nudgeCount?: number
+  lastNudgeSentAt?: Date | string | null
+  nudgingPaused?: boolean
+  lastContactedAt?: Date | string | null
   createdAt?: Date | string
   reminderJobs?: Prisma.ReminderJobCreateNestedManyWithoutUserInput
   subscription?: Prisma.SubscriptionCreateNestedOneWithoutUserInput
@@ -968,6 +1066,10 @@ export type UserUncheckedCreateWithoutLogsInput = {
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
+  nudgeCount?: number
+  lastNudgeSentAt?: Date | string | null
+  nudgingPaused?: boolean
+  lastContactedAt?: Date | string | null
   createdAt?: Date | string
   reminderJobs?: Prisma.ReminderJobUncheckedCreateNestedManyWithoutUserInput
   subscription?: Prisma.SubscriptionUncheckedCreateNestedOneWithoutUserInput
@@ -1013,6 +1115,10 @@ export type UserUpdateWithoutLogsInput = {
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
+  nudgeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastNudgeSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  nudgingPaused?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastContactedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   reminderJobs?: Prisma.ReminderJobUpdateManyWithoutUserNestedInput
   subscription?: Prisma.SubscriptionUpdateOneWithoutUserNestedInput
@@ -1043,6 +1149,10 @@ export type UserUncheckedUpdateWithoutLogsInput = {
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
+  nudgeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastNudgeSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  nudgingPaused?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastContactedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   reminderJobs?: Prisma.ReminderJobUncheckedUpdateManyWithoutUserNestedInput
   subscription?: Prisma.SubscriptionUncheckedUpdateOneWithoutUserNestedInput
@@ -1072,6 +1182,10 @@ export type UserCreateWithoutSubscriptionInput = {
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
+  nudgeCount?: number
+  lastNudgeSentAt?: Date | string | null
+  nudgingPaused?: boolean
+  lastContactedAt?: Date | string | null
   createdAt?: Date | string
   logs?: Prisma.LogCreateNestedManyWithoutUserInput
   reminderJobs?: Prisma.ReminderJobCreateNestedManyWithoutUserInput
@@ -1102,6 +1216,10 @@ export type UserUncheckedCreateWithoutSubscriptionInput = {
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
+  nudgeCount?: number
+  lastNudgeSentAt?: Date | string | null
+  nudgingPaused?: boolean
+  lastContactedAt?: Date | string | null
   createdAt?: Date | string
   logs?: Prisma.LogUncheckedCreateNestedManyWithoutUserInput
   reminderJobs?: Prisma.ReminderJobUncheckedCreateNestedManyWithoutUserInput
@@ -1147,6 +1265,10 @@ export type UserUpdateWithoutSubscriptionInput = {
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
+  nudgeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastNudgeSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  nudgingPaused?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastContactedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUpdateManyWithoutUserNestedInput
   reminderJobs?: Prisma.ReminderJobUpdateManyWithoutUserNestedInput
@@ -1177,6 +1299,10 @@ export type UserUncheckedUpdateWithoutSubscriptionInput = {
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
+  nudgeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastNudgeSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  nudgingPaused?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastContactedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUncheckedUpdateManyWithoutUserNestedInput
   reminderJobs?: Prisma.ReminderJobUncheckedUpdateManyWithoutUserNestedInput
@@ -1206,6 +1332,10 @@ export type UserCreateWithoutReminderJobsInput = {
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
+  nudgeCount?: number
+  lastNudgeSentAt?: Date | string | null
+  nudgingPaused?: boolean
+  lastContactedAt?: Date | string | null
   createdAt?: Date | string
   logs?: Prisma.LogCreateNestedManyWithoutUserInput
   subscription?: Prisma.SubscriptionCreateNestedOneWithoutUserInput
@@ -1236,6 +1366,10 @@ export type UserUncheckedCreateWithoutReminderJobsInput = {
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
+  nudgeCount?: number
+  lastNudgeSentAt?: Date | string | null
+  nudgingPaused?: boolean
+  lastContactedAt?: Date | string | null
   createdAt?: Date | string
   logs?: Prisma.LogUncheckedCreateNestedManyWithoutUserInput
   subscription?: Prisma.SubscriptionUncheckedCreateNestedOneWithoutUserInput
@@ -1281,6 +1415,10 @@ export type UserUpdateWithoutReminderJobsInput = {
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
+  nudgeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastNudgeSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  nudgingPaused?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastContactedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUpdateManyWithoutUserNestedInput
   subscription?: Prisma.SubscriptionUpdateOneWithoutUserNestedInput
@@ -1311,6 +1449,10 @@ export type UserUncheckedUpdateWithoutReminderJobsInput = {
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
+  nudgeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastNudgeSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  nudgingPaused?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastContactedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUncheckedUpdateManyWithoutUserNestedInput
   subscription?: Prisma.SubscriptionUncheckedUpdateOneWithoutUserNestedInput
@@ -1340,6 +1482,10 @@ export type UserCreateWithoutManualPaymentsInput = {
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
+  nudgeCount?: number
+  lastNudgeSentAt?: Date | string | null
+  nudgingPaused?: boolean
+  lastContactedAt?: Date | string | null
   createdAt?: Date | string
   logs?: Prisma.LogCreateNestedManyWithoutUserInput
   reminderJobs?: Prisma.ReminderJobCreateNestedManyWithoutUserInput
@@ -1370,6 +1516,10 @@ export type UserUncheckedCreateWithoutManualPaymentsInput = {
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
+  nudgeCount?: number
+  lastNudgeSentAt?: Date | string | null
+  nudgingPaused?: boolean
+  lastContactedAt?: Date | string | null
   createdAt?: Date | string
   logs?: Prisma.LogUncheckedCreateNestedManyWithoutUserInput
   reminderJobs?: Prisma.ReminderJobUncheckedCreateNestedManyWithoutUserInput
@@ -1415,6 +1565,10 @@ export type UserUpdateWithoutManualPaymentsInput = {
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
+  nudgeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastNudgeSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  nudgingPaused?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastContactedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUpdateManyWithoutUserNestedInput
   reminderJobs?: Prisma.ReminderJobUpdateManyWithoutUserNestedInput
@@ -1445,6 +1599,10 @@ export type UserUncheckedUpdateWithoutManualPaymentsInput = {
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
+  nudgeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastNudgeSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  nudgingPaused?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastContactedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUncheckedUpdateManyWithoutUserNestedInput
   reminderJobs?: Prisma.ReminderJobUncheckedUpdateManyWithoutUserNestedInput
@@ -1474,6 +1632,10 @@ export type UserCreateWithoutPaymentTransactionsInput = {
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
+  nudgeCount?: number
+  lastNudgeSentAt?: Date | string | null
+  nudgingPaused?: boolean
+  lastContactedAt?: Date | string | null
   createdAt?: Date | string
   logs?: Prisma.LogCreateNestedManyWithoutUserInput
   reminderJobs?: Prisma.ReminderJobCreateNestedManyWithoutUserInput
@@ -1504,6 +1666,10 @@ export type UserUncheckedCreateWithoutPaymentTransactionsInput = {
   botBlocked?: boolean
   lastGreetingSentAt?: Date | string | null
   lastGreetingType?: $Enums.GreetingType | null
+  nudgeCount?: number
+  lastNudgeSentAt?: Date | string | null
+  nudgingPaused?: boolean
+  lastContactedAt?: Date | string | null
   createdAt?: Date | string
   logs?: Prisma.LogUncheckedCreateNestedManyWithoutUserInput
   reminderJobs?: Prisma.ReminderJobUncheckedCreateNestedManyWithoutUserInput
@@ -1549,6 +1715,10 @@ export type UserUpdateWithoutPaymentTransactionsInput = {
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
+  nudgeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastNudgeSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  nudgingPaused?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastContactedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUpdateManyWithoutUserNestedInput
   reminderJobs?: Prisma.ReminderJobUpdateManyWithoutUserNestedInput
@@ -1579,6 +1749,10 @@ export type UserUncheckedUpdateWithoutPaymentTransactionsInput = {
   botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
   lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
+  nudgeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastNudgeSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  nudgingPaused?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastContactedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUncheckedUpdateManyWithoutUserNestedInput
   reminderJobs?: Prisma.ReminderJobUncheckedUpdateManyWithoutUserNestedInput
@@ -1667,6 +1841,10 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   botBlocked?: boolean
   lastGreetingSentAt?: boolean
   lastGreetingType?: boolean
+  nudgeCount?: boolean
+  lastNudgeSentAt?: boolean
+  nudgingPaused?: boolean
+  lastContactedAt?: boolean
   createdAt?: boolean
   logs?: boolean | Prisma.User$logsArgs<ExtArgs>
   reminderJobs?: boolean | Prisma.User$reminderJobsArgs<ExtArgs>
@@ -1699,6 +1877,10 @@ export type UserSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   botBlocked?: boolean
   lastGreetingSentAt?: boolean
   lastGreetingType?: boolean
+  nudgeCount?: boolean
+  lastNudgeSentAt?: boolean
+  nudgingPaused?: boolean
+  lastContactedAt?: boolean
   createdAt?: boolean
 }, ExtArgs["result"]["user"]>
 
@@ -1725,6 +1907,10 @@ export type UserSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   botBlocked?: boolean
   lastGreetingSentAt?: boolean
   lastGreetingType?: boolean
+  nudgeCount?: boolean
+  lastNudgeSentAt?: boolean
+  nudgingPaused?: boolean
+  lastContactedAt?: boolean
   createdAt?: boolean
 }, ExtArgs["result"]["user"]>
 
@@ -1751,10 +1937,14 @@ export type UserSelectScalar = {
   botBlocked?: boolean
   lastGreetingSentAt?: boolean
   lastGreetingType?: boolean
+  nudgeCount?: boolean
+  lastNudgeSentAt?: boolean
+  nudgingPaused?: boolean
+  lastContactedAt?: boolean
   createdAt?: boolean
 }
 
-export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "telegramId" | "firstName" | "username" | "paymentEmail" | "courseOfStudy" | "logFrequency" | "reminderTime" | "timezone" | "isPro" | "storageUnlocked" | "logCount" | "nextRenewalDate" | "freeAiRefinements" | "freeVoiceLogs" | "onboardingDone" | "firstLogPromptSent" | "firstLogCompletedInOnboarding" | "hitPaywall" | "botBlocked" | "lastGreetingSentAt" | "lastGreetingType" | "createdAt", ExtArgs["result"]["user"]>
+export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "telegramId" | "firstName" | "username" | "paymentEmail" | "courseOfStudy" | "logFrequency" | "reminderTime" | "timezone" | "isPro" | "storageUnlocked" | "logCount" | "nextRenewalDate" | "freeAiRefinements" | "freeVoiceLogs" | "onboardingDone" | "firstLogPromptSent" | "firstLogCompletedInOnboarding" | "hitPaywall" | "botBlocked" | "lastGreetingSentAt" | "lastGreetingType" | "nudgeCount" | "lastNudgeSentAt" | "nudgingPaused" | "lastContactedAt" | "createdAt", ExtArgs["result"]["user"]>
 export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   logs?: boolean | Prisma.User$logsArgs<ExtArgs>
   reminderJobs?: boolean | Prisma.User$reminderJobsArgs<ExtArgs>
@@ -1798,6 +1988,10 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     botBlocked: boolean
     lastGreetingSentAt: Date | null
     lastGreetingType: $Enums.GreetingType | null
+    nudgeCount: number
+    lastNudgeSentAt: Date | null
+    nudgingPaused: boolean
+    lastContactedAt: Date | null
     createdAt: Date
   }, ExtArgs["result"]["user"]>
   composites: {}
@@ -2249,6 +2443,10 @@ export interface UserFieldRefs {
   readonly botBlocked: Prisma.FieldRef<"User", 'Boolean'>
   readonly lastGreetingSentAt: Prisma.FieldRef<"User", 'DateTime'>
   readonly lastGreetingType: Prisma.FieldRef<"User", 'GreetingType'>
+  readonly nudgeCount: Prisma.FieldRef<"User", 'Int'>
+  readonly lastNudgeSentAt: Prisma.FieldRef<"User", 'DateTime'>
+  readonly nudgingPaused: Prisma.FieldRef<"User", 'Boolean'>
+  readonly lastContactedAt: Prisma.FieldRef<"User", 'DateTime'>
   readonly createdAt: Prisma.FieldRef<"User", 'DateTime'>
 }
     
