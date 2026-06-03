@@ -276,7 +276,7 @@ export async function handleSaveRawLog(ctx: BotContext): Promise<void> {
         where: { id: logId },
         data: {
           content: rawText,
-          refinedContent: refinedText,
+          refinedContent: null,
           isAiRefined: false,
         },
       });
@@ -287,7 +287,7 @@ export async function handleSaveRawLog(ctx: BotContext): Promise<void> {
           data: {
             userId: dbUser.id,
             content: rawText,
-            refinedContent: refinedText,
+            refinedContent: null,
             logDate,
             isVoice: wasVoice,
             isAiRefined: false,
