@@ -19,7 +19,7 @@ type OnboardingConversation = Conversation<BotContext, BotContext>;
 
 const MAIN_MENU_BASE = new Keyboard()
   .text("✍️ Write today's log").row()
-  .text("� Catch up missed days").row()
+  .text("🔄 Catch up missed days").row()
   .text("📖 See my logs").text("💬 Leave feedback").row()
   .text("✨ AI Refine").text("⚙️ Settings")
   .resized()
@@ -193,13 +193,13 @@ export async function onboardingConversation(conversation: OnboardingConversatio
     "Now let's write your very first log entry 📝\n\nJust tell me what you did at work today — even one sentence is enough. I'll turn it into a polished professional entry ✨",
   );
 
-  ctx.session.awaitingLog = true;
-  ctx.session.pendingLogParts = [];
-  ctx.session.pendingLogDate = todayStr;
-  ctx.session.awaitingFirstLog = true;
-  ctx.session.firstLogPromptSentAt = Date.now();
-  ctx.session.firstLogFollowUpSent = false;
-  ctx.session.flowStartedAt = Date.now();
+  courseCtx.session.awaitingLog = true;
+  courseCtx.session.pendingLogParts = [];
+  courseCtx.session.pendingLogDate = todayStr;
+  courseCtx.session.awaitingFirstLog = true;
+  courseCtx.session.firstLogPromptSentAt = Date.now();
+  courseCtx.session.firstLogFollowUpSent = false;
+  courseCtx.session.flowStartedAt = Date.now();
 }
 
 // ---------------------------------------------------------------------------
