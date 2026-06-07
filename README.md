@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="src/assets/Scene 1.jpg" alt="Wisa Banner" width="100%" />
+  <img src="src/assets/cover.png" alt="Wisa Banner" width="100%" />
 
   # 🚀 Wisa
 
