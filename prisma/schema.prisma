@@ -1,0 +1,170 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum GreetingType {
+  MORNING
+  AFTERNOON
+}
+
+model User {
+  id                 Int             @id @default(autoincrement())
+  telegramId         BigInt          @unique
+  firstName          String
+  username           String?
+  paymentEmail       String?
+  courseOfStudy      String?
+  logFrequency       String // "daily" | "bi-daily" | "every-3-days" | "weekly"
+  reminderTime       String // "HH:MM" in 24hr format
+  timezone           String          @default("Africa/Lagos")
+  isPro              Boolean         @default(false) // legacy compatibility flag
+  storageUnlocked    Boolean         @default(false)
+  logCount           Int             @default(0)
+  nextRenewalDate    DateTime?
+  freeAiRefinements  Int             @default(5) // 🚀 Bumped to 5
+  freeVoiceLogs      Int             @default(5) // 🚀 Bumped to 5
+  onboardingDone                Boolean         @default(false)
+  firstLogPromptSent            Boolean         @default(false)
+  firstLogCompletedInOnboarding Boolean         @default(false)
+  hitPaywall                    Boolean         @default(false)
+  botBlocked                    Boolean         @default(false)
+  lastGreetingSentAt DateTime?
+  lastGreetingType   GreetingType?
+  nudgeCount         Int             @default(0)
+  lastNudgeSentAt    DateTime?
+  nudgingPaused      Boolean         @default(false)
+  lastContactedAt    DateTime?
+  createdAt          DateTime        @default(now())
+  logs               Log[]
+  reminderJobs       ReminderJob[]
+  subscription       Subscription?
+  manualPayments     ManualPayment[]
+  paymentTransactions PaymentTransaction[]
+
+  @@index([logFrequency, onboardingDone, botBlocked, lastGreetingSentAt])
+  @@index([lastGreetingType])
+}
+
+model Log {
+  id             Int      @id @default(autoincrement())
+  userId         Int
+  user           User     @relation(fields: [userId], references: [id])
+  content        String
+  refinedContent String?
+  logDate        DateTime
+  isVoice        Boolean  @default(false)
+  isAiRefined    Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
+model Subscription {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @unique
+  user        User     @relation(fields: [userId], references: [id])
+  paystackRef String   @unique
+  status      String // "active" | "cancelled" | "expired"
+  startDate   DateTime
+  endDate     DateTime
+  createdAt   DateTime @default(now())
+}
+
+model ReminderJob {
+  id             Int       @id @default(autoincrement())
+  cycleId        String    @default(cuid())
+  userId         Int
+  user           User      @relation(fields: [userId], references: [id])
+  telegramId     BigInt
+  scheduledFor   DateTime
+  status         String // "pending" | "sent" | "snoozed" | "skipped"
+  snoozeCount    Int       @default(0)
+  autoNudgeCount Int       @default(0)
+  logDate        String? // ISO date "YYYY-MM-DD" the reminder is for (user's local date)
+  bucketSent     String?
+  sentAt         DateTime?
+  convertedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  reminderEvents ReminderEvent[]
+
+  @@index([cycleId])
+  @@index([userId, status, scheduledFor])
+  @@index([status, scheduledFor])
+  @@index([status, autoNudgeCount])
+  @@index([sentAt])
+}
+
+model ReminderEvent {
+  id            Int         @id @default(autoincrement())
+  reminderJobId Int
+  reminderJob   ReminderJob @relation(fields: [reminderJobId], references: [id])
+  eventType     String // "sent" | "snoozed" | "skipped" | "converted" | "auto_nudged"
+  createdAt     DateTime    @default(now())
+  metadata      Json?
+
+  @@index([reminderJobId, createdAt])
+}
+
+model Session {
+  id    Int    @id @default(autoincrement())
+  key   String @unique
+  value String
+}
+
+model ManualPayment {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  status    String   @default("pending") // "pending" | "approved" | "rejected"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PaymentTransaction {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  amount    Int
+  currency  String
+  provider  String
+  reference String   @unique
+  metadata  Json?
+  paidAt    DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId, paidAt])
+}
+
+model ReplayEvent {
+  id         Int      @id @default(autoincrement())
+  telegramId BigInt
+  eventType  String // "user_message" | "user_voice" | "user_callback" | "bot_message" | "bot_photo" | "bot_edit" | "bot_callback_answer" | "error" | "state_change"
+  direction  String // "incoming" | "outgoing" | "system"
+  payload    String // JSON blob — full event data
+  timestamp  DateTime @default(now())
+
+  @@index([telegramId, timestamp(sort: Desc)])
+  @@index([timestamp])
+}
+
+// ---------------------------------------------------------------------------
+// WeeklyQuote — one quote per IT week, shown in the Saturday recap message.
+// weekNumber: 1-based (week 1 = first week of IT).
+// attribution: optional name of the person who gave the quote.
+// ---------------------------------------------------------------------------
+model WeeklyQuote {
+  id          Int     @id @default(autoincrement())
+  weekNumber  Int     @unique
+  quote       String
+  attribution String?
+}
