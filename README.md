@@ -111,6 +111,16 @@ Wisa is production-ready and optimized for **Railway**.
 
 ---
 
+## 🚀 Roadmap / Future Features
+
+Wisa is constantly evolving. Here's what we're working on:
+
+- **WhatsApp Support**: Bringing the power of Wisa to your favorite messaging app.
+- **Visual Evidence**: Support for saving images and AI-generated illustrations for your technical work.
+
+
+---
+
 ## License
 
 Distributed under the MIT License. See `LICENSE` for more information.
