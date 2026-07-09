@@ -1247,7 +1247,9 @@ export const SubscriptionScalarFieldEnum = {
   status: 'status',
   startDate: 'startDate',
   endDate: 'endDate',
-  createdAt: 'createdAt'
+  createdAt: 'createdAt',
+  subscriptionCode: 'subscriptionCode',
+  customerCode: 'customerCode'
 } as const
 
 export type SubscriptionScalarFieldEnum = (typeof SubscriptionScalarFieldEnum)[keyof typeof SubscriptionScalarFieldEnum]
