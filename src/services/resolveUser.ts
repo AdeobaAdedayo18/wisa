@@ -2,7 +2,6 @@ import { prisma } from "../lib/prisma";
 
 
 export async function resolveUser(payload: any) {
-  // a. metadata.telegramId (fast path)
   const rawTelegramId = payload?.data?.metadata?.telegramId;
   if (rawTelegramId) {
     try {
@@ -11,7 +10,7 @@ export async function resolveUser(payload: any) {
       });
       if (user) return user;
     } catch {
-      // malformed telegramId — fall through to the next strategy
+     
     }
   }
 
