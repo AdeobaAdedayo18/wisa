@@ -78,6 +78,9 @@ model Subscription {
   startDate   DateTime
   endDate     DateTime
   createdAt   DateTime @default(now())
+
+  subscriptionCode String? @unique
+  customerCode     String?
 }
 
 model ReminderJob {
