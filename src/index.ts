@@ -10,6 +10,7 @@ import { adminRouter } from "./admin/router";
 import { dashboardRouter } from "./dashboard/routes";
 import { flushReplayBuffer, captureReplayError } from "./services/replayCapture";
 import { recordSuccessfulTransaction } from "./services/transactions";
+import { resolveUser } from "./services/resolveUser";
 import { InlineKeyboard } from "grammy";
 
 const app = express();
@@ -42,7 +43,15 @@ app.post("/webhook/paystack", express.raw({ type: "application/json" }), async (
   }
 
   if (payload.event === "charge.success") {
-    const telegramId = BigInt(payload.data.metadata?.telegramId ?? "0");
+    const resolvedUser = await resolveUser(payload);
+    if (!resolvedUser) {
+      console.warn(
+        `[webhook] charge.success — could not resolve user (ref=${payload.data?.reference}, email=${payload.data?.customer?.email ?? "n/a"})`,
+      );
+      return res.sendStatus(200);
+    }
+
+    const telegramId = resolvedUser.telegramId;
     const ref: string = payload.data.reference;
     const email: string = payload.data.customer?.email ?? "";
 
@@ -52,7 +61,7 @@ app.post("/webhook/paystack", express.raw({ type: "application/json" }), async (
       const renewalDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
       await prisma.user.update({
-        where: { telegramId },
+        where: { id: resolvedUser.id },
         data: {
           isPro: true,
           storageUnlocked: true,
