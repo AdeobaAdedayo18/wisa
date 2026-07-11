@@ -11,6 +11,7 @@ import { dashboardRouter } from "./dashboard/routes";
 import { flushReplayBuffer, captureReplayError } from "./services/replayCapture";
 import { activateStorageForUser } from "./bot/payments";
 import { resolveUser } from "./services/resolveUser";
+import { collapseToOneSubscription } from "./services/paystack";
 import { InlineKeyboard } from "grammy";
 
 const app = express();
@@ -276,6 +277,65 @@ app.post("/webhook/paystack", express.raw({ type: "application/json" }), async (
       captureReplayError(telegramId, err, "webhook:charge.success");
       return res.sendStatus(500);
     }
+  }
+
+  if (payload.event === "subscription.create") {
+    const resolvedUser = await resolveUser(payload);
+    if (!resolvedUser) {
+      console.warn(
+        `[webhook] subscription.create — could not resolve user (code=${payload.data?.subscription_code ?? "n/a"}, email=${payload.data?.customer?.email ?? "n/a"})`,
+      );
+      return res.sendStatus(200);
+    }
+
+    const subscriptionCode: string | undefined = payload.data?.subscription_code;
+    if (!subscriptionCode) {
+      console.warn(`[webhook] subscription.create — missing subscription_code for user ${resolvedUser.id}`);
+      return res.sendStatus(200);
+    }
+
+    const incoming = {
+      subscriptionCode,
+      customerCode: payload.data?.customer?.customer_code as string | undefined,
+      status: (payload.data?.status ?? "active") as string,
+    };
+
+    let survivor = incoming;
+    const subEmail: string | undefined = payload.data?.customer?.email ?? resolvedUser.paymentEmail ?? undefined;
+    if (subEmail) {
+      try {
+        survivor = await collapseToOneSubscription(subEmail, incoming);
+      } catch (err) {
+        console.error("[webhook] subscription.create — duplicate collapse failed, storing incoming code:", err);
+      }
+    }
+
+    try {
+      await prisma.subscription.upsert({
+        where: { userId: resolvedUser.id },
+        update: {
+          subscriptionCode: survivor.subscriptionCode,
+          customerCode: survivor.customerCode,
+          status: survivor.status,
+        },
+        create: {
+          userId: resolvedUser.id,
+          paystackRef: survivor.subscriptionCode,
+          subscriptionCode: survivor.subscriptionCode,
+          customerCode: survivor.customerCode,
+          status: survivor.status,
+          startDate: new Date(),
+          endDate: resolvedUser.nextRenewalDate ?? new Date(),
+        },
+      });
+      console.log(`[webhook] subscription.create — linked ${survivor.subscriptionCode} to user ${resolvedUser.id}`);
+    } catch (err) {
+      console.error("[webhook] Error processing subscription.create:", err);
+      captureReplayError(resolvedUser.telegramId, err, "webhook:subscription.create");
+      return res.sendStatus(500);
+    }
+
+    return res.sendStatus(200);
   }
 
   return res.sendStatus(200);
