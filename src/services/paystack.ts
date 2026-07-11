@@ -71,3 +71,73 @@ export async function disableSubscription(email: string) {
     throw error;
   }
 }
+
+type SubscriptionIdentity = {
+  subscriptionCode: string;
+  customerCode: string | undefined;
+  status: string;
+};
+
+function subscriptionRecency(sub: any): number {
+  const created = Date.parse(sub?.createdAt ?? sub?.created_at ?? "");
+  if (!Number.isNaN(created)) return created;
+  return typeof sub?.id === "number" ? sub.id : 0;
+}
+
+async function listActiveSubscriptions(email: string): Promise<Array<any>> {
+  const res = await axios.get(
+    `${PAYSTACK_BASE}/subscription?email=${encodeURIComponent(email)}`,
+    { headers }
+  );
+  const subs = (res.data?.data ?? []) as Array<any>;
+  return subs.filter((s) => s.status === "active");
+}
+
+async function fetchSubscriptionEmailToken(code: string): Promise<string | undefined> {
+  const res = await axios.get(
+    `${PAYSTACK_BASE}/subscription/${encodeURIComponent(code)}`,
+    { headers }
+  );
+  return res.data?.data?.email_token as string | undefined;
+}
+
+async function disableSubscriptionByCode(code: string, emailToken: string): Promise<void> {
+  await axios.post(
+    `${PAYSTACK_BASE}/subscription/disable`,
+    { code, token: emailToken },
+    { headers }
+  );
+}
+
+export async function collapseToOneSubscription(
+  email: string,
+  incoming: SubscriptionIdentity,
+): Promise<SubscriptionIdentity> {
+  const active = await listActiveSubscriptions(email);
+  if (active.length <= 1) return incoming;
+
+  const keeper = active.reduce((newest, s) =>
+    subscriptionRecency(s) > subscriptionRecency(newest) ? s : newest,
+  );
+
+  for (const sub of active) {
+    if (sub.subscription_code === keeper.subscription_code) continue;
+    try {
+      const token = sub.email_token ?? (await fetchSubscriptionEmailToken(sub.subscription_code));
+      if (!token) {
+        console.warn(`[paystack] Cannot disable ${sub.subscription_code} for ${email} — no email_token`);
+        continue;
+      }
+      await disableSubscriptionByCode(sub.subscription_code, token);
+      console.log(`[paystack] Disabled duplicate subscription ${sub.subscription_code} for ${email}`);
+    } catch (err: any) {
+      console.error(`[paystack] Failed to disable ${sub.subscription_code}:`, err.response?.data || err.message);
+    }
+  }
+
+  return {
+    subscriptionCode: keeper.subscription_code,
+    customerCode: keeper.customer?.customer_code ?? incoming.customerCode,
+    status: keeper.status ?? incoming.status,
+  };
+}
