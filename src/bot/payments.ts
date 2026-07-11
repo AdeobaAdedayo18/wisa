@@ -4,13 +4,41 @@ import { prisma } from "../lib/prisma";
 import { captureReplayError } from "../services/replayCapture";
 import { initializeTransaction, verifyTransaction } from "../services/paystack";
 import { getMainMenuKeyboard } from "./onboarding";
-import { getMonetizationUserByTelegramId, hasActiveStorage, STORAGE_PRICE_LABEL } from "./monetization";
+import { getActiveAutoRenewSubscription, getMonetizationUserByTelegramId, hasActiveStorage, STORAGE_PRICE_LABEL } from "./monetization";
 import { parseISO } from "date-fns";
 import { nthWorkingDayFrom } from "./catchupFlow";
 import { Prisma } from "../prisma/client";
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function alreadySubscribedMessage(nextRenewalDate: Date): string {
+  const renewalStr = new Intl.DateTimeFormat("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    timeZone: "Africa/Lagos",
+  }).format(nextRenewalDate);
+  return (
+    `👑 *You're already subscribed — no need to pay again.*\n\n` +
+    `Your Wisa Pro renews automatically on *${renewalStr}* and you'll be charged ₦1,000 then. Nothing to do on your end 🙌\n\n` +
+    `Changed your mind about auto-renewal? You can turn it off anytime below — you'll keep Pro until your current month runs out.`
+  );
+}
+
+async function blockIfAutoRenewActive(
+  ctx: BotContext,
+  userId: number,
+  nextRenewalDate: Date | null,
+): Promise<boolean> {
+  const managed = await getActiveAutoRenewSubscription(userId, nextRenewalDate);
+  if (!managed) return false;
+  await ctx.reply(alreadySubscribedMessage(managed.nextRenewalDate), {
+    parse_mode: "Markdown",
+    reply_markup: new InlineKeyboard().text("⚙️ Manage subscription", "settings_menu"),
+  });
+  return true;
 }
 
 const STORAGE_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
@@ -73,7 +101,11 @@ export async function activateStorageForUser(
     ]);
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      return { alreadyProcessed: true, newRenewalDate };
+      const dup = await prisma.paymentTransaction.findUnique({
+        where: { reference: charge.reference },
+        select: { id: true },
+      });
+      if (dup) return { alreadyProcessed: true, newRenewalDate };
     }
     throw err;
   }
@@ -96,8 +128,10 @@ export async function handleGoPro(ctx: BotContext): Promise<void> {
   const user = await getMonetizationUserByTelegramId(telegramId);
   if (!user) return;
 
+  if (await blockIfAutoRenewActive(ctx, user.id, user.nextRenewalDate)) return;
+
   // 🚀 BUG FIX: Calculate how many days are left.
-  const daysUntilExpiration = user.nextRenewalDate 
+  const daysUntilExpiration = user.nextRenewalDate
     ? (user.nextRenewalDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24) 
     : -1;
 
@@ -163,8 +197,10 @@ export async function handlePayPaystack(ctx: BotContext): Promise<void> {
 
   if (!user) return;
 
-  const daysUntilExpiration = user.nextRenewalDate 
-    ? (user.nextRenewalDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24) 
+  if (await blockIfAutoRenewActive(ctx, user.id, user.nextRenewalDate)) return;
+
+  const daysUntilExpiration = user.nextRenewalDate
+    ? (user.nextRenewalDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
     : -1;
 
   if (user.storageUnlocked && daysUntilExpiration > 3) {
