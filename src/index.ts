@@ -16,6 +16,14 @@ import { InlineKeyboard } from "grammy";
 
 const app = express();
 
+const RENEWAL_FAILED_MESSAGE =
+  `⚠️ *Your Wisa Pro renewal didn't go through.*\n\n` +
+  `No stress — your logs are safe. Paystack will retry automatically over the next few days, but if you want to keep Pro active without interruption, you can renew now 👇`;
+
+function extractSubscriptionCode(payload: any): string | undefined {
+  return payload?.data?.subscription_code ?? payload?.data?.subscription?.subscription_code;
+}
+
 // Paystack webhook endpoint
 app.post("/webhook/paystack", express.raw({ type: "application/json" }), async (req, res) => {
   const rawBody = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : "";
@@ -335,6 +343,61 @@ app.post("/webhook/paystack", express.raw({ type: "application/json" }), async (
       return res.sendStatus(500);
     }
 
+    return res.sendStatus(200);
+  }
+
+  if (payload.event === "subscription.not_renew") {
+    const subscriptionCode = extractSubscriptionCode(payload);
+    if (!subscriptionCode) {
+      console.warn("[webhook] subscription.not_renew — no subscription_code:", JSON.stringify(payload?.data ?? {}));
+      return res.sendStatus(200);
+    }
+    try {
+      await prisma.subscription.updateMany({ where: { subscriptionCode }, data: { status: "non-renewing" } });
+      console.log(`[webhook] subscription.not_renew — marked ${subscriptionCode} non-renewing`);
+    } catch (err) {
+      console.error("[webhook] Error processing subscription.not_renew:", err);
+      return res.sendStatus(500);
+    }
+    return res.sendStatus(200);
+  }
+
+  if (payload.event === "subscription.disable") {
+    const subscriptionCode = extractSubscriptionCode(payload);
+    if (!subscriptionCode) {
+      console.warn("[webhook] subscription.disable — no subscription_code:", JSON.stringify(payload?.data ?? {}));
+      return res.sendStatus(200);
+    }
+    try {
+      await prisma.subscription.updateMany({ where: { subscriptionCode }, data: { status: "cancelled" } });
+      console.log(`[webhook] subscription.disable — marked ${subscriptionCode} cancelled`);
+    } catch (err) {
+      console.error("[webhook] Error processing subscription.disable:", err);
+      return res.sendStatus(500);
+    }
+    return res.sendStatus(200);
+  }
+
+  if (payload.event === "invoice.payment_failed") {
+    const resolvedUser = await resolveUser(payload);
+    if (!resolvedUser) {
+      console.warn(
+        `[webhook] invoice.payment_failed — could not resolve user (code=${extractSubscriptionCode(payload) ?? "n/a"}, email=${payload.data?.customer?.email ?? "n/a"})`,
+      );
+      return res.sendStatus(200);
+    }
+    if (resolvedUser.nextRenewalDate && resolvedUser.nextRenewalDate > new Date()) {
+      console.log(`[webhook] invoice.payment_failed — user ${resolvedUser.id} still in window, skipping dunning`);
+      return res.sendStatus(200);
+    }
+    try {
+      await bot.api.sendMessage(Number(resolvedUser.telegramId), RENEWAL_FAILED_MESSAGE, {
+        parse_mode: "Markdown",
+        reply_markup: new InlineKeyboard().text("🔓 Renew now", "go_pro"),
+      });
+    } catch (err) {
+      console.error("[webhook] invoice.payment_failed — failed to send dunning message:", err);
+    }
     return res.sendStatus(200);
   }
 
