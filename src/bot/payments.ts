@@ -7,33 +7,78 @@ import { getMainMenuKeyboard } from "./onboarding";
 import { getMonetizationUserByTelegramId, hasActiveStorage, STORAGE_PRICE_LABEL } from "./monetization";
 import { parseISO } from "date-fns";
 import { nthWorkingDayFrom } from "./catchupFlow";
-import { recordSuccessfulTransaction } from "../services/transactions";
+import { Prisma } from "../prisma/client";
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-// 🚀 BUG FIX: Stack the 30 days on top of their remaining time, so paying early doesn't rob them.
-export async function activateStorageForUser(userId: number, currentRenewalDate?: Date | null): Promise<void> {
-  const now = new Date();
-  let newRenewalDate: Date;
+const STORAGE_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
 
-  if (currentRenewalDate && currentRenewalDate > now) {
-    // They still have time left. Add 30 days to their EXISTING future date.
-    newRenewalDate = new Date(currentRenewalDate.getTime() + 30 * 24 * 60 * 60 * 1000);
-  } else {
-    // They completely expired. Start 30 days from right now.
-    newRenewalDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+type SuccessfulCharge = {
+  userId: number;
+  currentRenewalDate?: Date | null;
+  reference: string;
+  amount: number;
+  currency: string;
+  provider: string;
+  paidAt: Date;
+  metadata?: Prisma.InputJsonValue;
+};
+
+export async function activateStorageForUser(
+  charge: SuccessfulCharge,
+): Promise<{ alreadyProcessed: boolean; newRenewalDate: Date }> {
+  const now = new Date();
+  const base =
+    charge.currentRenewalDate && charge.currentRenewalDate > now
+      ? charge.currentRenewalDate.getTime()
+      : now.getTime();
+  const newRenewalDate = new Date(base + STORAGE_PERIOD_MS);
+
+  const existing = await prisma.paymentTransaction.findUnique({
+    where: { reference: charge.reference },
+    select: { id: true },
+  });
+  if (existing) return { alreadyProcessed: true, newRenewalDate };
+
+  try {
+    await prisma.$transaction([
+      prisma.paymentTransaction.create({
+        data: {
+          userId: charge.userId,
+          amount: charge.amount,
+          currency: charge.currency,
+          provider: charge.provider,
+          reference: charge.reference,
+          metadata: charge.metadata,
+          paidAt: charge.paidAt,
+        },
+      }),
+      prisma.user.update({
+        where: { id: charge.userId },
+        data: { isPro: true, storageUnlocked: true, nextRenewalDate: newRenewalDate },
+      }),
+      prisma.subscription.upsert({
+        where: { userId: charge.userId },
+        update: { paystackRef: charge.reference, status: "active", endDate: newRenewalDate },
+        create: {
+          userId: charge.userId,
+          paystackRef: charge.reference,
+          status: "active",
+          startDate: now,
+          endDate: newRenewalDate,
+        },
+      }),
+    ]);
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      return { alreadyProcessed: true, newRenewalDate };
+    }
+    throw err;
   }
 
-  await prisma.user.update({
-    where: { id: userId },
-    data: {
-      isPro: true,
-      storageUnlocked: true,
-      nextRenewalDate: newRenewalDate,
-    },
-  });
+  return { alreadyProcessed: false, newRenewalDate };
 }
 
 function unlockKeyboard(url?: string): InlineKeyboard {
@@ -183,27 +228,20 @@ export async function handleCheckPayment(ctx: BotContext): Promise<void> {
       return;
     }
 
-    // 1. Activate storage normally (Pass the expiration date so it safely stacks the 30 days)
-    await activateStorageForUser(user.id, user.nextRenewalDate);
+    const paidAt = result.paid_at ? new Date(result.paid_at) : new Date();
+    const { alreadyProcessed } = await activateStorageForUser({
+      userId: user.id,
+      currentRenewalDate: user.nextRenewalDate,
+      reference: result.reference,
+      amount: result.amount,
+      currency: result.currency ?? "NGN",
+      provider: "paystack",
+      metadata: result.metadata ?? undefined,
+      paidAt,
+    });
 
-    try {
-      const paidAt = result.paid_at ? new Date(result.paid_at) : new Date();
-      await recordSuccessfulTransaction({
-        userId: user.id,
-        amount: result.amount,
-        currency: result.currency ?? "NGN",
-        provider: "paystack",
-        reference: result.reference,
-        metadata: result.metadata ?? null,
-        paidAt,
-      });
-    } catch (recordErr) {
-      console.error("[payments] Failed to record transaction:", recordErr);
-    }
-
-    // 2. CATCH-UP ENGINE: THE CLIFFHANGER RESOLUTION
     const catchupState = ctx.session.catchup;
-    if (catchupState?.heldLogs && catchupState.heldLogs.length > 0 && catchupState.startDate) {
+    if (!alreadyProcessed && catchupState?.heldLogs && catchupState.heldLogs.length > 0 && catchupState.startDate) {
       const logsToSave = catchupState.heldLogs;
       const startDate = parseISO(catchupState.startDate);
       const candidateDates = logsToSave.map(log => nthWorkingDayFrom(startDate, log.dateOffset));
