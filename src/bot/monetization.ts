@@ -20,6 +20,19 @@ export function hasActiveStorage(user: MonetizationUser, now = new Date()): bool
   return user.nextRenewalDate >= now;
 }
 
+export async function getActiveAutoRenewSubscription(
+  userId: number,
+  nextRenewalDate: Date | null,
+): Promise<{ nextRenewalDate: Date } | null> {
+  if (!nextRenewalDate || nextRenewalDate <= new Date()) return null;
+  const sub = await prisma.subscription.findUnique({
+    where: { userId },
+    select: { subscriptionCode: true, status: true },
+  });
+  if (sub?.subscriptionCode && sub.status === "active") return { nextRenewalDate };
+  return null;
+}
+
 export async function enforceAccessWindow(user: MonetizationUser): Promise<MonetizationUser> {
   if (!user.storageUnlocked || !user.nextRenewalDate) return user;
   if (user.nextRenewalDate >= new Date()) return user;
