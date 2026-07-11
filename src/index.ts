@@ -9,7 +9,7 @@ import { prisma } from "./lib/prisma";
 import { adminRouter } from "./admin/router";
 import { dashboardRouter } from "./dashboard/routes";
 import { flushReplayBuffer, captureReplayError } from "./services/replayCapture";
-import { recordSuccessfulTransaction } from "./services/transactions";
+import { activateStorageForUser } from "./bot/payments";
 import { resolveUser } from "./services/resolveUser";
 import { InlineKeyboard } from "grammy";
 
@@ -58,49 +58,28 @@ app.post("/webhook/paystack", express.raw({ type: "application/json" }), async (
     console.log(`[webhook] charge.success — telegramId=${telegramId} ref=${ref} email=${email}`);
 
     try {
-      const renewalDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-
-      await prisma.user.update({
-        where: { id: resolvedUser.id },
-        data: {
-          isPro: true,
-          storageUnlocked: true,
-          nextRenewalDate: renewalDate,
-          ...(email ? { paymentEmail: email } : {}),
-        },
+      const paidAt = payload.data?.paid_at ? new Date(payload.data.paid_at) : new Date();
+      const { alreadyProcessed, newRenewalDate } = await activateStorageForUser({
+        userId: resolvedUser.id,
+        currentRenewalDate: resolvedUser.nextRenewalDate,
+        reference: ref,
+        amount: Number(payload.data?.amount ?? 0),
+        currency: String(payload.data?.currency ?? "NGN"),
+        provider: "paystack",
+        metadata: payload.data?.metadata ?? undefined,
+        paidAt,
       });
 
-      const user = await prisma.user.findUnique({ where: { telegramId } });
-      if (user) {
-        await prisma.subscription.upsert({
-          where: { userId: user.id },
-          update: { paystackRef: ref, status: "active", endDate: renewalDate },
-          create: {
-            userId: user.id,
-            paystackRef: ref,
-            status: "active",
-            startDate: new Date(),
-            endDate: renewalDate,
-          },
-        });
-        try {
-          const paidAt = payload.data?.paid_at ? new Date(payload.data.paid_at) : new Date();
-          await recordSuccessfulTransaction({
-            userId: user.id,
-            amount: Number(payload.data?.amount ?? 0),
-            currency: String(payload.data?.currency ?? "NGN"),
-            provider: "paystack",
-            reference: ref,
-            metadata: payload.data?.metadata ?? null,
-            paidAt,
-          });
-        } catch (recordErr) {
-          console.error("[webhook] Failed to record transaction:", recordErr);
-        }
-        console.log(`[webhook] User ${user.id} storage unlocked. Renewal set to ${renewalDate.toISOString()}`);
-      } else {
-        console.warn(`[webhook] No user found for telegramId=${telegramId}`);
+      if (email && email !== resolvedUser.paymentEmail) {
+        await prisma.user.update({ where: { id: resolvedUser.id }, data: { paymentEmail: email } });
       }
+
+      if (alreadyProcessed) {
+        console.log(`[webhook] Duplicate charge.success ignored (ref=${ref})`);
+        return res.sendStatus(200);
+      }
+
+      console.log(`[webhook] User ${resolvedUser.id} storage unlocked. Renewal set to ${newRenewalDate.toISOString()}`);
 
       // ✅ FIX #3: NEW — Recover held logs from catch-up session
       let sessionData: any = null; // 🚀 FIXED: Moved outside the try block so the build passes!
@@ -160,23 +139,26 @@ app.post("/webhook/paystack", express.raw({ type: "application/json" }), async (
         // Don't fail the payment flow for this
       }
 
-      // ✅ Send personalized notification based on whether heldLogs were recovered
       const hasHeldLogs = sessionData?.catchup?.heldLogs && Array.isArray(sessionData.catchup.heldLogs) && sessionData.catchup.heldLogs.length > 0;
-      
-      if (hasHeldLogs) {
-        await bot.api.sendMessage(
-          Number(telegramId),
-          `🎉 *Payment successful!* All your pending logs have been unlocked and instantly added to your logbook!`,
-          { parse_mode: "Markdown" },
-        );
-      } else {
-        await bot.api.sendMessage(
-          Number(telegramId),
-          `🎉 *Storage unlocked!*\n\n` +
-            `You're all set for the next 30 days 🔓\n\n` +
-            `You now have unlimited log storage, unlimited voice logs, and unlimited AI refinements.`,
-          { parse_mode: "Markdown" },
-        );
+
+      try {
+        if (hasHeldLogs) {
+          await bot.api.sendMessage(
+            Number(telegramId),
+            `🎉 *Payment successful!* All your pending logs have been unlocked and instantly added to your logbook!`,
+            { parse_mode: "Markdown" },
+          );
+        } else {
+          await bot.api.sendMessage(
+            Number(telegramId),
+            `🎉 *Storage unlocked!*\n\n` +
+              `You're all set for the next 30 days 🔓\n\n` +
+              `You now have unlimited log storage, unlimited voice logs, and unlimited AI refinements.`,
+            { parse_mode: "Markdown" },
+          );
+        }
+      } catch (notifyErr) {
+        console.error("[webhook] Failed to send unlock notification:", notifyErr);
       }
 
       // Post-payment UX: if they were blocked mid-log, prompt them to resume.
@@ -282,13 +264,17 @@ app.post("/webhook/paystack", express.raw({ type: "application/json" }), async (
         console.error("[webhook] post-payment resume check failed:", err);
       }
 
-      await bot.api.sendMessage(Number(telegramId), "Main menu updated 👇", {
-        reply_markup: getMainMenuKeyboard(true),
-      });
+      try {
+        await bot.api.sendMessage(Number(telegramId), "Main menu updated 👇", {
+          reply_markup: getMainMenuKeyboard(true),
+        });
+      } catch (menuErr) {
+        console.error("[webhook] Failed to send menu update:", menuErr);
+      }
     } catch (err) {
       console.error("[webhook] Error processing charge.success:", err);
       captureReplayError(telegramId, err, "webhook:charge.success");
-      // Still return 200 so Paystack doesn’t retry indefinitely
+      return res.sendStatus(500);
     }
   }
 
