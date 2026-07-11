@@ -353,7 +353,7 @@ app.post("/webhook/paystack", express.raw({ type: "application/json" }), async (
       return res.sendStatus(200);
     }
     try {
-      await prisma.subscription.updateMany({ where: { subscriptionCode }, data: { status: "non-renewing" } });
+      await prisma.subscription.updateMany({ where: { subscriptionCode, status: { not: "cancelled" } }, data: { status: "non-renewing" } });
       console.log(`[webhook] subscription.not_renew — marked ${subscriptionCode} non-renewing`);
     } catch (err) {
       console.error("[webhook] Error processing subscription.not_renew:", err);
