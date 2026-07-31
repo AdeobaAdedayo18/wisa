@@ -2007,7 +2007,7 @@
 
       <div class="nav-item" data-panel="payments" onclick="setPanel('payments')">
 
-        <span class="nav-icon">💳</span> Payments
+        <span class="nav-icon">💳</span> Subscriptions
 
         <span id="payments-badge" class="nav-badge hidden">0</span>
 
@@ -2216,7 +2216,7 @@
             <h3 style="margin-bottom: 15px;">Log Save Preference</h3>
             <div style="display: flex; align-items: center; gap: 40px;">
               <div style="flex: 1; max-width: 300px;">
-                <canvas id="logPieChart" style="max-width: 300px; height: 300px;"></canvas>
+                <div class="chart-wrap short"><canvas id="logPieChart"></canvas></div>
               </div>
               <div id="refinement-stats" style="flex: 1;">
                 <div class="loading-row">Loading…</div>
@@ -2368,7 +2368,7 @@
 
           <div class="table-header">
 
-            <h3>Paystack Payment Records</h3>
+            <h3>Paystack Subscription Records</h3>
 
             <select id="payment-status-filter" class="filter-select" onchange="loadPayments()">
 
@@ -2756,7 +2756,7 @@ const PANEL_TITLES = {
 
   logs: 'Logs',
 
-  payments: 'Payments',
+  payments: 'Subscriptions',
 
   reminders: 'Reminders',
 
@@ -3290,13 +3290,13 @@ async function loadOverview() {
 
 
 
-    // Update payments badge
+    // Update subscriptions badge — active subscribers only
 
     const pb = document.getElementById('payments-badge');
 
-    if (stats.payments.total > 0) {
+    if (stats.subscriptions.active > 0) {
 
-      pb.textContent = stats.payments.total;
+      pb.textContent = stats.subscriptions.active;
 
       pb.classList.remove('hidden');
 
@@ -3621,13 +3621,23 @@ function renderAnalyticsCards(messagingStats) {
   const BUCKET_META = {
     MORNING: {
       icon: '🌅',
-      title: 'Morning Motivation',
-      desc: 'Sent in the morning. Upbeat, motivating notification.',
+      title: 'Morning',
+      desc: 'Sent 5am–12pm. Upbeat, active notification.',
     },
-    AFTERNOON_EVENING: {
+    AFTERNOON_SILENT: {
+      icon: '🤫',
+      title: 'Afternoon (silent)',
+      desc: 'Sent 12pm–5pm. Silent, motivational nudge.',
+    },
+    NIGHT: {
       icon: '🌙',
-      title: 'Afternoon/Evening Nudge',
-      desc: 'Sent in afternoon/evening. Gentle, motivational reminder.',
+      title: 'Night',
+      desc: 'Sent 5pm–5am. Active notification using social proof.',
+    },
+    GHOST: {
+      icon: '👻',
+      title: 'Ghost re-engagement',
+      desc: 'Sent to users silent 4+ days.',
     },
   };
 
@@ -3685,8 +3695,11 @@ function renderRefinementChart(refinedVsOriginal) {
     logPieChartInstance = null;
   }
 
+  // Bind slice colors to meaning, not row order — /api/analytics does not order its groupBy.
+  const SLICE_COLORS = { 'AI Refined': '#7c3aed', 'Original': '#9ca3af' };
+
   const ctx = canvas.getContext('2d');
-  
+
   logPieChartInstance = new Chart(ctx, {
     type: 'doughnut',
     data: {
@@ -3694,32 +3707,29 @@ function renderRefinementChart(refinedVsOriginal) {
       datasets: [
         {
           data: refinedVsOriginal.map(d => d.value),
-          backgroundColor: [
-            '#7c3aed', // Purple for AI Refined
-            '#9ca3af', // Gray for Original
-          ],
-          borderColor: 'var(--s1)',
+          backgroundColor: refinedVsOriginal.map(d => SLICE_COLORS[d.name] ?? '#9ca3af'),
+          borderColor: 'transparent',
           borderWidth: 2,
         },
       ],
     },
     options: {
       responsive: true,
-      maintainAspectRatio: true,
+      maintainAspectRatio: false,
       plugins: {
         legend: {
           position: 'bottom',
           labels: {
-            color: 'var(--t1)',
+            color: '#a0a0c0',
             font: { size: 13, family: "'Inter', sans-serif" },
             padding: 20,
           },
         },
         tooltip: {
           backgroundColor: 'rgba(0, 0, 0, 0.8)',
-          titleColor: 'var(--t1)',
-          bodyColor: 'var(--t2)',
-          borderColor: 'var(--border)',
+          titleColor: '#f0f0ff',
+          bodyColor: '#a0a0c0',
+          borderColor: 'rgba(255,255,255,0.07)',
           borderWidth: 1,
           padding: 10,
           displayColors: true,
@@ -4347,7 +4357,7 @@ async function loadPayments() {
 
     const payments = paymentsRes.data;
 
-    const ps = statsRes.payments;
+    const ps = statsRes.subscriptions;
 
 
 
@@ -4381,13 +4391,13 @@ async function loadPayments() {
 
 
 
-    // Update badge
+    // Update badge — active subscribers only
 
     const pb = document.getElementById('payments-badge');
 
-    if (ps.total > 0) {
+    if (ps.active > 0) {
 
-      pb.textContent = ps.total;
+      pb.textContent = ps.active;
 
       pb.classList.remove('hidden');
 
