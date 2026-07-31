@@ -415,7 +415,7 @@
 
     .data-table { width: 100%; border-collapse: collapse; }
     .data-table th {
-      padding: 11px 16px;
+      padding: 11px 12px;
       text-align: left;
       font-size: 11px;
       font-weight: 600;
@@ -427,7 +427,7 @@
       white-space: nowrap;
     }
     .data-table td {
-      padding: 12px 16px;
+      padding: 12px 12px;
       border-bottom: 1px solid var(--border);
       color: var(--t1);
       font-size: 13.5px;
@@ -1538,6 +1538,19 @@ function toast(msg, type = 'info') {
   }, 3500);
 }
 
+function copyRef(el) {
+  const ref = el.dataset.ref || '';
+  if (!ref) return;
+  if (!navigator.clipboard?.writeText) {
+    toast('Clipboard needs HTTPS or localhost', 'error');
+    return;
+  }
+  navigator.clipboard.writeText(ref).then(
+    () => toast('Ref copied', 'success'),
+    () => toast('Copy failed', 'error'),
+  );
+}
+
 // ── Modal ──────────────────────────────────────────────────────────
 function openModal(title, html) {
   document.getElementById('modal-title').textContent = title;
@@ -2359,7 +2372,9 @@ async function loadPayments() {
             <div class="text-small text-muted">${p.user?.username ? '@'+escHtml(p.user.username) : '—'} · TG: ${p.user?.telegramId || '—'}</div>
           </td>
           <td class="muted">${escHtml(p.user?.paymentEmail || '—')}</td>
-          <td class="mono muted">${escHtml(p.paystackRef || '—')}</td>
+          <td class="mono muted">${p.paystackRef
+            ? `<span class="truncate ref-copy" title="Click to copy" data-ref="${escHtml(p.paystackRef)}" onclick="copyRef(this)">${escHtml(p.paystackRef)}</span>`
+            : '—'}</td>
           <td>${escHtml(p.paymentMethod || 'Paystack')}</td>
           <td>${statusTag(p.status)}</td>
           <td class="muted">${escHtml(p.amountLabel || '—')}</td>
