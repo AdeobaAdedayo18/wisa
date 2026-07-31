@@ -634,6 +634,9 @@
     .text-small { font-size: 12px; }
     .mono { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12.5px; }
     .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; display: block; }
+    /* Paystack ref cell only: narrower than .truncate's default, click-to-copy. */
+    .ref-copy { max-width: 100px; cursor: pointer; }
+    .ref-copy:hover { color: var(--t1); }
     .flex { display: flex; }
     .gap-8 { gap: 8px; }
     .items-center { align-items: center; }
