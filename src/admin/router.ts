@@ -195,12 +195,7 @@ router.get("/api/stats", async (req: Request, res: Response): Promise<void> => {
         active: activeSubs,
         expired: expiredSubs,
         cancelled: cancelledSubs,
-      },
-      payments: {
         total: totalPayments,
-        active: activePayments,
-        expired: expiredPayments,
-        cancelled: cancelledPayments,
         thisWeek: paymentsThisWeek,
         planLabel: STORAGE_PRICE_LABEL,
       },
@@ -1055,68 +1050,37 @@ router.get(
           break;
       }
 
-      // ✅ QUERY 1: Messaging Strategy Stats (Morning vs Afternoon)
-      // Fetch reminders with their scheduled times
-      const reminders = await prisma.reminderJob.findMany({
+      // ✅ QUERY 1: Messaging Strategy Stats — grouped by the real bucketSent
+      // values the scheduler writes, filtered by sentAt (actual send time).
+      const REAL_BUCKETS = ["MORNING", "AFTERNOON_SILENT", "NIGHT", "GHOST"];
+
+      const bucketRows = await prisma.reminderJob.groupBy({
+        by: ["bucketSent"],
         where: {
-          createdAt: { gte: startDate },
-          status: "sent", // Only sent reminders
+          status: "sent",
+          bucketSent: { in: REAL_BUCKETS },
+          sentAt: { gte: startDate },
         },
-        select: {
-          scheduledFor: true,
-          status: true,
-          convertedAt: true,
-        },
+        _count: { _all: true, convertedAt: true },
+        orderBy: { bucketSent: "asc" },
       });
 
-      // Categorize by time of day (morning before 12pm, afternoon/evening 12pm+)
-      let morningDelivered = 0;
-      let morningConverted = 0;
-      let afternoonDelivered = 0;
-      let afternoonConverted = 0;
+      const bucketCounts = new Map(
+        bucketRows.map((row) => [row.bucketSent!, row._count]),
+      );
 
-      reminders.forEach((reminder) => {
-        const hour = new Date(reminder.scheduledFor).getHours();
-        const isMorning = hour < 12;
-        const isConverted = reminder.convertedAt !== null;
-
-        if (isMorning) {
-          morningDelivered++;
-          if (isConverted) morningConverted++;
-        } else {
-          afternoonDelivered++;
-          if (isConverted) afternoonConverted++;
-        }
+      // Always emit all four buckets so the panel is stable when one is empty.
+      const messagingStats = REAL_BUCKETS.map((bucket) => {
+        const counts = bucketCounts.get(bucket);
+        const sent = counts?._all ?? 0;
+        const converted = counts?.convertedAt ?? 0;
+        return {
+          bucket,
+          sent,
+          converted,
+          conversionRate: sent ? Math.round((converted / sent) * 100) : 0,
+        };
       });
-
-      const morningRate =
-        morningDelivered > 0
-          ? Math.round((morningConverted / morningDelivered) * 100)
-          : 0;
-
-      const afternoonRate =
-        afternoonDelivered > 0
-          ? Math.round((afternoonConverted / afternoonDelivered) * 100)
-          : 0;
-
-      const messagingStats = [
-        {
-          bucket: "MORNING",
-          icon: "🌅",
-          title: "Morning Motivation",
-          sent: morningDelivered,
-          converted: morningConverted,
-          conversionRate: morningRate,
-        },
-        {
-          bucket: "AFTERNOON_EVENING",
-          icon: "🌙",
-          title: "Afternoon/Evening Nudge",
-          sent: afternoonDelivered,
-          converted: afternoonConverted,
-          conversionRate: afternoonRate,
-        },
-      ];
 
       // ✅ QUERY 2: Refined vs Original Logs
       const logsGrouped = await prisma.log.groupBy({
