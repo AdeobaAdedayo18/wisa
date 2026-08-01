@@ -2380,14 +2380,11 @@ async function loadPayments() {
           <td class="muted">${escHtml(p.amountLabel || '—')}</td>
           <td class="muted">${fmtDateTime(p.createdAt)}</td>
           <td class="muted">${fmtDateTime(p.endDate)}</td>
-          <td>
-            <button class="btn-sm btn-approve" onclick="openReplay('${p.user?.telegramId}')">Session</button>
-          </td>
         </tr>
       `).join('');
       tableWrap.innerHTML = `
         <table class="data-table">
-          <thead><tr><th>User</th><th>Email</th><th>Paystack Ref</th><th>Method</th><th>Status</th><th>Amount</th><th>Created</th><th>Renews</th><th>Session</th></tr></thead>
+          <thead><tr><th>User</th><th>Email</th><th>Paystack Ref</th><th>Method</th><th>Status</th><th>Amount</th><th>Created</th><th>Renews</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       `;
