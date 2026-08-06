@@ -1,4 +1,5 @@
 import axios from "axios";
+import crypto from "crypto";
 import { STORAGE_PLAN_AMOUNT_KOBO } from "../utils/constants";
 
 const PAYSTACK_BASE = "https://api.paystack.co";
@@ -18,6 +19,75 @@ export async function initializeTransaction(telegramId: bigint, email: string) {
   return res.data.data as { authorization_url: string; reference: string };
 }
 
+export async function initializeCatchupPassTransaction(
+  email: string,
+  amount: number,
+  catchupSessionId: string,
+) {
+  const res = await axios.post(
+    `${PAYSTACK_BASE}/transaction/initialize`,
+    {
+      amount,
+      email,
+      metadata: {
+        custom_fields: [
+          { variable_name: "payment_type", value: "rescue_pass" },
+          { variable_name: "catchup_session_id", value: catchupSessionId },
+        ],
+      },
+    },
+    { headers },
+  );
+
+  return res.data.data as { authorization_url: string; reference: string };
+}
+
+export const RESCUE_PASS_PAYMENT_TYPE = "rescue_pass";
+
+/**
+ * Verifies a Paystack webhook body against the `x-paystack-signature` header.
+ *
+ * Constant-time: a plain `!==` on the hex digests short-circuits at the first
+ * differing byte and leaks how much of a forged signature was correct. Call this
+ * BEFORE parsing the body — nothing unauthenticated should reach a parser.
+ */
+export function hasValidPaystackSignature(rawBody: string, signature: unknown): boolean {
+  const secret = process.env.PAYSTACK_WEBHOOK_SECRET;
+  if (!secret || typeof signature !== "string" || signature.length === 0) return false;
+
+  const expected = crypto.createHmac("sha512", secret).update(rawBody).digest();
+
+  let provided: Buffer;
+  try {
+    provided = Buffer.from(signature, "hex");
+  } catch {
+    return false;
+  }
+
+  // timingSafeEqual throws on a length mismatch, so check it first.
+  if (provided.length !== expected.length) return false;
+
+  return crypto.timingSafeEqual(expected, provided);
+}
+
+type PaystackMetadata = {
+  telegramId?: string;
+  custom_fields?: Array<{ variable_name?: string; value?: string }>;
+} | null | undefined;
+
+/** Reads a single Paystack `metadata.custom_fields` entry by variable name. */
+export function readPaystackCustomField(metadata: unknown, variableName: string): string | undefined {
+  const fields = (metadata as PaystackMetadata)?.custom_fields;
+  if (!Array.isArray(fields)) return undefined;
+  const match = fields.find((field) => field?.variable_name === variableName);
+  return typeof match?.value === "string" ? match.value : undefined;
+}
+
+/** True when this charge is a SIWES Rescue Pass rather than a storage subscription. */
+export function isRescuePassPayment(metadata: unknown): boolean {
+  return readPaystackCustomField(metadata, "payment_type") === RESCUE_PASS_PAYMENT_TYPE;
+}
+
 export async function verifyTransaction(reference: string) {
   const res = await axios.get(
     `${PAYSTACK_BASE}/transaction/verify/${encodeURIComponent(reference)}`,
@@ -28,7 +98,10 @@ export async function verifyTransaction(reference: string) {
     reference: string;
     amount: number;
     currency?: string;
-    metadata: { telegramId?: string };
+    metadata: {
+      telegramId?: string;
+      custom_fields?: Array<{ variable_name: string; value: string }>;
+    };
     customer: { email: string };
     paid_at?: string;
   };
