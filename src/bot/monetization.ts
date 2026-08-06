@@ -2,7 +2,7 @@ import { InlineKeyboard } from "grammy";
 import { prisma } from "../lib/prisma";
 import type { BotContext } from "./types";
 
-export const FREE_LOG_LIMIT = 15;
+export const FREE_LOG_LIMIT = 10;
 export const STORAGE_PRICE_LABEL = "₦1,000/month";
 
 export type MonetizationUser = {
@@ -65,6 +65,12 @@ export async function syncUserLogCount(userId: number): Promise<number> {
   return count;
 }
 
+/**
+ * `logCount` meters the FREE STORAGE ALLOWANCE, not the user's total logs.
+ * Logs written by the paid SIWES Rescue Pass are excluded from it on purpose —
+ * they were paid for separately, so they must not eat into the free ceiling.
+ * Anything that needs a true total should count the Log table directly.
+ */
 export function canCreateLog(user: MonetizationUser): boolean {
   if (hasActiveStorage(user)) return true;
   return user.logCount < FREE_LOG_LIMIT;
