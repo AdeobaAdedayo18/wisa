@@ -2,12 +2,12 @@ import { InlineKeyboard } from "grammy";
 import { type BotContext, clearActiveFlow, startFlow, isFlowExpired } from "./types";
 import { prisma } from "../lib/prisma";
 import { captureReplayError } from "../services/replayCapture";
-import { initializeTransaction, verifyTransaction } from "../services/paystack";
+import { initializeTransaction, isRescuePassPayment, readPaystackCustomField, verifyTransaction } from "../services/paystack";
 import { getMainMenuKeyboard } from "./onboarding";
 import { getActiveAutoRenewSubscription, getMonetizationUserByTelegramId, hasActiveStorage, STORAGE_PRICE_LABEL } from "./monetization";
-import { parseISO } from "date-fns";
-import { nthWorkingDayFrom } from "./catchupFlow";
+import { markRescuePassPaid, resumeCatchupGeneration } from "./catchupFlow";
 import { Prisma } from "../prisma/client";
+import { TransactionStatus } from "../prisma/enums";
 
 function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -80,6 +80,8 @@ export async function activateStorageForUser(
           provider: charge.provider,
           reference: charge.reference,
           metadata: charge.metadata,
+          // This row is only ever written once the charge is confirmed.
+          status: TransactionStatus.SUCCESS,
           paidAt: charge.paidAt,
         },
       }),
@@ -265,6 +267,38 @@ export async function handleCheckPayment(ctx: BotContext): Promise<void> {
     }
 
     const paidAt = result.paid_at ? new Date(result.paid_at) : new Date();
+
+    // ── SIWES Rescue Pass ────────────────────────────────────────────────────
+    // A catch-up purchase, not a storage subscription — never route it through
+    // activateStorageForUser.
+    if (isRescuePassPayment(result.metadata)) {
+      const catchupSessionId = readPaystackCustomField(result.metadata, "catchup_session_id");
+      if (!catchupSessionId) {
+        await ctx.reply("That payment went through, but I couldn't match it to a catch-up session. Please contact support.");
+        return;
+      }
+
+      const catchupSession = await markRescuePassPaid({
+        catchupSessionId,
+        reference: result.reference,
+        amount: result.amount,
+        currency: result.currency ?? "NGN",
+        paidAt,
+        providerMetadata: result.metadata ?? null,
+      });
+
+      if (!catchupSession) {
+        await ctx.reply("That payment went through, but I couldn't find the catch-up session it belongs to. Please contact support.");
+        return;
+      }
+
+      ctx.session.pendingPaystackRef = undefined;
+      // Sends its own progress + completion messages; safe to call alongside the
+      // webhook (in-flight guard + fulfilledBlocks ledger).
+      await resumeCatchupGeneration(catchupSessionId, ctx);
+      return;
+    }
+
     const { alreadyProcessed } = await activateStorageForUser({
       userId: user.id,
       currentRenewalDate: user.nextRenewalDate,
@@ -275,58 +309,6 @@ export async function handleCheckPayment(ctx: BotContext): Promise<void> {
       metadata: result.metadata ?? undefined,
       paidAt,
     });
-
-    const catchupState = ctx.session.catchup;
-    if (!alreadyProcessed && catchupState?.heldLogs && catchupState.heldLogs.length > 0 && catchupState.startDate) {
-      const logsToSave = catchupState.heldLogs;
-      const startDate = parseISO(catchupState.startDate);
-      const candidateDates = logsToSave.map(log => nthWorkingDayFrom(startDate, log.dateOffset));
-
-      const existingLogs = await prisma.log.findMany({
-        where: {
-          userId: user.id,
-          logDate: { gte: candidateDates[0], lte: candidateDates[candidateDates.length - 1] },
-        },
-        select: { logDate: true },
-      });
-      const existingDates = new Set(existingLogs.map(l => l.logDate.toISOString().split('T')[0]));
-
-      const insertData = logsToSave
-        .map((log, i) => ({ log, logDate: candidateDates[i] }))
-        .filter(({ logDate }) => !existingDates.has(logDate.toISOString().split('T')[0]))
-        .map(({ log, logDate }) => ({
-          userId: user.id,
-          content: log.content,
-          isAiRefined: true,
-          isVoice: false,
-          logDate,
-        }));
-
-      const skippedDuplicates = logsToSave.length - insertData.length;
-
-      if (insertData.length > 0) {
-        await prisma.$transaction([
-          prisma.log.createMany({ data: insertData }),
-          prisma.user.update({
-            where: { id: user.id },
-            data: { logCount: { increment: insertData.length } }
-          })
-        ]);
-      }
-
-      let peekText = `🔓 **Storage Unlocked!**\n\nAs promised, I have successfully saved the remaining **${insertData.length} days** to your logbook:\n\n`;
-      insertData.forEach(item => {
-        const dateStr = item.logDate.toLocaleDateString('en-GB', { weekday: 'short', month: 'short', day: 'numeric' });
-        peekText += `📅 **${dateStr}**\n${item.content}\n\n`;
-      });
-      if (skippedDuplicates > 0) {
-        peekText += `_${skippedDuplicates} day${skippedDuplicates === 1 ? '' : 's'} skipped — you already had logs for those dates._\n\n`;
-      }
-      peekText += `✅ All caught up!`;
-
-      await ctx.reply(peekText, { parse_mode: "Markdown" });
-      ctx.session.catchup = { active: false, step: 'none' };
-    }
 
     // 3. Send normal Pro Welcome Message
     await ctx.reply(
