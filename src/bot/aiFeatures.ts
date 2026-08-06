@@ -346,11 +346,20 @@ export async function handleSaveRawLog(ctx: BotContext): Promise<void> {
 export async function handleVoiceLog(ctx: BotContext): Promise<void> {
   // Intercept voice notes sent during an active catch-up brain dump
   const catchupState = ctx.session.catchup;
-  const catchupBrainDumpPhases = ['awaiting_braindump', 'interrogation', 'awaiting_more_detail'] as const;
-  if (
+  const catchupBrainDumpPhases = ['awaiting_more_detail', 'awaiting_block_dump'] as const;
+  const isBrainDumpPhase =
     catchupState?.active === true &&
-    catchupBrainDumpPhases.includes(catchupState.step as typeof catchupBrainDumpPhases[number])
-  ) {
+    catchupBrainDumpPhases.includes(catchupState.step as typeof catchupBrainDumpPhases[number]);
+
+  // Any other catch-up step (duration, anchor date, payment): voice is not valid
+  // input, and falling through would save a stray daily log mid-flow. Text and
+  // callbacks already have isolation guards; this is the matching one for voice.
+  if (catchupState?.active === true && !isBrainDumpPhase) {
+    await ctx.reply("Finish your catch-up or send /cancel before recording a voice log.");
+    return;
+  }
+
+  if (isBrainDumpPhase) {
     const voice = ctx.message?.voice;
     if (!voice) return;
 
