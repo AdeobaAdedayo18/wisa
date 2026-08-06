@@ -1,11 +1,51 @@
 import { InlineKeyboard } from "grammy";
-import { parseISO, addDays, getDaysInMonth, startOfMonth, getDay, format } from "date-fns";
+import type { Message } from "grammy/types";
+import { getDaysInMonth, startOfMonth, getDay, format } from "date-fns";
 import { prisma } from "../lib/prisma";
-import type { BotContext } from "./types";
+import { Prisma } from "../prisma/client";
+import { CatchupPaymentStatus, CatchupTier, TransactionStatus } from "../prisma/enums";
+import type { BotContext, SessionData } from "./types";
 import { clearActiveFlow } from "./types";
-import { calculateWorkingDays } from "../utils/dateHelpers";
-import { evaluateCatchupDetail, generateMultiDayLogs } from "../services/openai";
-import { getMonetizationUserByTelegramId, hasActiveStorage, FREE_LOG_LIMIT, canCreateLog, sendStorageWall } from "./monetization";
+import { evaluateCatchupDump, generateCatchupLogs } from "../services/openai";
+import { initializeCatchupPassTransaction, RESCUE_PASS_PAYMENT_TYPE } from "../services/paystack";
+import { patchStoredSessionCatchup } from "./sessionStorage";
+// NOTE: `bot` is only ever touched inside function bodies — the import cycle with
+// ./index resolves lazily under CommonJS, so it is safe.
+import { bot } from "./index";
+
+// ----------------------------------------------------------------------------
+// LOADING STATES
+// One message that walks through the steps below every 5s, so a long generation
+// never looks frozen. The timer clears itself at the final step, so it cannot
+// leak even if the returned stopper is never called.
+// ----------------------------------------------------------------------------
+
+const LOADING_STEPS = ["Analyzing... ", "Generating your logs... ", "Almost done... "];
+
+export function startLoadingCycler(api: any, chatId: number | string, messageId: number) {
+  let step = 1;
+  const timer = setInterval(() => {
+    if (step >= LOADING_STEPS.length) {
+      clearInterval(timer);
+      return;
+    }
+
+    const current = step++;
+    try {
+      // Promise.resolve guards a non-thenable return; the try/catch guards a
+      // synchronous throw. Either would escape the timer callback as an
+      // uncaughtException and leave this interval running until its self-clear.
+      void Promise.resolve(api.editMessageText(chatId, messageId, LOADING_STEPS[current]))
+        .catch(() => {});
+    } catch {
+      // 400 "message is not modified", a deleted message, or a malformed api.
+    }
+  }, 5000);
+
+  timer.unref?.(); // never hold the event loop open during shutdown
+
+  return () => clearInterval(timer);
+}
 
 // ----------------------------------------------------------------------------
 // CALENDAR GENERATOR
@@ -64,37 +104,980 @@ export function generateCatchupCalendar(year: number, month: number, mode: 'star
   return kb;
 }
 
+function generateCatchupTierKeyboard(): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("📅 A Few Weeks (Max 4)", "catchup_tier_QUICK_FIX")
+    .row()
+    .text("🚨 2-6 Months", "catchup_tier_FULL_BACKLOG")
+    .row()
+    .text("👑 VIP + Final Report", "catchup_tier_VIP_DEFENSE");
+}
+
+function getCatchupTierUnit(tier: string): "weeks" | "months" {
+  return tier === "QUICK_FIX" ? "weeks" : "months";
+}
+
+/**
+ * Hard ceiling on totalDuration per tier — weeks for QUICK_FIX, months otherwise.
+ * QUICK_FIX feeds `totalDuration * 5` days into a single OpenAI request, so an
+ * unbounded value here turns into an unbounded completion.
+ */
+const MAX_TIER_DURATION: Record<CatchupTier, number> = {
+  [CatchupTier.QUICK_FIX]: 4,
+  [CatchupTier.FULL_BACKLOG]: 6,
+  [CatchupTier.VIP_DEFENSE]: 6,
+};
+
+function getMaxTierDuration(tier: CatchupTier): number {
+  return MAX_TIER_DURATION[tier] ?? 4;
+}
+
+async function getCatchupSessionForCurrentUser(ctx: BotContext) {
+  const sessionId = ctx.session.catchupSessionId;
+  if (sessionId) {
+    const byId = await prisma.catchupSession.findUnique({ where: { id: sessionId } });
+    if (byId) return byId;
+  }
+
+  const telegramId = BigInt(ctx.from!.id);
+  const user = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } });
+  if (!user) return null;
+
+  return prisma.catchupSession.findFirst({
+    where: { userId: user.id },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
+type CatchupBlockDump = { block: number; entries: string[] };
+
+type CatchupContextDump = {
+  blocks: CatchupBlockDump[];
+  week1Preview?: Array<{
+    dateOffset: number;
+    task: string;
+    weeklySummary: string;
+    content: string;
+  }>;
+  fulfilledBlocks?: number[];
+};
+
+function normalizeContextDump(contextDump: unknown): CatchupBlockDump[] {
+  if (!contextDump) return [];
+
+  if (Array.isArray(contextDump)) {
+    return contextDump
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        const candidate = entry as { block?: unknown; entries?: unknown; text?: unknown };
+        const block = Number(candidate.block);
+        if (!Number.isFinite(block)) return null;
+        const entries = Array.isArray(candidate.entries)
+          ? candidate.entries.filter((item): item is string => typeof item === "string")
+          : typeof candidate.text === "string"
+            ? [candidate.text]
+            : [];
+        return { block, entries };
+      })
+      .filter((entry): entry is CatchupBlockDump => Boolean(entry));
+  }
+
+  if (typeof contextDump === "object") {
+    const legacy = contextDump as { blocks?: unknown };
+    if (Array.isArray(legacy.blocks)) return normalizeContextDump(legacy.blocks);
+  }
+
+  return [];
+}
+
+type CatchupPreviewLog = NonNullable<CatchupContextDump["week1Preview"]>[number];
+
+type NormalizedContextPayload = {
+  blocks: CatchupBlockDump[];
+  week1Preview: CatchupPreviewLog[];
+  fulfilledBlocks: number[];
+};
+
+/** Reads the whole contextDump payload (blocks + week-1 preview + fulfilment ledger). */
+function readContextPayload(contextDump: unknown): NormalizedContextPayload {
+  const blocks = normalizeContextDump(contextDump);
+  const payload = contextDump && typeof contextDump === "object" && !Array.isArray(contextDump)
+    ? (contextDump as CatchupContextDump)
+    : undefined;
+
+  return {
+    blocks,
+    week1Preview: Array.isArray(payload?.week1Preview) ? payload!.week1Preview : [],
+    fulfilledBlocks: Array.isArray(payload?.fulfilledBlocks)
+      ? payload!.fulfilledBlocks.filter((block): block is number => Number.isFinite(block))
+      : [],
+  };
+}
+
+function buildContextDump(payload: NormalizedContextPayload): Prisma.InputJsonValue {
+  const dump: Record<string, unknown> = {
+    blocks: payload.blocks,
+    fulfilledBlocks: payload.fulfilledBlocks,
+  };
+  if (payload.week1Preview.length > 0) dump.week1Preview = payload.week1Preview;
+  return dump as Prisma.InputJsonValue;
+}
+
 // ----------------------------------------------------------------------------
-// DATE HELPERS (used for >20-day split guidance)
+// BLOCK MATH
+// A "block" is one generation chunk. QUICK_FIX is a single block covering the
+// whole 1–4 week period; the longer tiers use one block per month, so their
+// totalDuration is the block count.
+// ----------------------------------------------------------------------------
+
+const WORKING_DAYS_PER_WEEK = 5;
+const WORKING_DAYS_PER_MONTH = 20;
+
+// ----------------------------------------------------------------------------
+// OUT-OF-CONTEXT HELPERS
+// Fulfilment is triggered by the Paystack webhook, so there is no `ctx` — we
+// message through bot.api and patch the Prisma-backed session row directly.
+// ----------------------------------------------------------------------------
+
+async function notifyCatchupUser(
+  telegramId: bigint,
+  text: string,
+  extra?: Parameters<typeof bot.api.sendMessage>[2],
+): Promise<Message | undefined> {
+  try {
+    return await bot.api.sendMessage(Number(telegramId), text, extra);
+  } catch (err) {
+    console.error(`[catchup] Failed to notify user ${telegramId}:`, err);
+    return undefined;
+  }
+}
+
+type StoredCatchupState = NonNullable<SessionData["catchup"]>;
+
+/** Merges a patch into the stored grammY session's `catchup` state (no ctx needed). */
+async function patchStoredCatchupState(
+  telegramId: bigint,
+  patch: Partial<StoredCatchupState>,
+  opts?: { clearSessionId?: boolean },
+): Promise<void> {
+  const key = telegramId.toString();
+
+  try {
+    // Compare-and-swap + a `catchupRev` bump, so a user message that is already
+    // mid-flight cannot write its stale session snapshot over this patch.
+    await patchStoredSessionCatchup(key, (sessionData) => {
+      sessionData.catchup = { ...(sessionData.catchup ?? {}), ...patch };
+      if (opts?.clearSessionId) delete sessionData.catchupSessionId;
+    });
+  } catch (err) {
+    console.error(`[catchup] Failed to patch session state for ${telegramId}:`, err);
+  }
+}
+
+async function appendCatchupDumpToSession(ctx: BotContext, text: string) {
+  const catchupSession = await getCatchupSessionForCurrentUser(ctx);
+  if (!catchupSession) return null;
+
+  const blocks = normalizeContextDump(catchupSession.contextDump);
+  const existingPayload = catchupSession.contextDump && typeof catchupSession.contextDump === "object" && !Array.isArray(catchupSession.contextDump)
+    ? (catchupSession.contextDump as CatchupContextDump)
+    : undefined;
+  const currentBlockIndex = Math.max(1, catchupSession.currentBlock);
+  const currentBlock = blocks.find((block) => block.block === currentBlockIndex);
+
+  if (currentBlock) {
+    currentBlock.entries.push(text);
+  } else {
+    blocks.push({ block: currentBlockIndex, entries: [text] });
+  }
+
+  await prisma.catchupSession.update({
+    where: { id: catchupSession.id },
+    data: {
+      contextDump: {
+        blocks,
+        week1Preview: existingPayload?.week1Preview,
+        fulfilledBlocks: existingPayload?.fulfilledBlocks,
+      },
+    },
+  });
+
+  return { catchupSession, blocks, currentBlockIndex };
+}
+
+async function evaluateCurrentCatchupChunk(ctx: BotContext, rawText: string, opts?: { afterMoreDetail?: boolean }): Promise<void> {
+  const catchupSession = await getCatchupSessionForCurrentUser(ctx);
+  if (!catchupSession) {
+    await ctx.reply("I couldn't find this catch-up session. Please type /catchup again.");
+    return;
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: catchupSession.userId },
+    select: { courseOfStudy: true },
+  });
+  const courseOfStudy = user?.courseOfStudy?.trim() ?? "";
+
+  if (!courseOfStudy) {
+    ctx.session.catchup = {
+      active: true,
+      step: 'awaiting_course',
+      startedAt: ctx.session.catchup?.startedAt ?? Date.now(),
+    };
+
+    await ctx.reply("Wait, before we generate anything, what is your exact course of study and department?");
+    return;
+  }
+
+  const evaluation = await evaluateCatchupDump(
+    rawText,
+    catchupSession.tierSelected,
+    catchupSession.totalDuration,
+    courseOfStudy,
+  );
+
+  if (!evaluation.sufficientForCurrentChunk) {
+    // NOTE: paymentStatus is NOT touched here — it now tracks the real Paystack
+    // charge, and this session may already be PAID (blocks 2..n).
+    ctx.session.catchup = {
+      active: true,
+      step: 'awaiting_more_detail',
+      startedAt: ctx.session.catchup?.startedAt ?? Date.now(),
+    };
+
+    const questions = evaluation.followUpQuestions.length
+      ? evaluation.followUpQuestions.map((question) => `• ${question}`).join("\n")
+      : "• Tell me a bit more about the tools, projects, and technical problems you handled.";
+
+    await ctx.reply(`I need a bit more to work with. 🤔\n\n${questions}`);
+    return;
+  }
+
+  // Blocks 2..n are already covered by the Rescue Pass payment — no second
+  // paywall, generate straight away.
+  if (catchupSession.paymentStatus === CatchupPaymentStatus.PAID) {
+    ctx.session.catchup = {
+      active: true,
+      step: 'generating',
+      startedAt: ctx.session.catchup?.startedAt ?? Date.now(),
+    };
+
+    await ctx.reply("Perfect, that's solid detail. Writing these up now — give me a moment ✍️");
+    await resumeCatchupGeneration(catchupSession.id, ctx);
+    return;
+  }
+
+  ctx.session.catchup = {
+    active: true,
+    step: 'ready_for_week_1_generation',
+    startedAt: ctx.session.catchup?.startedAt ?? Date.now(),
+  };
+
+  await ctx.reply("Perfect, that's solid detail. Generating your first week now to show you how this looks...");
+  await sendWeekOneBait(ctx);
+}
+
+function getCatchupTierPrice(tier: CatchupTier): number {
+  switch (tier) {
+    case CatchupTier.QUICK_FIX:
+      return 1000;
+    case CatchupTier.FULL_BACKLOG:
+      return 2500;
+    case CatchupTier.VIP_DEFENSE:
+      return 4000;
+    default:
+      return 1000;
+  }
+}
+
+function formatWeekOneLog(log: {
+  dateOffset: number;
+  task: string;
+  weeklySummary: string;
+  content: string;
+}, date: Date, dayNumber: number): string {
+  const dateLabel = format(date, "EEE, d MMM yyyy");
+  return [
+    `*Day ${dayNumber}* • ${dateLabel}`,
+    `Task: ${log.task}`,
+    `Weekly Summary: ${log.weeklySummary}`,
+  ].join("\n");
+}
+
+async function sendWeekOneBait(ctx: BotContext): Promise<void> {
+  const catchupSession = await getCatchupSessionForCurrentUser(ctx);
+  if (!catchupSession) {
+    await ctx.reply("I couldn't find this catch-up session. Please type /catchup again.");
+    return;
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: catchupSession.userId },
+    select: { courseOfStudy: true },
+  });
+  const courseOfStudy = user?.courseOfStudy?.trim() || "IT";
+
+  const rawDump = normalizeContextDump(catchupSession.contextDump)
+    .flatMap((block) => block.entries)
+    .join("\n\n");
+
+  const loadingMsg = await ctx.reply(LOADING_STEPS[0]);
+  const stopLoading = startLoadingCycler(ctx.api, ctx.chat!.id, loadingMsg.message_id);
+
+  let generated: Awaited<ReturnType<typeof generateCatchupLogs>>;
+  try {
+    generated = await generateCatchupLogs(
+      rawDump,
+      catchupSession.totalDuration,
+      courseOfStudy,
+      5,
+    );
+  } finally {
+    stopLoading();
+    await ctx.api.deleteMessage(ctx.chat!.id, loadingMsg.message_id).catch(() => {});
+  }
+
+  const startDate = new Date(catchupSession.startDate);
+  const logs = generated.logs.slice(0, 5);
+
+  for (let index = 0; index < logs.length; index++) {
+    const log = logs[index];
+    const date = nthWorkingDayFrom(startDate, log.dateOffset);
+    const formattedLog = formatWeekOneLog(log, date, index + 1);
+
+    await ctx.reply(formattedLog, { parse_mode: "Markdown" });
+  }
+
+  await prisma.catchupSession.update({
+    where: { id: catchupSession.id },
+    data: {
+      contextDump: buildContextDump({
+        ...readContextPayload(catchupSession.contextDump),
+        week1Preview: logs,
+      }),
+    },
+  });
+
+  await ctx.reply(
+    "Week 1 is locked in and perfectly formatted! ✅",
+    {
+      reply_markup: new InlineKeyboard()
+        .text("💳 Approve & Unlock the Rest", "catchup_approve_wk1")
+        .text("🔄 Tweak Week 1", "catchup_tweak_wk1"),
+    },
+  );
+}
+
+// ----------------------------------------------------------------------------
+// RESCUE PASS — INVOICE
+// ----------------------------------------------------------------------------
+
+function isValidEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+type CatchupSessionLike = { id: string; userId: number; tierSelected: CatchupTier };
+
+/** How long a pending Paystack link is considered still usable. */
+const PENDING_INVOICE_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Finds the still-open invoice for this session so a second tap re-sends the
+ * same link instead of minting a second chargeable one.
+ *
+ * The checkout URL is derived from Paystack's access code, not the reference, so
+ * it cannot be rebuilt from the reference alone — it is stored on the
+ * transaction at creation time and read back here. Rows written before that
+ * (or older than the TTL) return null so a fresh link is issued.
+ */
+async function findReusablePendingInvoice(
+  catchupSession: CatchupSessionLike,
+): Promise<{ authorization_url: string; reference: string } | null> {
+  const existingPending = await prisma.paymentTransaction.findFirst({
+    where: {
+      userId: catchupSession.userId,
+      status: TransactionStatus.PENDING,
+      metadata: {
+        path: ["catchup_session_id"],
+        equals: catchupSession.id,
+      },
+      createdAt: { gte: new Date(Date.now() - PENDING_INVOICE_TTL_MS) },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  if (!existingPending) return null;
+
+  const storedUrl = (existingPending.metadata as { authorization_url?: unknown } | null)?.authorization_url;
+  if (typeof storedUrl !== "string" || !storedUrl) return null;
+
+  return { authorization_url: storedUrl, reference: existingPending.reference };
+}
+
+/**
+ * Generates the Paystack link for the Rescue Pass, records the pending
+ * PaymentTransaction, and sends the invoice with the manual-check button.
+ * Re-sends the existing link when one is already open for this session.
+ */
+async function sendRescuePassInvoice(
+  ctx: BotContext,
+  catchupSession: CatchupSessionLike,
+  email: string,
+): Promise<void> {
+  const priceNaira = getCatchupTierPrice(catchupSession.tierSelected);
+  const amountKobo = priceNaira * 100;
+
+  const reusable = await findReusablePendingInvoice(catchupSession);
+  let authorization_url: string;
+  let reference: string;
+
+  if (reusable) {
+    ({ authorization_url, reference } = reusable);
+    console.log(`[catchup] Reusing pending Rescue Pass invoice ${reference} for session ${catchupSession.id}`);
+  } else {
+    ({ authorization_url, reference } = await initializeCatchupPassTransaction(
+      email,
+      amountKobo,
+      catchupSession.id,
+    ));
+
+    await prisma.paymentTransaction.create({
+      data: {
+        userId: catchupSession.userId,
+        amount: amountKobo,
+        currency: "NGN",
+        provider: "paystack",
+        reference,
+        metadata: {
+          payment_type: RESCUE_PASS_PAYMENT_TYPE,
+          catchup_session_id: catchupSession.id,
+          tier: catchupSession.tierSelected,
+          // Needed to re-send this exact link instead of minting another charge.
+          authorization_url,
+        },
+        // status defaults to PENDING; paidAt stays null until the charge lands.
+      },
+    });
+  }
+
+  ctx.session.pendingPaystackRef = reference;
+  ctx.session.catchup = {
+    active: true,
+    step: 'awaiting_payment',
+    startedAt: ctx.session.catchup?.startedAt ?? Date.now(),
+  };
+
+  await ctx.reply(
+    `Your Rescue Pass is ₦${priceNaira.toLocaleString("en-NG")} — that unlocks every remaining day of your logbook. 💳\n\n` +
+      `Reference: \`${reference}\`\n\n` +
+      `Once you've paid, tap *I have paid* and I'll start writing immediately.`,
+    {
+      parse_mode: "Markdown",
+      reply_markup: new InlineKeyboard()
+        .url("💳 Pay with Paystack", authorization_url)
+        .row()
+        .text("🔄 I have paid", "check_payment"),
+    },
+  );
+}
+
+/** Sends the invoice, or asks for a receipt email first if we don't have one. */
+async function startRescuePassCheckout(ctx: BotContext, catchupSession: CatchupSessionLike): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { id: catchupSession.userId },
+    select: { paymentEmail: true },
+  });
+
+  if (!user?.paymentEmail) {
+    ctx.session.catchup = {
+      active: true,
+      step: 'awaiting_payment_email',
+      startedAt: ctx.session.catchup?.startedAt ?? Date.now(),
+    };
+
+    await ctx.reply("Almost there — what email should I send the receipt to?");
+    return;
+  }
+
+  await ctx.reply("Generating your secure payment link, one sec...⏳");
+
+  try {
+    await sendRescuePassInvoice(ctx, catchupSession, user.paymentEmail);
+  } catch (err) {
+    console.error("[catchup] initializeCatchupPassTransaction failed:", err);
+    await ctx.reply("I couldn't generate a payment link right now. Please try again in a moment.");
+  }
+}
+
+// ----------------------------------------------------------------------------
+// RESCUE PASS — FULFILMENT
+// ----------------------------------------------------------------------------
+
+/**
+ * Marks a Rescue Pass charge as paid: flips the CatchupSession to PAID and
+ * upserts the PaymentTransaction row for this reference.
+ * Shared by the Paystack webhook and the "I have paid" manual check.
+ */
+export async function markRescuePassPaid(params: {
+  catchupSessionId: string;
+  reference: string;
+  amount: number;
+  currency?: string;
+  paidAt: Date;
+  providerMetadata?: unknown;
+}) {
+  const catchupSession = await prisma.catchupSession.findUnique({
+    where: { id: params.catchupSessionId },
+    select: { id: true, userId: true, paymentStatus: true, user: { select: { telegramId: true } } },
+  });
+
+  if (!catchupSession) {
+    console.warn(`[catchup] Rescue Pass paid for unknown session ${params.catchupSessionId}`);
+    return null;
+  }
+
+  const metadata = {
+    payment_type: RESCUE_PASS_PAYMENT_TYPE,
+    catchup_session_id: catchupSession.id,
+    paystack: (params.providerMetadata ?? null) as Prisma.InputJsonValue,
+  } as Prisma.InputJsonValue;
+
+  try {
+    await prisma.$transaction([
+      prisma.catchupSession.update({
+        where: { id: catchupSession.id },
+        data: { paymentStatus: CatchupPaymentStatus.PAID },
+      }),
+      prisma.paymentTransaction.upsert({
+        where: { reference: params.reference },
+        update: {
+          status: TransactionStatus.SUCCESS,
+          paidAt: params.paidAt,
+          amount: params.amount,
+          metadata,
+        },
+        create: {
+          userId: catchupSession.userId,
+          amount: params.amount,
+          currency: params.currency ?? "NGN",
+          provider: "paystack",
+          reference: params.reference,
+          metadata,
+          status: TransactionStatus.SUCCESS,
+          paidAt: params.paidAt,
+        },
+      }),
+    ]);
+  } catch (err) {
+    // Simultaneous deliveries of the same event both see "no row" and both try to
+    // insert; the loser hits the unique index on `reference` and rolls the whole
+    // transaction back — including the PAID flip. The winner already recorded the
+    // charge, so treat this as done rather than 500ing and forcing a retry.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      console.log(`[catchup] Rescue Pass ${params.reference} already recorded by a concurrent delivery.`);
+      await prisma.catchupSession.update({
+        where: { id: catchupSession.id },
+        data: { paymentStatus: CatchupPaymentStatus.PAID },
+      });
+      return catchupSession;
+    }
+    throw err;
+  }
+
+  return catchupSession;
+}
+
+/** A block claim older than this is treated as abandoned (the worker died). */
+const BLOCK_CLAIM_LEASE_MS = 15 * 60 * 1000;
+
+/**
+ * Reclaims a block whose claim was never released.
+ *
+ * The claim advances `currentBlock` before the OpenAI call and the `catch`
+ * releases it on error — but a SIGKILL/OOM between the two runs no `catch` at
+ * all, leaving `currentBlock` advanced with the block absent from
+ * `fulfilledBlocks`. That state is unfulfillable forever: the block is neither
+ * "already done" nor claimable, so a paid session silently produces nothing.
+ *
+ * `updatedAt` doubles as the claim timestamp — taking the claim is itself a
+ * write, and the only other write during generation is the ledger commit, which
+ * releases it. The reclaim is a CAS on (currentBlock, updatedAt), so a worker
+ * that is genuinely still running cannot have its claim stolen.
+ *
+ * Returns the reclaimed block index, or null if there was nothing to reclaim.
+ */
+async function reclaimAbandonedBlock(session: {
+  id: string;
+  currentBlock: number;
+  updatedAt: Date;
+  contextDump: unknown;
+}): Promise<number | null> {
+  const claimed = session.currentBlock - 1;
+  if (claimed < 1) return null;
+
+  // Fulfilled means the claim was released the happy way — nothing to reclaim.
+  if (readContextPayload(session.contextDump).fulfilledBlocks.includes(claimed)) return null;
+
+  // Inside the lease: assume a worker is still generating.
+  if (Date.now() - session.updatedAt.getTime() < BLOCK_CLAIM_LEASE_MS) return null;
+
+  const released = await prisma.catchupSession.updateMany({
+    where: { id: session.id, currentBlock: session.currentBlock, updatedAt: session.updatedAt },
+    data: { currentBlock: claimed },
+  });
+
+  if (released.count === 0) return null;
+
+  console.warn(`[catchup] Reclaimed abandoned block ${claimed} of session ${session.id}`);
+  return claimed;
+}
+
+/**
+ * Re-drives paid sessions whose block claim was orphaned by a crash. Safe to run
+ * on every boot: sessions that finished cleanly have their final block in
+ * `fulfilledBlocks`, so the reclaim declines and the normal guards skip them.
+ */
+export async function sweepAbandonedCatchupBlocks(): Promise<void> {
+  try {
+    const stale = await prisma.catchupSession.findMany({
+      where: {
+        paymentStatus: CatchupPaymentStatus.PAID,
+        currentBlock: { gt: 1 },
+        updatedAt: { lt: new Date(Date.now() - BLOCK_CLAIM_LEASE_MS) },
+      },
+      select: { id: true },
+    });
+
+    if (stale.length === 0) return;
+    console.log(`[catchup] Sweeping ${stale.length} possibly-abandoned catch-up session(s)...`);
+
+    for (const session of stale) {
+      await resumeCatchupGeneration(session.id).catch((err) => {
+        console.error(`[catchup] Sweep failed for session ${session.id}:`, err);
+      });
+    }
+  } catch (err) {
+    console.error("[catchup] Abandoned-block sweep failed:", err);
+  }
+}
+
+/**
+ * Generates and saves every remaining log for the session's current block, then
+ * either asks for the next block's brain-dump or closes the session out.
+ *
+ * Concurrency is handled by an atomic claim on `currentBlock` (see below), not
+ * by an in-process guard — the webhook and the manual "I have paid" check can
+ * land in different processes.
+ */
+export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContext): Promise<void> {
+  /** Set once this call owns the block, so the claim can be released on failure. */
+  let claimedBlock: number | null = null;
+
+  /** Keeps the stored session and the live ctx session in sync. */
+  const syncCatchupState = async (
+    tid: bigint,
+    patch: Partial<StoredCatchupState>,
+    opts?: { clearSessionId?: boolean },
+  ) => {
+    await patchStoredCatchupState(tid, patch, opts);
+    if (ctx?.from && BigInt(ctx.from.id) === tid) {
+      ctx.session.catchup = { ...(ctx.session.catchup ?? { active: false, step: 'none' }), ...patch };
+      if (opts?.clearSessionId) ctx.session.catchupSessionId = undefined;
+    }
+  };
+
+  try {
+    const catchupSession = await prisma.catchupSession.findUnique({
+      where: { id: sessionId },
+      include: { user: { select: { id: true, telegramId: true, courseOfStudy: true } } },
+    });
+
+    if (!catchupSession) {
+      console.warn(`[catchup] resumeCatchupGeneration — session ${sessionId} not found`);
+      return;
+    }
+
+    const telegramId = catchupSession.user.telegramId;
+    const payload = readContextPayload(catchupSession.contextDump);
+
+    let blockIndex = Math.max(1, catchupSession.currentBlock);
+    // If a previous worker was killed mid-generation, take its orphaned claim
+    // back before the guards below decide this session has nothing left to do.
+    const reclaimed = await reclaimAbandonedBlock(catchupSession);
+    if (reclaimed !== null) blockIndex = reclaimed;
+    // QUICK_FIX (1–4 weeks) is written in a single pass — the user dumps the whole
+    // period at once, so there is exactly one block covering every working day.
+    const isQuickFix = catchupSession.tierSelected === CatchupTier.QUICK_FIX;
+    // Defensive clamp — rows written before the tier caps existed can hold any
+    // number, and QUICK_FIX multiplies this straight into one OpenAI request.
+    const maxCap = getMaxTierDuration(catchupSession.tierSelected);
+    const safeDuration = Math.min(Math.max(1, catchupSession.totalDuration), maxCap);
+    if (safeDuration !== catchupSession.totalDuration) {
+      console.warn(
+        `[catchup] Session ${sessionId} totalDuration=${catchupSession.totalDuration} clamped to ${safeDuration} (tier=${catchupSession.tierSelected})`,
+      );
+    }
+    const totalBlocks = isQuickFix ? 1 : safeDuration;
+
+    if (payload.fulfilledBlocks.includes(blockIndex)) {
+      console.log(`[catchup] Block ${blockIndex} of session ${sessionId} already fulfilled — skipping.`);
+      return;
+    }
+
+    if (blockIndex > totalBlocks) {
+      console.log(`[catchup] Session ${sessionId} has no block ${blockIndex} (total ${totalBlocks}) — skipping.`);
+      return;
+    }
+
+    // Atomic claim. Exactly one caller can move currentBlock off blockIndex, so
+    // the webhook and the "I have paid" button cannot both start generating —
+    // including across processes, which the old in-memory Set could not cover.
+    // Claimed BEFORE the OpenAI call, since that is the whole race window.
+    const claim = await prisma.catchupSession.updateMany({
+      where: { id: sessionId, currentBlock: blockIndex },
+      data: { currentBlock: blockIndex + 1 },
+    });
+
+    if (claim.count === 0) {
+      console.log(`[catchup] Block ${blockIndex} of session ${sessionId} already claimed — skipping.`);
+      return;
+    }
+    claimedBlock = blockIndex;
+
+    const applyState = (patch: Partial<StoredCatchupState>, opts?: { clearSessionId?: boolean }) =>
+      syncCatchupState(telegramId, patch, opts);
+
+    const blockWorkingDays = isQuickFix
+      ? safeDuration * WORKING_DAYS_PER_WEEK
+      : WORKING_DAYS_PER_MONTH;
+    // Week 1 was already written as the free preview — only top up the remainder.
+    const previewLogs = blockIndex === 1 ? payload.week1Preview : [];
+    const daysToGenerate = Math.max(0, blockWorkingDays - previewLogs.length);
+
+    const blockEntries = payload.blocks.find((block) => block.block === blockIndex)?.entries
+      ?? payload.blocks.flatMap((block) => block.entries);
+    const rawDump = blockEntries.join("\n\n");
+    const courseOfStudy = catchupSession.user.courseOfStudy?.trim() || "IT";
+
+    // Block 1 is the one the user just paid for; later blocks are triggered by
+    // their own brain-dump, so don't re-announce the payment. This one stays on
+    // screen — the cycler gets its own throwaway message below.
+    await notifyCatchupUser(
+      telegramId,
+      blockIndex === 1 ? "Payment confirmed ✅" : `Writing Month ${blockIndex} now...`,
+    );
+
+    const loadingMsg = await notifyCatchupUser(telegramId, LOADING_STEPS[0]);
+    const stopLoading = loadingMsg
+      ? startLoadingCycler(bot.api, Number(telegramId), loadingMsg.message_id)
+      : () => {};
+
+    let savedCount = 0;
+    let isFinalBlock: boolean;
+    let nextBlock: number;
+
+    try {
+      const generated = daysToGenerate > 0
+        ? (await generateCatchupLogs(rawDump, daysToGenerate, courseOfStudy, daysToGenerate)).logs.slice(0, daysToGenerate)
+        : [];
+
+      // Map every log in this block onto a calendar date. Blocks are laid out
+      // back-to-back in working days from the session's anchor date.
+      const startDate = new Date(catchupSession.startDate);
+      const blockOffset = (blockIndex - 1) * blockWorkingDays;
+
+      const blockLogs = [
+        ...previewLogs.map((log) => ({
+          content: log.content,
+          logDate: nthWorkingDayFrom(startDate, blockOffset + log.dateOffset),
+        })),
+        ...generated.map((log, index) => ({
+          content: log.content,
+          logDate: nthWorkingDayFrom(startDate, blockOffset + previewLogs.length + index),
+        })),
+      ];
+
+      const insertData: Array<{ userId: number; content: string; isAiRefined: boolean; isVoice: boolean; logDate: Date }> = [];
+
+      if (blockLogs.length > 0) {
+        const sortedDates = blockLogs.map((log) => log.logDate).sort((a, b) => a.getTime() - b.getTime());
+        // Cover the whole final day — logs saved through the normal flow carry a
+        // wall-clock time, so `lte: <midnight>` silently missed them and we wrote
+        // a second log for that date.
+        const lastDayEnd = new Date(sortedDates[sortedDates.length - 1]);
+        lastDayEnd.setUTCHours(23, 59, 59, 999);
+
+        const existingLogs = await prisma.log.findMany({
+          where: {
+            userId: catchupSession.userId,
+            logDate: { gte: sortedDates[0], lte: lastDayEnd },
+          },
+          select: { logDate: true },
+        });
+
+        const takenDates = new Set(existingLogs.map((log) => log.logDate.toISOString().split('T')[0]));
+
+        for (const log of blockLogs) {
+          const key = log.logDate.toISOString().split('T')[0];
+          if (takenDates.has(key)) continue;
+          takenDates.add(key);
+          insertData.push({
+            userId: catchupSession.userId,
+            content: log.content,
+            isAiRefined: true,
+            isVoice: false,
+            logDate: log.logDate,
+          });
+        }
+      }
+
+      isFinalBlock = blockIndex >= totalBlocks;
+      nextBlock = isFinalBlock ? blockIndex : blockIndex + 1;
+
+      // Logs and the fulfilment ledger commit together — a crash between them
+      // used to leave the block written but unmarked, so a retry regenerated it
+      // and reported "0 days saved".
+      //
+      // `user.logCount` is deliberately NOT incremented here. It meters the free
+      // storage allowance, and these logs were paid for by the Rescue Pass —
+      // charging them against the free ceiling locked users out of ordinary
+      // logging the moment their catch-up landed.
+      savedCount = await prisma.$transaction(async (tx) => {
+        let created = 0;
+
+        if (insertData.length > 0) {
+          // skipDuplicates leans on @@unique([userId, logDate]); count the rows
+          // actually written, never insertData.length.
+          const result = await tx.log.createMany({ data: insertData, skipDuplicates: true });
+          created = result.count;
+        }
+
+        await tx.catchupSession.update({
+          where: { id: sessionId },
+          data: {
+            paymentStatus: CatchupPaymentStatus.PAID,
+            contextDump: buildContextDump({
+              ...payload,
+              fulfilledBlocks: [...payload.fulfilledBlocks, blockIndex],
+            }),
+          },
+        });
+
+        return created;
+      });
+    } finally {
+      stopLoading();
+      if (loadingMsg) {
+        await bot.api.deleteMessage(Number(telegramId), loadingMsg.message_id).catch(() => {});
+      }
+    }
+
+    console.log(`[catchup] Session ${sessionId} — block ${blockIndex}/${totalBlocks} fulfilled (${savedCount} logs saved)`);
+
+    if (!isFinalBlock) {
+      await applyState({ active: true, step: 'awaiting_block_dump', startedAt: Date.now() });
+      await notifyCatchupUser(
+        telegramId,
+        `Month ${blockIndex} complete! ✅ ${savedCount} day${savedCount === 1 ? '' : 's'} saved to your logbook.\n\n` +
+          `Now, tell me what you did for Month ${nextBlock}...\n\n` +
+          `*(Feel free to use a voice note 🎙️)*`,
+        { parse_mode: "Markdown" },
+      );
+      return;
+    }
+
+    await applyState({ active: false, step: 'none', startedAt: undefined }, { clearSessionId: true });
+
+    await notifyCatchupUser(
+      telegramId,
+      "All logs generated successfully and saved to your logbook! 🎉",
+      { reply_markup: new InlineKeyboard().text("📅 View calendar", "nav_calendar").text("🏠 Menu", "nav_menu") },
+    );
+
+    if (catchupSession.tierSelected === CatchupTier.VIP_DEFENSE) {
+      // TODO: Generate Final Report
+    }
+  } catch (err) {
+    console.error(`[catchup] Fulfilment failed for session ${sessionId}:`, err);
+
+    // Release the claim so the block can be retried. Guarded on the value we set,
+    // so it is a no-op if the ledger already committed or another caller moved on.
+    if (claimedBlock !== null) {
+      try {
+        await prisma.catchupSession.updateMany({
+          where: { id: sessionId, currentBlock: claimedBlock + 1 },
+          data: { currentBlock: claimedBlock },
+        });
+      } catch (releaseErr) {
+        console.error(`[catchup] Failed to release block claim for session ${sessionId}:`, releaseErr);
+      }
+    }
+
+    try {
+      const owner = await prisma.catchupSession.findUnique({
+        where: { id: sessionId },
+        select: { user: { select: { telegramId: true } } },
+      });
+      if (owner) {
+        // Never leave the session parked on 'generating' — that step has no
+        // handler, so every message the user sent afterwards was swallowed.
+        await syncCatchupState(owner.user.telegramId, {
+          active: true,
+          step: 'awaiting_block_dump',
+          startedAt: Date.now(),
+        });
+
+        await notifyCatchupUser(
+          owner.user.telegramId,
+          "Your payment went through, but I hit a snag writing those logs 😔\n\nNothing is lost — send me a message and I'll pick it right back up.",
+        );
+      }
+    } catch {
+      // best-effort notification only
+    }
+  }
+}
+
+// ----------------------------------------------------------------------------
+// DATE HELPERS
+// Strictly UTC. date-fns `addDays`/`getDay` read the host's local calendar, so
+// on a host west of UTC a midnight-UTC anchor resolved to the previous day and
+// the weekend skip landed logs on Saturdays. Every log date produced here is
+// midnight UTC, which is also what makes the (userId, logDate) unique index a
+// real one-log-per-day guarantee for catch-up rows.
 // ----------------------------------------------------------------------------
 
 function addWorkingDays(date: Date, n: number): Date {
-  let d = new Date(date);
+  const d = new Date(date);
   let counted = 0;
   while (counted < n) {
-    d = addDays(d, 1);
-    const dow = getDay(d);
+    d.setUTCDate(d.getUTCDate() + 1);
+    const dow = d.getUTCDay();
     if (dow !== 0 && dow !== 6) counted++;
   }
   return d;
 }
 
 function nextWorkingDay(date: Date): Date {
-  let d = addDays(date, 1);
-  while (getDay(d) === 0 || getDay(d) === 6) d = addDays(d, 1);
+  const d = new Date(date);
+  d.setUTCDate(d.getUTCDate() + 1);
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() + 1);
   return d;
 }
 
 /**
- * Returns the nth working day (Mon–Fri) from startDate.
+ * Returns the nth working day (Mon–Fri) from startDate, normalised to midnight UTC.
  * n=0 returns startDate itself (or the next Monday if startDate is a weekend).
  * n=1 returns the next working day after the base; etc.
  */
 export function nthWorkingDayFrom(startDate: Date, n: number): Date {
-  let base = new Date(startDate);
-  const dow = getDay(base);
-  if (dow === 6) base = addDays(base, 2); // Sat → Mon
-  else if (dow === 0) base = addDays(base, 1); // Sun → Mon
+  const base = new Date(startDate);
+  base.setUTCHours(0, 0, 0, 0);
+
+  const dow = base.getUTCDay();
+  if (dow === 6) base.setUTCDate(base.getUTCDate() + 2); // Sat → Mon
+  else if (dow === 0) base.setUTCDate(base.getUTCDate() + 1); // Sun → Mon
+
   return addWorkingDays(base, n);
 }
 
@@ -104,54 +1087,15 @@ export function nthWorkingDayFrom(startDate: Date, n: number): Date {
 export async function startCatchupFlow(ctx: BotContext) {
   clearActiveFlow(ctx.session);
 
-  const telegramId = BigInt(ctx.from!.id);
-
-  // Fix 1: Check storage limit before doing anything else
-  const monUser = await getMonetizationUserByTelegramId(telegramId);
-  if (monUser && !canCreateLog(monUser)) {
-    await sendStorageWall(ctx, monUser);
-    await ctx.reply("Once you've unlocked storage, run /catchup to try again.");
-    return;
-  }
-
-  const dbUser = await prisma.user.findUnique({ where: { telegramId } });
-
-  if (dbUser && !dbUser.courseOfStudy) {
-    ctx.session.catchup = {
-      active: true,
-      step: 'awaiting_course',
-      questionCount: 0,
-      rawDump: undefined,
-      heldLogs: undefined,
-      startedAt: Date.now(),
-    };
-
-    await ctx.reply(
-      "Before we start, what's your area of study or department at your placement? 👇\n\n_(e.g. Computer Science, Electrical Engineering, Accounting)_",
-      { parse_mode: "Markdown" }
-    );
-    return;
-  }
-
-  await triggerCatchupCalendar(ctx);
-}
-
-async function triggerCatchupCalendar(ctx: BotContext) {
   ctx.session.catchup = {
     active: true,
-    step: 'awaiting_start_date',
-    questionCount: 0,
-    rawDump: undefined,
-    heldLogs: undefined,
+    step: 'awaiting_tier_selection',
     startedAt: Date.now(),
   };
 
-  const now = new Date();
-  const calendarKb = generateCatchupCalendar(now.getFullYear(), now.getMonth(), 'start');
-
   await ctx.reply(
-    "Let's get your logbook caught up. 📅\n\nTap the start date of the period you missed:",
-    { reply_markup: calendarKb }
+    "How far behind is this logbook?🚨",
+    { reply_markup: generateCatchupTierKeyboard() }
   );
 }
 
@@ -162,6 +1106,65 @@ export async function handleCatchupCallback(ctx: BotContext) {
   const data = ctx.callbackQuery?.data;
   if (!data) return;
   const state = ctx.session.catchup;
+
+  if (data.startsWith("catchup_tier_")) {
+    const tier = data.replace("catchup_tier_", "");
+    if (!["QUICK_FIX", "FULL_BACKLOG", "VIP_DEFENSE"].includes(tier)) {
+      await ctx.answerCallbackQuery("Invalid tier selection. Please try again.");
+      return;
+    }
+
+    const telegramId = BigInt(ctx.from!.id);
+    const dbUser = await prisma.user.findUnique({ where: { telegramId }, select: { id: true } });
+    if (!dbUser) {
+      await ctx.answerCallbackQuery("Couldn't find your account. Please type /start.");
+      return;
+    }
+
+    const tierSelected = CatchupTier[tier as keyof typeof CatchupTier];
+
+    // Reuse the open session rather than creating one per tap — tapping through
+    // the tier keyboard used to leave a trail of half-built PENDING rows, and
+    // getCatchupSessionForCurrentUser falls back to "most recent", so an
+    // abandoned one could later be picked up mid-flow.
+    const existingSession = await prisma.catchupSession.findFirst({
+      where: { userId: dbUser.id, paymentStatus: CatchupPaymentStatus.PENDING },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const freshSessionState = {
+      tierSelected,
+      totalDuration: 0,
+      currentBlock: 1,
+      startDate: new Date(),
+      paymentStatus: CatchupPaymentStatus.PENDING,
+    };
+
+    const catchupSession = existingSession
+      ? await prisma.catchupSession.update({
+          where: { id: existingSession.id },
+          // Everything resets: the user is starting over, so a stale brain dump
+          // from the abandoned attempt must not leak into the new one.
+          data: { ...freshSessionState, contextDump: Prisma.DbNull },
+        })
+      : await prisma.catchupSession.create({
+          data: { userId: dbUser.id, ...freshSessionState },
+        });
+
+    ctx.session.catchupSessionId = catchupSession.id;
+    ctx.session.catchup = {
+      active: true,
+      step: 'awaiting_duration',
+      startedAt: Date.now(),
+    };
+
+    const unit = getCatchupTierUnit(tier);
+    await ctx.editMessageText(
+      `Got it. Exactly how many ${unit} are you missing? (Type a number)`
+    ).catch(() => {});
+    await ctx.answerCallbackQuery();
+    return;
+  }
 
   if (data === "ccal_noop") {
     await ctx.answerCallbackQuery();
@@ -201,8 +1204,96 @@ export async function handleCatchupCallback(ctx: BotContext) {
     return;
   }
 
+  if (data === "catchup_approve_wk1") {
+    const catchupSession = await getCatchupSessionForCurrentUser(ctx);
+    if (!catchupSession) {
+      await ctx.answerCallbackQuery("This session could not be found. Please type /catchup again.");
+      return;
+    }
+
+    await ctx.answerCallbackQuery();
+
+    if (catchupSession.paymentStatus === CatchupPaymentStatus.PAID) {
+      await ctx.reply("You've already paid for this rescue — picking up right where we left off ✅");
+      await resumeCatchupGeneration(catchupSession.id, ctx);
+      return;
+    }
+
+    await startRescuePassCheckout(ctx, catchupSession);
+    return;
+  }
+
+  if (data === "catchup_tweak_wk1") {
+    // Without this the step stays 'ready_for_week_1_generation', so the tweak text
+    // is discarded and week 1 is simply regenerated from the unchanged dump.
+    ctx.session.catchup = {
+      ...(state ?? {}),
+      active: true,
+      step: 'awaiting_more_detail',
+      startedAt: state?.startedAt ?? Date.now(),
+    };
+
+    await ctx.answerCallbackQuery();
+    await ctx.reply("Send the missing details for Week 1, and I’ll tighten it up before you approve the rest.");
+    return;
+  }
+
   if (!state || !state.active) {
     await ctx.answerCallbackQuery("This flow has expired. Please type /catchup again.");
+    return;
+  }
+
+  if (data.startsWith("ccal_sel_start_") && state.step === 'awaiting_anchor_date') {
+    const match = data.match(/^ccal_sel_start_(\d{4}-\d{2}-\d{2})$/);
+    if (!match) {
+      await ctx.answerCallbackQuery("Invalid date selection. Please try again.");
+      return;
+    }
+
+    const selectedDate = match[1];
+    const catchupSession = await getCatchupSessionForCurrentUser(ctx);
+    if (!catchupSession) {
+      await ctx.answerCallbackQuery("Couldn't find this catch-up session. Please type /catchup again.");
+      return;
+    }
+
+    await prisma.catchupSession.update({
+      where: { id: catchupSession.id },
+      data: {
+        startDate: new Date(selectedDate),
+      },
+    });
+
+    const userCourseOfStudy = (await prisma.user.findUnique({
+      where: { id: catchupSession.userId },
+      select: { courseOfStudy: true },
+    }))?.courseOfStudy;
+
+    if (!userCourseOfStudy) {
+      ctx.session.catchup = {
+        active: true,
+        step: 'awaiting_course',
+        startedAt: state.startedAt ?? Date.now(),
+      };
+
+      await ctx.editMessageText("Before we continue, what is your course or department?").catch(() => {});
+      await ctx.answerCallbackQuery();
+      return;
+    }
+
+    ctx.session.catchup = {
+      active: true,
+      step: 'awaiting_block_dump',
+      startedAt: state.startedAt ?? Date.now(),
+    };
+
+    const dumpPrompt = (catchupSession.tierSelected === CatchupTier.QUICK_FIX
+      ? `Perfect. Tell me everything you worked on during this entire ${catchupSession.totalDuration}-week period. Drop the projects, tools, challenges, and lessons. Leave nothing out.`
+      : "Perfect. Tell me everything you worked on during this first month. Drop the projects, tools, challenges, and lessons. Leave nothing out.")
+      + "\n\n*(You can type it out, or just send a voice note 🎙️)*";
+
+    await ctx.editMessageText(dumpPrompt, { parse_mode: "Markdown" }).catch(() => {});
+    await ctx.answerCallbackQuery();
     return;
   }
 
@@ -221,99 +1312,6 @@ export async function handleCatchupCallback(ctx: BotContext) {
 
   // Handle Date Selection
   if (data.startsWith("ccal_sel_")) {
-    // ✅ FIX #1: Use regex to properly extract date (format: ccal_sel_[mode]_[YYYY-MM-DD])
-    const match = data.match(/^ccal_sel_(start|end)_(\d{4}-\d{2}-\d{2})$/);
-    if (!match) {
-      await ctx.answerCallbackQuery("Invalid date selection. Please try again.");
-      return;
-    }
-
-    const mode = match[1] as 'start' | 'end';
-    const selectedDate = match[2];
-
-    if (mode === "start") {
-      state.startDate = selectedDate;
-      state.step = 'awaiting_end_date';
-
-      const [y, m] = selectedDate.split("-").map(Number);
-      const endKb = generateCatchupCalendar(y, m - 1, 'end');
-
-      await ctx.editMessageText(
-        `✅ **Start Date:** ${selectedDate}\n\n👇 **Now, tap the END DATE:**`,
-        { parse_mode: "Markdown", reply_markup: endKb }
-      );
-    } 
-    else if (mode === "end") {
-      state.endDate = selectedDate;
-      
-      const telegramId = BigInt(ctx.from!.id);
-      const timezone = "Africa/Lagos"; 
-      const workingDays = calculateWorkingDays(parseISO(state.startDate!), parseISO(state.endDate), timezone);
-
-      if (workingDays === 0) {
-        state.endDate = undefined;
-        state.step = 'awaiting_end_date';
-        ctx.session.catchup = state;
-
-        const [y, m] = state.startDate!.split("-").map(Number);
-        const endKb = generateCatchupCalendar(y, m - 1, 'end');
-
-        await ctx.editMessageText(
-          "That range is all weekend days — no working days to log. Please pick a range that includes weekdays.",
-          { reply_markup: endKb }
-        );
-        await ctx.answerCallbackQuery();
-        return;
-      }
-      
-      // ✅ FIX #8: Provide retry path instead of clearing the flow
-      if (workingDays < 0) {
-        state.endDate = undefined;  // Clear the invalid end date
-        state.step = 'awaiting_end_date';  // Go back to end date selection
-        ctx.session.catchup = state;
-
-        const [y, m] = state.startDate!.split("-").map(Number);
-        const endKb = generateCatchupCalendar(y, m - 1, 'end');
-
-        await ctx.editMessageText(
-          `⚠️ The end date can't be before the start date! \n\n_Please tap the END DATE again (on or after ${state.startDate}):_`,
-          { parse_mode: "Markdown", reply_markup: endKb }
-        );
-        await ctx.answerCallbackQuery("Please select an end date after the start date.");
-        return;
-      }
-
-      if (workingDays > 20) {
-        const startDate = parseISO(state.startDate!);
-        const endDate = parseISO(selectedDate);
-        const session1End = addWorkingDays(startDate, 20);
-        const session2Start = nextWorkingDay(session1End);
-        const fmt = (d: Date) => format(d, 'MMM d, yyyy');
-
-        // Reset to start-date picker — keep flow active so the user can tap immediately
-        state.step = 'awaiting_start_date';
-        state.startDate = undefined;
-        state.endDate = undefined;
-        ctx.session.catchup = state;
-
-        const [sy, sm] = format(startDate, 'yyyy-MM').split('-').map(Number);
-        const startKb = generateCatchupCalendar(sy, sm - 1, 'start');
-
-        await ctx.editMessageText(
-          `That's ${workingDays} working days — I can only do 20 at a time.\n\nHere's how to split it:\n• *Session 1:* ${fmt(startDate)} → ${fmt(session1End)}\n• *Session 2:* ${fmt(session2Start)} → ${fmt(endDate)}\n\nStart with Session 1 — tap the dates below when you're ready.`,
-          { parse_mode: "Markdown", reply_markup: startKb }
-        );
-        await ctx.answerCallbackQuery();
-        return;
-      }
-
-      state.workingDays = workingDays;
-      state.step = 'awaiting_braindump';
-
-      await ctx.editMessageText(
-        `Got it — ${workingDays} working day${workingDays === 1 ? '' : 's'}. 📝\n\nTell me what you were up to during that period — type it out or just send a voice note. Anything you remember, even rough notes 🎤`
-      );
-    }
     await ctx.answerCallbackQuery();
   }
 }
@@ -357,469 +1355,159 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
 
   try {
     switch (state.step) {
-      
+      case 'awaiting_duration': {
+        // Fetched first — the valid range depends on the tier they picked.
+        const catchupSession = await getCatchupSessionForCurrentUser(ctx);
+        if (!catchupSession) {
+          await ctx.reply("I couldn't find this catch-up session. Please type /catchup again.");
+          return;
+        }
+
+        const cap = getMaxTierDuration(catchupSession.tierSelected);
+        const duration = parseInt(text.trim(), 10);
+        if (!Number.isFinite(duration) || duration <= 0 || duration > cap) {
+          await ctx.reply(`Please send a valid number between 1 and ${cap}.`);
+          return;
+        }
+
+        await prisma.catchupSession.update({
+          where: { id: catchupSession.id },
+          data: { totalDuration: duration },
+        });
+
+        const now = new Date();
+        const calendarKb = generateCatchupCalendar(now.getFullYear(), now.getMonth(), 'start');
+
+        ctx.session.catchup = {
+          active: true,
+          step: 'awaiting_anchor_date',
+          startedAt: state.startedAt ?? Date.now(),
+        };
+
+        await ctx.reply("What exact date did this start?", {
+          reply_markup: calendarKb,
+        });
+        return;
+      }
+
+      case 'awaiting_block_dump': {
+        const appended = await appendCatchupDumpToSession(ctx, text);
+        if (!appended) {
+          await ctx.reply("I couldn't find this catch-up session. Please type /catchup again.");
+          return;
+        }
+
+        await evaluateCurrentCatchupChunk(ctx, appended.blocks.flatMap((block) => block.entries).join("\n\n"));
+        return;
+      }
+
+      case 'ready_for_week_1_generation': {
+        await sendWeekOneBait(ctx);
+
+        ctx.session.catchup = {
+          active: true,
+          step: 'ready_for_week_1_generation',
+          startedAt: state.startedAt ?? Date.now(),
+        };
+        return;
+      }
+
+      case 'awaiting_payment_email': {
+        const email = text.trim().toLowerCase();
+        if (!isValidEmail(email)) {
+          await ctx.reply("That email looks invalid. Please send a valid email address.");
+          return;
+        }
+
+        await prisma.user.update({ where: { telegramId }, data: { paymentEmail: email } });
+
+        const catchupSession = await getCatchupSessionForCurrentUser(ctx);
+        if (!catchupSession) {
+          await ctx.reply("I couldn't find this catch-up session. Please type /catchup again.");
+          return;
+        }
+
+        await ctx.reply(`✅ Saved! Generating your secure payment link, one sec...⏳`);
+
+        try {
+          await sendRescuePassInvoice(ctx, catchupSession, email);
+        } catch (err) {
+          console.error("[catchup] initializeCatchupPassTransaction after email capture failed:", err);
+          await ctx.reply("I couldn't generate a payment link right now. Please try again in a moment.");
+        }
+        return;
+      }
+
+      case 'awaiting_payment': {
+        await ctx.reply(
+          "I'm still waiting on that payment. Tap *I have paid* on the invoice above once it's done — or send /cancel to stop.",
+          { parse_mode: "Markdown" },
+        );
+        return;
+      }
+
       case 'awaiting_course': {
         const courseText = text.trim();
 
-        
         if (courseText.length < 2) {
           await ctx.reply("Please enter a valid Course of Study!");
           return;
         }
 
-       
         if (courseText.length > 100) {
           await ctx.reply("Course of Study is too long. Please keep it under 100 characters.");
           return;
         }
 
-        
-        const suspiciousPatterns = [
-          /[\n\r]/,  // Newlines that could escape the prompt
-          /`+/,      // Backticks (markdown code)
-          /\$\{/,    // Template literals
-          /--/,      // SQL comments
-        ];
-
-        for (const pattern of suspiciousPatterns) {
-          if (pattern.test(courseText)) {
-            await ctx.reply("That doesn't look like a valid course name. Please try again!");
-            return;
-          }
-        }
-
-        // ✅ Only allow alphanumeric, spaces, and common course characters
-        if (!/^[a-zA-Z0-9\s&().\-/]+$/.test(courseText)) {
-          await ctx.reply("Please use letters and numbers only — no commas or colons. For example: 'Computer Science and Software Engineering' or 'Electrical Engineering'");
-          return;
-        }
-
-        // ✅ Save it to the database so we never have to ask again
         await prisma.user.update({
           where: { telegramId },
           data: { courseOfStudy: courseText },
         });
 
-        state.step = 'awaiting_start_date';
-        state.questionCount = 0;
-        ctx.session.catchup = state;
+        ctx.session.catchup = {
+          active: true,
+          step: 'awaiting_block_dump',
+          startedAt: state.startedAt ?? Date.now(),
+        };
 
-        const now = new Date();
-        const calendarKb = generateCatchupCalendar(now.getFullYear(), now.getMonth(), 'start');
-
+        const courseCatchupSession = await getCatchupSessionForCurrentUser(ctx);
         await ctx.reply(
-          `Got it — I'll write your logs for *${courseText}*. 📅\n\nTap the start date of the period you missed:`,
-          { parse_mode: "Markdown", reply_markup: calendarKb }
+          courseCatchupSession?.tierSelected === CatchupTier.QUICK_FIX
+            ? `Got it! Now, tell me everything you worked on during this entire ${courseCatchupSession.totalDuration}-week period. Drop the projects, tools, challenges, and lessons. Leave nothing out.`
+            : "Got it! Now, tell me everything you worked on during this first month. Drop the projects, tools, challenges, and lessons. Leave nothing out."
         );
-        break;
+        return;
+      }
+
+      case 'awaiting_more_detail': {
+        const appended = await appendCatchupDumpToSession(ctx, text);
+        if (!appended) {
+          await ctx.reply("I couldn't find this catch-up session. Please type /catchup again.");
+          return;
+        }
+
+        await evaluateCurrentCatchupChunk(ctx, appended.blocks.flatMap((block) => block.entries).join("\n\n"), { afterMoreDetail: true });
+        return;
       }
 
       case 'awaiting_start_date':
-      case 'awaiting_end_date': {
+      case 'awaiting_end_date':
+      case 'awaiting_tier_selection':
+      case 'awaiting_anchor_date': {
         // ✅ SILENT DELETION: Instead of nagging, silently delete stray text to keep chat clean
         await ctx.deleteMessage().catch(() => {});
         break;
       }
 
-      case 'awaiting_braindump':
-      case 'interrogation': {
-        const workingDays = state.workingDays!;
-
-        if (state.step === 'awaiting_braindump') {
-          // Accumulate all messages before evaluating the total — never test a single
-          // message in isolation, which caused the infinite "too short" loop.
-          state.rawDump = state.rawDump ? `${state.rawDump}\n${text}` : text;
-          ctx.session.catchup = state;
-
-          const totalWordCount = state.rawDump.split(/\s+/).filter(Boolean).length;
-          if (totalWordCount < 15) {
-            await ctx.reply("Got it — tell me a bit more and I'll put it all together 📝");
-            return;
-          }
-        } else {
-          // interrogation: user answered follow-up questions — accumulate and proceed
-          state.rawDump = `${state.rawDump ?? ''}\n\nUser added: ${text}`;
-          ctx.session.catchup = state;
-        }
-
-        const loadingMsg = await ctx.reply("⏳");
-
-        let isProcessing = true;
-        const typingInterval = setInterval(() => {
-          if (isProcessing) ctx.api.sendChatAction(ctx.chat!.id, "typing").catch(() => {});
-        }, 4000);
-
-        try {
-          const dbUser = await prisma.user.findUnique({ where: { telegramId } });
-          const courseOfStudy = dbUser?.courseOfStudy ?? "IT";
-
-          const evaluation = await evaluateCatchupDetail(state.rawDump, workingDays, courseOfStudy);
-
-          // From 'interrogation': one round of questions already happened — force proceed
-          const isAdequate = state.step === 'interrogation' ? true : evaluation.isAdequate;
-          const isInterrogationFallback = state.step === 'interrogation' && evaluation.maxSupportableDays === 0;
-          const maxSupportableDays = isInterrogationFallback
-            ? Math.min(5, workingDays)
-            : (evaluation.maxSupportableDays > 0 ? evaluation.maxSupportableDays : workingDays);
-
-          if (!isAdequate) {
-            state.step = 'interrogation';
-            ctx.session.catchup = state;
-            isProcessing = false;
-            clearInterval(typingInterval);
-
-            const formattedQuestions = evaluation.followUpQuestions.map(q => `• ${q}`).join('\n');
-
-            await ctx.api.editMessageText(
-              ctx.chat!.id,
-              loadingMsg.message_id,
-              `I need a bit more to work with. 🤔\n\n${formattedQuestions}\n\n_(A rough reply is fine — just give me the gist)_`,
-              { parse_mode: "Markdown" }
-            );
-            return;
-          }
-
-          const cappedWorkingDays = Math.min(maxSupportableDays, workingDays);
-          const localOriginalDays = workingDays;
-          const localWasCapped = cappedWorkingDays < localOriginalDays;
-
-          if (isInterrogationFallback) {
-            await ctx.api.editMessageText(
-              ctx.chat!.id,
-              loadingMsg.message_id,
-              "I don't have much to work with, but I'll generate a few days based on your area of interest. You can always edit them from your calendar after."
-            );
-          } else if (localWasCapped) {
-            await ctx.api.editMessageText(
-              ctx.chat!.id,
-              loadingMsg.message_id,
-              `Your notes cover about *${cappedWorkingDays} days* realistically. Generating those now — give me a moment. ✨`,
-              { parse_mode: "Markdown" }
-            );
-          } else {
-            await ctx.api.editMessageText(
-              ctx.chat!.id,
-              loadingMsg.message_id,
-              "Got it. Generating your logs now — give me a moment. ✨"
-            );
-          }
-
-          let progressTimer: ReturnType<typeof setTimeout> | undefined;
-          if (cappedWorkingDays >= 10) {
-            progressTimer = setTimeout(async () => {
-              if (isProcessing) {
-                await ctx.reply("Still working on it — longer periods take a bit more time ⏳").catch(() => {});
-              }
-            }, 20000);
-          }
-
-          const generated = await generateMultiDayLogs(state.rawDump, cappedWorkingDays, courseOfStudy);
-          if (progressTimer) clearTimeout(progressTimer);
-
-          isProcessing = false;
-          clearInterval(typingInterval);
-
-          if (!generated.logs || generated.logs.length === 0) {
-            if (ctx.session.catchup) ctx.session.catchup.active = false;
-            await ctx.api.deleteMessage(ctx.chat!.id, loadingMsg.message_id).catch(() => {});
-            await ctx.reply(
-              "I wasn't able to generate any log entries from what you shared 😔\n\nTry giving me a bit more detail about what you worked on and run /catchup again."
-            );
-            return;
-          }
-
-          // Re-fetch user state after AI generation — logCount may have changed
-          const freshDbUser = await prisma.user.findUnique({
-            where: { telegramId },
-            select: { id: true },
-          });
-
-          const freshMonUser = await getMonetizationUserByTelegramId(telegramId);
-          const freshIsPro = hasActiveStorage(freshMonUser!);
-          const freshRemainingQuota = freshIsPro ? 9999 : Math.max(0, FREE_LOG_LIMIT - freshMonUser!.logCount);
-
-          const logsToSave = generated.logs.slice(0, freshRemainingQuota);
-          const logsToHold = generated.logs.slice(freshRemainingQuota);
-
-          let skippedDuplicates = 0;
-          if (logsToSave.length > 0) {
-            const startDateParsed = parseISO(state.startDate!);
-            const candidateDates = logsToSave.map(log => nthWorkingDayFrom(startDateParsed, log.dateOffset));
-
-            const existingLogs = await prisma.log.findMany({
-              where: {
-                userId: freshDbUser!.id,
-                logDate: { gte: candidateDates[0], lte: candidateDates[candidateDates.length - 1] },
-              },
-              select: { logDate: true },
-            });
-            const existingDates = new Set(existingLogs.map(l => l.logDate.toISOString().split('T')[0]));
-
-            const insertData = logsToSave
-              .map((log, i) => ({ log, logDate: candidateDates[i] }))
-              .filter(({ logDate }) => !existingDates.has(logDate.toISOString().split('T')[0]))
-              .map(({ log, logDate }) => ({
-                userId: freshDbUser!.id,
-                content: log.content,
-                isAiRefined: true,
-                isVoice: false,
-                logDate,
-              }));
-
-            skippedDuplicates = logsToSave.length - insertData.length;
-
-            if (insertData.length > 0) {
-              await prisma.$transaction([
-                prisma.log.createMany({ data: insertData }),
-                prisma.user.update({
-                  where: { id: freshDbUser!.id },
-                  data: { logCount: { increment: insertData.length } },
-                }),
-              ]);
-            }
-          }
-
-          await ctx.api.deleteMessage(ctx.chat!.id, loadingMsg.message_id).catch(() => {});
-
-          if (logsToHold.length > 0) {
-            // Paywall hit after generation
-            state.heldLogs = logsToHold.map(log => ({
-              content: log.content,
-              logDate: nthWorkingDayFrom(parseISO(state.startDate!), log.dateOffset).toISOString(),
-              dateOffset: log.dateOffset,
-            }));
-            state.savedLogsCount = logsToSave.length;
-
-            if (freshDbUser) {
-              await prisma.user.update({
-                where: { id: freshDbUser.id },
-                data: { hitPaywall: true },
-              });
-            }
-
-            let peekText = localWasCapped
-              ? `⚠️ Your notes covered *${cappedWorkingDays} days* (out of ${localOriginalDays} requested). Here's a peek:\n\n`
-              : `✅ *${cappedWorkingDays} days generated.* Here's a peek:\n\n`;
-
-            generated.logs.slice(0, 2).forEach((log, index) => {
-              const logDate = nthWorkingDayFrom(parseISO(state.startDate!), log.dateOffset);
-              const dateStr = logDate.toLocaleDateString('en-GB', { weekday: 'short', month: 'short', day: 'numeric' });
-              peekText += `📌 *Day ${index + 1}* • _${dateStr}_\n> ${log.content}\n\n`;
-            });
-
-            if (generated.logs.length > 2) {
-              peekText += `🔒 _...and ${generated.logs.length - 2} more days._\n\n`;
-            }
-
-            await ctx.reply(peekText, { parse_mode: "Markdown" });
-            await ctx.reply(
-              `You've hit your free storage limit.\n\nI saved the first *${logsToSave.length} day${logsToSave.length === 1 ? '' : 's'}* and I'm holding the remaining *${logsToHold.length}*. Unlock Pro for ₦1,000 to save them. 🔓` +
-              (skippedDuplicates > 0 ? `\n\n_${skippedDuplicates} day${skippedDuplicates === 1 ? '' : 's'} skipped — you already had logs for those dates._` : ''),
-              {
-                parse_mode: "Markdown",
-                reply_markup: new InlineKeyboard().text("🔓 Unlock Storage - ₦1,000", "go_pro"),
-              }
-            );
-            // Deactivate so further text input doesn't re-trigger generation.
-            // heldLogs intentionally preserved for the payment webhook.
-            if (ctx.session.catchup) ctx.session.catchup.active = false;
-          } else if (localWasCapped) {
-            // Fix 4: Honest capping — offer to add more detail for remaining days
-            const remainingDays = localOriginalDays - cappedWorkingDays;
-            state.cappedAt = cappedWorkingDays;
-            state.remainingDays = remainingDays;
-            ctx.session.catchup = state;
-
-            let successText = `Based on what you shared, I was able to generate *${cappedWorkingDays} realistic day${cappedWorkingDays === 1 ? '' : 's'}*. The information wasn't detailed enough for the remaining *${remainingDays} day${remainingDays === 1 ? '' : 's'}* — if you can tell me more about what you did during that period, I can fill in the rest.\n\n`;
-
-            generated.logs.slice(0, 2).forEach((log, index) => {
-              const logDate = nthWorkingDayFrom(parseISO(state.startDate!), log.dateOffset);
-              const dateStr = logDate.toLocaleDateString('en-GB', { weekday: 'short', month: 'short', day: 'numeric' });
-              successText += `📌 *Day ${index + 1}* • _${dateStr}_\n> ${log.content}\n\n`;
-            });
-
-            if (generated.logs.length > 2) {
-              successText += `✨ _...plus ${generated.logs.length - 2} more days._\n\n`;
-            }
-
-            if (skippedDuplicates > 0) {
-              successText += `_${skippedDuplicates} day${skippedDuplicates === 1 ? '' : 's'} skipped — you already had logs for those dates._\n\n`;
-            }
-
-            await ctx.reply(successText, { parse_mode: "Markdown" });
-            await ctx.reply("What would you like to do?", {
-              reply_markup: new InlineKeyboard()
-                .text("📝 Add more details", "catchup_more_detail")
-                .text("✅ I'm done", "catchup_skip"),
-            });
-          } else {
-            // Full success
-            let successText = `✅ *${cappedWorkingDays} day${cappedWorkingDays === 1 ? '' : 's'} logged!* Here's a quick preview:\n\n`;
-
-            generated.logs.slice(0, 3).forEach((log, index) => {
-              const logDate = nthWorkingDayFrom(parseISO(state.startDate!), log.dateOffset);
-              const dateStr = logDate.toLocaleDateString('en-GB', { weekday: 'short', month: 'short', day: 'numeric' });
-              successText += `📌 *Day ${index + 1}* • _${dateStr}_\n> ${log.content}\n\n`;
-            });
-
-            if (generated.logs.length > 3) {
-              successText += `✨ _...plus ${generated.logs.length - 3} more days perfectly written._\n\n`;
-            }
-
-            if (skippedDuplicates > 0) {
-              successText += `_${skippedDuplicates} day${skippedDuplicates === 1 ? '' : 's'} skipped — you already had logs for those dates._\n\n`;
-            }
-
-            await ctx.reply(successText, { parse_mode: "Markdown" });
-            await ctx.reply("All done — they're in your logbook. 🎉", {
-              reply_markup: new InlineKeyboard().text("📅 View calendar", "nav_calendar").text("🏠 Menu", "nav_menu"),
-            });
-
-            clearActiveFlow(ctx.session);
-          }
-        } catch (innerErr) {
-          isProcessing = false;
-          clearInterval(typingInterval);
-          throw innerErr;
-        }
-        break;
-      }
-
-      case 'awaiting_more_detail': {
-        // Fix 4: User provided more context for the remaining days
-        state.rawDump = `${state.rawDump ?? ''}\n\nMore context: ${text}`;
-        const remainingDays = state.remainingDays!;
-        const cappedAt = state.cappedAt!;
-        ctx.session.catchup = state;
-
-        const loadingMsg = await ctx.reply("Got it. Generating the remaining days — give me a moment. ✨");
-
-        let isProcessing = true;
-        const typingInterval = setInterval(() => {
-          if (isProcessing) ctx.api.sendChatAction(ctx.chat!.id, "typing").catch(() => {});
-        }, 4000);
-
-        try {
-          const dbUser = await prisma.user.findUnique({ where: { telegramId } });
-          const courseOfStudy = dbUser?.courseOfStudy ?? "IT";
-
-          let progressTimer: ReturnType<typeof setTimeout> | undefined;
-          if (remainingDays >= 10) {
-            progressTimer = setTimeout(async () => {
-              if (isProcessing) {
-                await ctx.reply("Still working on it — longer periods take a bit more time ⏳").catch(() => {});
-              }
-            }, 20000);
-          }
-
-          const generated = await generateMultiDayLogs(state.rawDump, remainingDays, courseOfStudy);
-          if (progressTimer) clearTimeout(progressTimer);
-
-          isProcessing = false;
-          clearInterval(typingInterval);
-
-          if (!generated.logs || generated.logs.length === 0) {
-            if (ctx.session.catchup) ctx.session.catchup.active = false;
-            await ctx.api.deleteMessage(ctx.chat!.id, loadingMsg.message_id).catch(() => {});
-            await ctx.reply(
-              "I wasn't able to generate any log entries from what you shared 😔\n\nTry giving me a bit more detail about what you worked on and run /catchup again."
-            );
-            return;
-          }
-
-          const freshDbUser = await prisma.user.findUnique({
-            where: { telegramId },
-            select: { id: true },
-          });
-          const freshMonUser = await getMonetizationUserByTelegramId(telegramId);
-          const freshIsPro = hasActiveStorage(freshMonUser!);
-          const freshRemainingQuota = freshIsPro ? 9999 : Math.max(0, FREE_LOG_LIMIT - freshMonUser!.logCount);
-
-          const logsToSave = generated.logs.slice(0, freshRemainingQuota);
-          const logsToHold = generated.logs.slice(freshRemainingQuota);
-
-          let skippedDuplicates = 0;
-          if (logsToSave.length > 0) {
-            const startDateParsed = parseISO(state.startDate!);
-            const candidateDates = logsToSave.map(log => nthWorkingDayFrom(startDateParsed, log.dateOffset + cappedAt));
-
-            const existingLogs = await prisma.log.findMany({
-              where: {
-                userId: freshDbUser!.id,
-                logDate: { gte: candidateDates[0], lte: candidateDates[candidateDates.length - 1] },
-              },
-              select: { logDate: true },
-            });
-            const existingDates = new Set(existingLogs.map(l => l.logDate.toISOString().split('T')[0]));
-
-            const insertData = logsToSave
-              .map((log, i) => ({ log, logDate: candidateDates[i] }))
-              .filter(({ logDate }) => !existingDates.has(logDate.toISOString().split('T')[0]))
-              .map(({ log, logDate }) => ({
-                userId: freshDbUser!.id,
-                content: log.content,
-                isAiRefined: true,
-                isVoice: false,
-                logDate,
-              }));
-
-            skippedDuplicates = logsToSave.length - insertData.length;
-
-            if (insertData.length > 0) {
-              await prisma.$transaction([
-                prisma.log.createMany({ data: insertData }),
-                prisma.user.update({
-                  where: { id: freshDbUser!.id },
-                  data: { logCount: { increment: insertData.length } },
-                }),
-              ]);
-            }
-          }
-
-          await ctx.api.deleteMessage(ctx.chat!.id, loadingMsg.message_id).catch(() => {});
-
-          if (logsToHold.length > 0) {
-            if (freshDbUser) {
-              await prisma.user.update({ where: { id: freshDbUser.id }, data: { hitPaywall: true } });
-            }
-            state.heldLogs = logsToHold.map(log => ({
-              content: log.content,
-              logDate: nthWorkingDayFrom(parseISO(state.startDate!), log.dateOffset + cappedAt).toISOString(),
-              dateOffset: log.dateOffset + cappedAt,
-            }));
-            state.savedLogsCount = (state.savedLogsCount ?? 0) + logsToSave.length;
-            await ctx.reply(
-              `I saved *${logsToSave.length} more day${logsToSave.length === 1 ? '' : 's'}* but your free storage is now full. The remaining *${logsToHold.length}* are ready — unlock Pro to save them. 🔓` +
-              (skippedDuplicates > 0 ? `\n\n_${skippedDuplicates} day${skippedDuplicates === 1 ? '' : 's'} skipped — you already had logs for those dates._` : ''),
-              {
-                parse_mode: "Markdown",
-                reply_markup: new InlineKeyboard().text("🔓 Unlock Storage - ₦1,000", "go_pro"),
-              }
-            );
-            await ctx.reply("For any remaining days, just run /catchup again and pick up where you left off.");
-            if (ctx.session.catchup) ctx.session.catchup.active = false;
-          } else {
-            const totalDays = cappedAt + logsToSave.length;
-            const stillCapped = generated.logs.length < remainingDays;
-            await ctx.reply(
-              `All *${totalDays} day${totalDays === 1 ? '' : 's'}* are now in your logbook. 🎉` +
-              (skippedDuplicates > 0 ? `\n\n_${skippedDuplicates} day${skippedDuplicates === 1 ? '' : 's'} skipped — you already had logs for those dates._` : ''),
-              {
-                parse_mode: "Markdown",
-                reply_markup: new InlineKeyboard().text("📅 View calendar", "nav_calendar").text("🏠 Menu", "nav_menu"),
-              }
-            );
-            if (stillCapped) {
-              await ctx.reply("For any remaining days, just run /catchup again and pick up where you left off.");
-            }
-            clearActiveFlow(ctx.session);
-          }
-        } catch (innerErr) {
-          isProcessing = false;
-          clearInterval(typingInterval);
-          throw innerErr;
-        }
-        break;
+      // Escape hatch: any step with no handler (e.g. 'generating' after a failed
+      // fulfilment) would otherwise swallow every message and brick the session.
+      default: {
+        await ctx.reply(
+          "I lost track of where we were in your catch-up 😅 Type /catchup to pick it back up.",
+          { reply_markup: new InlineKeyboard().text("🏠 Menu", "nav_menu") },
+        );
+        clearActiveFlow(ctx.session);
+        return;
       }
     }
   } catch (error) {
