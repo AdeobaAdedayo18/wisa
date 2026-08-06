@@ -1128,7 +1128,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
               }
             );
 
-            if (!hasActiveStorage(updatedUser) && updatedUser.logCount === FREE_LOG_LIMIT) {
+            if (!hasActiveStorage(updatedUser) && updatedUser.logCount >= FREE_LOG_LIMIT) {
               await bot.api.sendMessage(chatId, getStorageLimitReachedAfterSaveText(), {
                 parse_mode: "Markdown",
                 reply_markup: { inline_keyboard: [[{ text: "🔓 Unlock storage - ₦1,000", callback_data: "go_pro" }]] },
