@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { CatchupTier } from "../prisma/enums";
 
 export const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -117,26 +118,44 @@ export async function transcribeVoice(filePath: string): Promise<string | null> 
 // CATCH-UP ENGINE: AI PROMPTS
 // ============================================================================
 
+export interface CatchupDumpEvaluation {
+  sufficientForCurrentChunk: boolean;
+  followUpQuestions: string[];
+}
+
 export interface CatchupEvaluation {
   isAdequate: boolean;
   followUpQuestions: string[];
-  maxSupportableDays: number; // ✅ CRITICAL: Cap on realistically generatable days (prevents hallucination)
+  maxSupportableDays: number;
 }
 
 export interface GeneratedCatchup {
   logs: Array<{
     dateOffset: number; // 0 for start date, 1 for the next working day, etc.
+    task: string;
+    weeklySummary: string;
     content: string;
   }>;
 }
 
 /**
- * The Gatekeeper: Evaluates if the user's brain-dump has enough meat to stretch 
- * across the requested number of working days.
+ * The Gatekeeper: Evaluates whether the current block has enough technical detail
+ * to be safely expanded without hallucinating or repeating itself.
  */
-export async function evaluateCatchupDetail(rawText: string, days: number, courseOfStudy: string = "IT"): Promise<CatchupEvaluation> {
-  console.log(`[evaluateCatchupDetail] Checking adequacy of "${rawText.substring(0, 30)}..." for ${days} days...`);
+export async function evaluateCatchupDump(
+  rawText: string,
+  tier: CatchupTier,
+  totalDuration: number,
+  courseOfStudy: string = "IT",
+): Promise<CatchupDumpEvaluation> {
+  console.log(`[evaluateCatchupDump] Checking dump of "${rawText.substring(0, 30)}..." for tier=${tier}, totalDuration=${totalDuration}`);
   const start = Date.now();
+
+  const tierLabel = {
+    QUICK_FIX: "a few weeks",
+    FULL_BACKLOG: "a multi-month backlog",
+    VIP_DEFENSE: "a VIP final-report backlog",
+  }[tier];
 
   try {
     const completion = await openai.chat.completions.create({
@@ -147,43 +166,21 @@ export async function evaluateCatchupDetail(rawText: string, days: number, cours
           role: "system",
           content: `You are evaluating a SIWES (Industrial Training) logbook brain-dump for a Nigerian university student studying ${courseOfStudy}.
 
-They want logs for ${days} working days.
+The current catch-up chunk is for tier ${tier} (${tierLabel}) and the user selected a totalDuration of ${totalDuration}.
 
-TWO JOBS:
-1. Is there enough identifiable work content to generate any logs at all? (isAdequate)
-2. How many days can be realistically written from this input without fabricating details? (maxSupportableDays)
+Your job is to decide whether the provided text has enough specific technical depth to support the current chunk without hallucinating, inventing details, or repeating itself.
 
-STRICT NO-INVENTION RULE: The downstream generator will ONLY expand what the student mentioned. It will NOT invent meetings, orientations, briefings, site walkthroughs, reading manuals, or any other activity the student did not state. When estimating maxSupportableDays, count ONLY days that can be filled by expanding the student's stated activities into stages (diagnosis, active work, testing, documentation). Do NOT count days that would require inventing tasks the student never mentioned.
+STRICT SOURCE RULE:
+Only use the user's stated projects, tools, tasks, bugs, issues, and lessons. Do not invent meetings, orientations, briefings, tours, or any other activities not mentioned by the user.
 
-━━━━━━━━━━━━━━━━━━━━━
-isAdequate = false (maxSupportableDays = 0)
-━━━━━━━━━━━━━━━━━━━━━
-• Pure gibberish or keyboard smash
-• Empty text or whitespace only
-• Lone greeting with no work context ("hi", "hello")
-• Fewer than 3 meaningful words with no identifiable work activity (e.g. "I was there", "nothing much", "just stuff")
+SAY YES only when the text contains enough concrete technical substance to write a believable block for this current chunk.
+SAY NO when the dump is too vague, too thin, or would force the model to pad with invented detail.
 
-When isAdequate=false: provide 1–2 targeted follow-up questions addressing the specific gap. Make them concrete and specific. Do NOT ask generic questions like "Can you tell me more?"
-
-Good examples:
-- "What kind of network tasks were you doing — hardware setup, software configuration, cabling, or fault diagnosis?"
-- "What data were you entering and which system — a spreadsheet, accounting software, or a custom database?"
-
-━━━━━━━━━━━━━━━━━━━━━
-isAdequate = true (estimate maxSupportableDays honestly)
-━━━━━━━━━━━━━━━━━━━━━
-Count only days coverable by expanding the student's stated activities — not days that would need invented content:
-• 1 vague activity with no detail (e.g. "did data entry", "helped with network"): 1 task × ~4–6 expansion stages = maxSupportableDays = min(6, ${days})
-• 2–3 activities with some context: each task gets 3–4 stages = maxSupportableDays = min(12, ${days})
-• 4+ distinct activities OR detailed descriptions: maxSupportableDays = min(18, ${days})
-• Rich multi-sentence notes covering multiple tasks with clear context: maxSupportableDays = ${days}
-
-When isAdequate=true: followUpQuestions must be an empty array [].
+If the answer is NO, return 1–2 targeted follow-up questions that ask for the missing technical specifics needed for this current chunk. Questions must be concrete and grounded in the student's work context.
 
 Return ONLY valid JSON:
 {
-  "isAdequate": boolean,
-  "maxSupportableDays": number,
+  "sufficientForCurrentChunk": boolean,
   "followUpQuestions": string[]
 }`,
         },
@@ -192,27 +189,39 @@ Return ONLY valid JSON:
       temperature: 0.2, 
     });
 
-    const result = JSON.parse(completion.choices[0].message.content || '{"isAdequate": false, "maxSupportableDays": 0, "followUpQuestions": ["Can you tell me more about the specific areas or tasks you worked on?"]}');
-    console.log(`[evaluateCatchupDetail] Result: isAdequate=${result.isAdequate}, maxSupportableDays=${result.maxSupportableDays} in ${Date.now() - start}ms`);
-    
-    // ✅ SAFETY: Allow 0 for gibberish, but prevent undefined or negatives
-    if (typeof result.maxSupportableDays !== 'number' || result.maxSupportableDays < 0) {
-      result.maxSupportableDays = 0;
-    }
-    
-    return result as CatchupEvaluation;
+    const result = JSON.parse(completion.choices[0].message.content || '{"sufficientForCurrentChunk": false, "followUpQuestions": ["Can you tell me more about the specific tools, tasks, or challenges you handled?"]}');
+    console.log(`[evaluateCatchupDump] Result: sufficientForCurrentChunk=${result.sufficientForCurrentChunk} in ${Date.now() - start}ms`);
+
+    return {
+      sufficientForCurrentChunk: Boolean(result.sufficientForCurrentChunk),
+      followUpQuestions: Array.isArray(result.followUpQuestions) ? result.followUpQuestions.filter((item: unknown) => typeof item === 'string') : [],
+    };
   } catch (error) {
-    console.error("[evaluateCatchupDetail] Error calling OpenAI:", error);
-    return { isAdequate: false, maxSupportableDays: 0, followUpQuestions: ["I missed some of that. Could you tell me more about what areas you worked on?"] };
+    console.error("[evaluateCatchupDump] Error calling OpenAI:", error);
+    return { sufficientForCurrentChunk: false, followUpQuestions: ["I missed some of that. Could you tell me more about the tools, tasks, or challenges you handled?"] };
   }
+}
+
+export async function evaluateCatchupDetail(rawText: string, days: number, courseOfStudy: string = "IT"): Promise<CatchupEvaluation> {
+  const result = await evaluateCatchupDump(rawText, CatchupTier.QUICK_FIX, days, courseOfStudy);
+  return {
+    isAdequate: result.sufficientForCurrentChunk,
+    followUpQuestions: result.followUpQuestions,
+    maxSupportableDays: result.sufficientForCurrentChunk ? days : 0,
+  };
 }
 
 /**
  * The Generator: Uses a Task Lifecycle to stretch the brain-dump into distinct,
  * high-quality daily logs.
  */
-export async function generateMultiDayLogs(rawText: string, days: number, courseOfStudy: string = "IT"): Promise<GeneratedCatchup> {
-  console.log(`[generateMultiDayLogs] Generating ${days} logs...`);
+export async function generateCatchupLogs(
+  rawText: string,
+  days: number,
+  courseOfStudy: string = "IT",
+  maxDays: number = days,
+): Promise<GeneratedCatchup> {
+  console.log(`[generateCatchupLogs] Generating up to ${maxDays} logs for ${days} requested days...`);
   const start = Date.now();
 
   try {
@@ -225,6 +234,7 @@ export async function generateMultiDayLogs(rawText: string, days: number, course
           content: `You are a professional SIWES (Industrial Training) logbook writer for a Nigerian university student studying: ${courseOfStudy}.
 
 Your task: Generate daily log entries from the student's brain-dump.
+The requested block duration is ${days} days, but you must generate at most ${maxDays} entries.
 
 ════════════════════════════════════════
    THE STRICT SOURCE RULE — THIS OVERRIDES EVERYTHING ELSE
@@ -261,6 +271,17 @@ MULTIPLE TASKS:
   • 3+ tasks → cycle through them, expanding each
   • NEVER introduce a task the student did not mention to fill remaining days
 
+STRUCTURE REQUIRED FOR EACH ENTRY:
+Return each log as a JSON object with exactly these keys:
+{
+  "dateOffset": number,
+  "task": "one concise sentence about the day's technical work",
+  "weeklySummary": "2-3 sentence summary of the day's work and lesson",
+  "content": "a fully formatted plain-text version of the same log"
+}
+
+Do not exceed ${maxDays} entries.
+
 ════════════════════════════════════════
    WHEN YOU CANNOT FILL ALL ${days} DAYS
 ════════════════════════════════════════
@@ -290,24 +311,48 @@ The evaluation step already capped the count to match this input. Trust that cap
 Return ONLY a valid JSON object with exactly this structure — no extra text, no markdown fences:
 {
   "logs": [
-    { "dateOffset": 0, "content": "Exactly 40-45 words for day 1..." },
-    { "dateOffset": 1, "content": "Exactly 40-45 words for day 2..." },
+    { "dateOffset": 0, "task": "...", "weeklySummary": "...", "content": "..." },
+    { "dateOffset": 1, "task": "...", "weeklySummary": "...", "content": "..." },
     ...continue until dateOffset ${days - 1}
   ]
 }
 
-Aim for exactly ${days} objects. Return fewer only if you cannot fill the remaining days without inventing content not present in the brain-dump.`,
+Aim for exactly ${maxDays} objects. Return fewer only if you cannot fill the remaining days without inventing content not present in the brain-dump.`,
         },
         { role: "user", content: rawText },
       ],
       temperature: 0.4,
     });
 
-    const result = JSON.parse(completion.choices[0].message.content || '{"logs": []}');
-    console.log(`[generateMultiDayLogs] Success in ${Date.now() - start}ms`);
-    return result as GeneratedCatchup;
+    const parsed = JSON.parse(completion.choices[0].message.content || '{"logs": []}');
+    const logs = Array.isArray(parsed.logs)
+      ? parsed.logs
+          .filter((entry: unknown) => entry && typeof entry === "object")
+          .map((entry: any) => {
+            const task = String(entry.task ?? "Worked on the assigned tasks for the day.");
+            const weeklySummary = String(entry.weeklySummary ?? "Completed the day's work and documented the progress made.");
+
+            return {
+              dateOffset: Number(entry.dateOffset ?? 0),
+              task,
+              weeklySummary,
+              content: String(
+                entry.content ??
+                `Task: ${task}\nWeekly Summary: ${weeklySummary}`
+              ),
+            };
+          })
+          .slice(0, maxDays)
+      : [];
+
+    console.log(`[generateCatchupLogs] Success in ${Date.now() - start}ms`);
+    return { logs } as GeneratedCatchup;
   } catch (error) {
-    console.error("[generateMultiDayLogs] Error calling OpenAI:", error);
+    console.error("[generateCatchupLogs] Error calling OpenAI:", error);
     throw error;
   }
+}
+
+export async function generateMultiDayLogs(rawText: string, days: number, courseOfStudy: string = "IT"): Promise<GeneratedCatchup> {
+  return generateCatchupLogs(rawText, days, courseOfStudy, days);
 }
