@@ -76,6 +76,17 @@ export interface SessionData {
   /** True once the 30-minute follow-up for the first log prompt has been sent. */
   firstLogFollowUpSent?: boolean;
 
+  /** Active CatchupSession DB id for the current rescue flow. */
+  catchupSessionId?: string;
+
+  /**
+   * Monotonic revision of the catch-up keys (`catchup`, `catchupSessionId`).
+   * Bumped only by out-of-band writers (the Paystack webhook / fulfilment), and
+   * compared on session write-back so a long-running update cannot overwrite a
+   * newer patch with its stale snapshot. See `mergingSessionStorage`.
+   */
+  catchupRev?: number;
+
   /**
    * When a user hits the storage wall mid-action, we set this so that after
    * Paystack success (webhook) we can prompt them to resume what they were doing.
@@ -103,15 +114,28 @@ export interface SessionData {
    */
   catchup?: {
     active: boolean;
-    step: 'none' | 'awaiting_start_date' | 'awaiting_end_date' | 'awaiting_braindump' | 'interrogation' | 'awaiting_course' | 'awaiting_more_detail';
+    step:
+      | 'none'
+      | 'awaiting_tier_selection'
+      | 'awaiting_duration'
+      | 'awaiting_anchor_date'
+      | 'awaiting_block_dump'
+      | 'ready_for_week_1_generation'
+      | 'awaiting_payment_email'
+      | 'awaiting_payment'
+      | 'generating'
+      | 'awaiting_start_date'
+      | 'awaiting_end_date'
+      | 'awaiting_braindump'
+      | 'interrogation'
+      | 'awaiting_course'
+      | 'awaiting_more_detail';
     startDate?: string;
     endDate?: string;
     workingDays?: number;
     rawDump?: string;
     questionCount?: number;
     courseOfStudy?: string;
-    heldLogs?: Array<{ content: string; logDate: string; dateOffset: number }>;
-    savedLogsCount?: number;
     wasCapped?: boolean;
     originalRequestedDays?: number;
     cappedWorkingDays?: number;
@@ -160,7 +184,7 @@ export function clearActiveFlow(session: SessionData): void {
   session.firstLogPromptSentAt = undefined;
   session.firstLogFollowUpSent = undefined;
 
-  // Safely reset Catch-Up state (but do NOT wipe heldLogs if they are pending payment)
+  // Safely reset Catch-Up state
   if (session.catchup) {
     session.catchup.active = false;
     session.catchup.step = 'none';
@@ -170,7 +194,6 @@ export function clearActiveFlow(session: SessionData): void {
     session.catchup.rawDump = undefined;
     session.catchup.questionCount = undefined;
     session.catchup.courseOfStudy = undefined;
-    // NOTE: session.catchup.heldLogs is intentionally preserved here for the payment cliffhanger
   } else {
     session.catchup = { active: false, step: 'none' };
   }
