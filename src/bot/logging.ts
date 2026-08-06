@@ -212,7 +212,7 @@ export async function handleLogText(
       ctx.session.pendingRefinedContent = undefined;
       ctx.session.refiningLogId = undefined;
 
-      if (!hasActiveStorage(updatedUser) && updatedUser.logCount === FREE_LOG_LIMIT) {
+      if (!hasActiveStorage(updatedUser) && updatedUser.logCount >= FREE_LOG_LIMIT) {
         await prisma.user.update({
           where: { id: dbUser.id },
           data: { hitPaywall: true },
@@ -336,7 +336,7 @@ export async function handleDoneLogging(ctx: BotContext): Promise<void> {
       nextRenewalDate: updatedUser.nextRenewalDate,
     });
 
-    if (nowLockedAfterSave && updatedUser.logCount === FREE_LOG_LIMIT) {
+    if (nowLockedAfterSave && updatedUser.logCount >= FREE_LOG_LIMIT) {
       await prisma.user.update({
         where: { id: dbUser.id },
         data: { hitPaywall: true },
@@ -463,7 +463,7 @@ export async function handleAutoSaveConfirm(ctx: BotContext): Promise<void> {
     // Remove prompt buttons
     await ctx.editMessageReplyMarkup({ reply_markup: { inline_keyboard: [] } }).catch(() => {});
 
-    if (!hasActiveStorage(updatedUser) && updatedUser.logCount === FREE_LOG_LIMIT) {
+    if (!hasActiveStorage(updatedUser) && updatedUser.logCount >= FREE_LOG_LIMIT) {
       await ctx.reply(getStorageLimitReachedAfterSaveText(), {
         parse_mode: "Markdown",
         reply_markup: new InlineKeyboard().text("🔓 Unlock storage - ₦1,000", "go_pro"),
