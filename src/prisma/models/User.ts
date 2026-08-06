@@ -417,6 +417,7 @@ export type UserWhereInput = {
   subscription?: Prisma.XOR<Prisma.SubscriptionNullableScalarRelationFilter, Prisma.SubscriptionWhereInput> | null
   manualPayments?: Prisma.ManualPaymentListRelationFilter
   paymentTransactions?: Prisma.PaymentTransactionListRelationFilter
+  catchupSessions?: Prisma.CatchupSessionListRelationFilter
 }
 
 export type UserOrderByWithRelationInput = {
@@ -452,6 +453,7 @@ export type UserOrderByWithRelationInput = {
   subscription?: Prisma.SubscriptionOrderByWithRelationInput
   manualPayments?: Prisma.ManualPaymentOrderByRelationAggregateInput
   paymentTransactions?: Prisma.PaymentTransactionOrderByRelationAggregateInput
+  catchupSessions?: Prisma.CatchupSessionOrderByRelationAggregateInput
 }
 
 export type UserWhereUniqueInput = Prisma.AtLeast<{
@@ -490,6 +492,7 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   subscription?: Prisma.XOR<Prisma.SubscriptionNullableScalarRelationFilter, Prisma.SubscriptionWhereInput> | null
   manualPayments?: Prisma.ManualPaymentListRelationFilter
   paymentTransactions?: Prisma.PaymentTransactionListRelationFilter
+  catchupSessions?: Prisma.CatchupSessionListRelationFilter
 }, "id" | "telegramId">
 
 export type UserOrderByWithAggregationInput = {
@@ -592,6 +595,7 @@ export type UserCreateInput = {
   subscription?: Prisma.SubscriptionCreateNestedOneWithoutUserInput
   manualPayments?: Prisma.ManualPaymentCreateNestedManyWithoutUserInput
   paymentTransactions?: Prisma.PaymentTransactionCreateNestedManyWithoutUserInput
+  catchupSessions?: Prisma.CatchupSessionCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateInput = {
@@ -627,6 +631,7 @@ export type UserUncheckedCreateInput = {
   subscription?: Prisma.SubscriptionUncheckedCreateNestedOneWithoutUserInput
   manualPayments?: Prisma.ManualPaymentUncheckedCreateNestedManyWithoutUserInput
   paymentTransactions?: Prisma.PaymentTransactionUncheckedCreateNestedManyWithoutUserInput
+  catchupSessions?: Prisma.CatchupSessionUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserUpdateInput = {
@@ -661,6 +666,7 @@ export type UserUpdateInput = {
   subscription?: Prisma.SubscriptionUpdateOneWithoutUserNestedInput
   manualPayments?: Prisma.ManualPaymentUpdateManyWithoutUserNestedInput
   paymentTransactions?: Prisma.PaymentTransactionUpdateManyWithoutUserNestedInput
+  catchupSessions?: Prisma.CatchupSessionUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateInput = {
@@ -696,6 +702,7 @@ export type UserUncheckedUpdateInput = {
   subscription?: Prisma.SubscriptionUncheckedUpdateOneWithoutUserNestedInput
   manualPayments?: Prisma.ManualPaymentUncheckedUpdateManyWithoutUserNestedInput
   paymentTransactions?: Prisma.PaymentTransactionUncheckedUpdateManyWithoutUserNestedInput
+  catchupSessions?: Prisma.CatchupSessionUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserCreateManyInput = {
@@ -982,6 +989,20 @@ export type UserUpdateOneRequiredWithoutReminderJobsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutReminderJobsInput, Prisma.UserUpdateWithoutReminderJobsInput>, Prisma.UserUncheckedUpdateWithoutReminderJobsInput>
 }
 
+export type UserCreateNestedOneWithoutCatchupSessionsInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutCatchupSessionsInput, Prisma.UserUncheckedCreateWithoutCatchupSessionsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutCatchupSessionsInput
+  connect?: Prisma.UserWhereUniqueInput
+}
+
+export type UserUpdateOneRequiredWithoutCatchupSessionsNestedInput = {
+  create?: Prisma.XOR<Prisma.UserCreateWithoutCatchupSessionsInput, Prisma.UserUncheckedCreateWithoutCatchupSessionsInput>
+  connectOrCreate?: Prisma.UserCreateOrConnectWithoutCatchupSessionsInput
+  upsert?: Prisma.UserUpsertWithoutCatchupSessionsInput
+  connect?: Prisma.UserWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.UserUpdateToOneWithWhereWithoutCatchupSessionsInput, Prisma.UserUpdateWithoutCatchupSessionsInput>, Prisma.UserUncheckedUpdateWithoutCatchupSessionsInput>
+}
+
 export type UserCreateNestedOneWithoutManualPaymentsInput = {
   create?: Prisma.XOR<Prisma.UserCreateWithoutManualPaymentsInput, Prisma.UserUncheckedCreateWithoutManualPaymentsInput>
   connectOrCreate?: Prisma.UserCreateOrConnectWithoutManualPaymentsInput
@@ -1041,6 +1062,7 @@ export type UserCreateWithoutLogsInput = {
   subscription?: Prisma.SubscriptionCreateNestedOneWithoutUserInput
   manualPayments?: Prisma.ManualPaymentCreateNestedManyWithoutUserInput
   paymentTransactions?: Prisma.PaymentTransactionCreateNestedManyWithoutUserInput
+  catchupSessions?: Prisma.CatchupSessionCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutLogsInput = {
@@ -1075,6 +1097,7 @@ export type UserUncheckedCreateWithoutLogsInput = {
   subscription?: Prisma.SubscriptionUncheckedCreateNestedOneWithoutUserInput
   manualPayments?: Prisma.ManualPaymentUncheckedCreateNestedManyWithoutUserInput
   paymentTransactions?: Prisma.PaymentTransactionUncheckedCreateNestedManyWithoutUserInput
+  catchupSessions?: Prisma.CatchupSessionUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutLogsInput = {
@@ -1124,6 +1147,7 @@ export type UserUpdateWithoutLogsInput = {
   subscription?: Prisma.SubscriptionUpdateOneWithoutUserNestedInput
   manualPayments?: Prisma.ManualPaymentUpdateManyWithoutUserNestedInput
   paymentTransactions?: Prisma.PaymentTransactionUpdateManyWithoutUserNestedInput
+  catchupSessions?: Prisma.CatchupSessionUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutLogsInput = {
@@ -1158,6 +1182,7 @@ export type UserUncheckedUpdateWithoutLogsInput = {
   subscription?: Prisma.SubscriptionUncheckedUpdateOneWithoutUserNestedInput
   manualPayments?: Prisma.ManualPaymentUncheckedUpdateManyWithoutUserNestedInput
   paymentTransactions?: Prisma.PaymentTransactionUncheckedUpdateManyWithoutUserNestedInput
+  catchupSessions?: Prisma.CatchupSessionUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserCreateWithoutSubscriptionInput = {
@@ -1191,6 +1216,7 @@ export type UserCreateWithoutSubscriptionInput = {
   reminderJobs?: Prisma.ReminderJobCreateNestedManyWithoutUserInput
   manualPayments?: Prisma.ManualPaymentCreateNestedManyWithoutUserInput
   paymentTransactions?: Prisma.PaymentTransactionCreateNestedManyWithoutUserInput
+  catchupSessions?: Prisma.CatchupSessionCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutSubscriptionInput = {
@@ -1225,6 +1251,7 @@ export type UserUncheckedCreateWithoutSubscriptionInput = {
   reminderJobs?: Prisma.ReminderJobUncheckedCreateNestedManyWithoutUserInput
   manualPayments?: Prisma.ManualPaymentUncheckedCreateNestedManyWithoutUserInput
   paymentTransactions?: Prisma.PaymentTransactionUncheckedCreateNestedManyWithoutUserInput
+  catchupSessions?: Prisma.CatchupSessionUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutSubscriptionInput = {
@@ -1274,6 +1301,7 @@ export type UserUpdateWithoutSubscriptionInput = {
   reminderJobs?: Prisma.ReminderJobUpdateManyWithoutUserNestedInput
   manualPayments?: Prisma.ManualPaymentUpdateManyWithoutUserNestedInput
   paymentTransactions?: Prisma.PaymentTransactionUpdateManyWithoutUserNestedInput
+  catchupSessions?: Prisma.CatchupSessionUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutSubscriptionInput = {
@@ -1308,6 +1336,7 @@ export type UserUncheckedUpdateWithoutSubscriptionInput = {
   reminderJobs?: Prisma.ReminderJobUncheckedUpdateManyWithoutUserNestedInput
   manualPayments?: Prisma.ManualPaymentUncheckedUpdateManyWithoutUserNestedInput
   paymentTransactions?: Prisma.PaymentTransactionUncheckedUpdateManyWithoutUserNestedInput
+  catchupSessions?: Prisma.CatchupSessionUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserCreateWithoutReminderJobsInput = {
@@ -1341,6 +1370,7 @@ export type UserCreateWithoutReminderJobsInput = {
   subscription?: Prisma.SubscriptionCreateNestedOneWithoutUserInput
   manualPayments?: Prisma.ManualPaymentCreateNestedManyWithoutUserInput
   paymentTransactions?: Prisma.PaymentTransactionCreateNestedManyWithoutUserInput
+  catchupSessions?: Prisma.CatchupSessionCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutReminderJobsInput = {
@@ -1375,6 +1405,7 @@ export type UserUncheckedCreateWithoutReminderJobsInput = {
   subscription?: Prisma.SubscriptionUncheckedCreateNestedOneWithoutUserInput
   manualPayments?: Prisma.ManualPaymentUncheckedCreateNestedManyWithoutUserInput
   paymentTransactions?: Prisma.PaymentTransactionUncheckedCreateNestedManyWithoutUserInput
+  catchupSessions?: Prisma.CatchupSessionUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutReminderJobsInput = {
@@ -1424,6 +1455,7 @@ export type UserUpdateWithoutReminderJobsInput = {
   subscription?: Prisma.SubscriptionUpdateOneWithoutUserNestedInput
   manualPayments?: Prisma.ManualPaymentUpdateManyWithoutUserNestedInput
   paymentTransactions?: Prisma.PaymentTransactionUpdateManyWithoutUserNestedInput
+  catchupSessions?: Prisma.CatchupSessionUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutReminderJobsInput = {
@@ -1455,6 +1487,161 @@ export type UserUncheckedUpdateWithoutReminderJobsInput = {
   lastContactedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   logs?: Prisma.LogUncheckedUpdateManyWithoutUserNestedInput
+  subscription?: Prisma.SubscriptionUncheckedUpdateOneWithoutUserNestedInput
+  manualPayments?: Prisma.ManualPaymentUncheckedUpdateManyWithoutUserNestedInput
+  paymentTransactions?: Prisma.PaymentTransactionUncheckedUpdateManyWithoutUserNestedInput
+  catchupSessions?: Prisma.CatchupSessionUncheckedUpdateManyWithoutUserNestedInput
+}
+
+export type UserCreateWithoutCatchupSessionsInput = {
+  telegramId: bigint | number
+  firstName: string
+  username?: string | null
+  paymentEmail?: string | null
+  courseOfStudy?: string | null
+  logFrequency: string
+  reminderTime: string
+  timezone?: string
+  isPro?: boolean
+  storageUnlocked?: boolean
+  logCount?: number
+  nextRenewalDate?: Date | string | null
+  freeAiRefinements?: number
+  freeVoiceLogs?: number
+  onboardingDone?: boolean
+  firstLogPromptSent?: boolean
+  firstLogCompletedInOnboarding?: boolean
+  hitPaywall?: boolean
+  botBlocked?: boolean
+  lastGreetingSentAt?: Date | string | null
+  lastGreetingType?: $Enums.GreetingType | null
+  nudgeCount?: number
+  lastNudgeSentAt?: Date | string | null
+  nudgingPaused?: boolean
+  lastContactedAt?: Date | string | null
+  createdAt?: Date | string
+  logs?: Prisma.LogCreateNestedManyWithoutUserInput
+  reminderJobs?: Prisma.ReminderJobCreateNestedManyWithoutUserInput
+  subscription?: Prisma.SubscriptionCreateNestedOneWithoutUserInput
+  manualPayments?: Prisma.ManualPaymentCreateNestedManyWithoutUserInput
+  paymentTransactions?: Prisma.PaymentTransactionCreateNestedManyWithoutUserInput
+}
+
+export type UserUncheckedCreateWithoutCatchupSessionsInput = {
+  id?: number
+  telegramId: bigint | number
+  firstName: string
+  username?: string | null
+  paymentEmail?: string | null
+  courseOfStudy?: string | null
+  logFrequency: string
+  reminderTime: string
+  timezone?: string
+  isPro?: boolean
+  storageUnlocked?: boolean
+  logCount?: number
+  nextRenewalDate?: Date | string | null
+  freeAiRefinements?: number
+  freeVoiceLogs?: number
+  onboardingDone?: boolean
+  firstLogPromptSent?: boolean
+  firstLogCompletedInOnboarding?: boolean
+  hitPaywall?: boolean
+  botBlocked?: boolean
+  lastGreetingSentAt?: Date | string | null
+  lastGreetingType?: $Enums.GreetingType | null
+  nudgeCount?: number
+  lastNudgeSentAt?: Date | string | null
+  nudgingPaused?: boolean
+  lastContactedAt?: Date | string | null
+  createdAt?: Date | string
+  logs?: Prisma.LogUncheckedCreateNestedManyWithoutUserInput
+  reminderJobs?: Prisma.ReminderJobUncheckedCreateNestedManyWithoutUserInput
+  subscription?: Prisma.SubscriptionUncheckedCreateNestedOneWithoutUserInput
+  manualPayments?: Prisma.ManualPaymentUncheckedCreateNestedManyWithoutUserInput
+  paymentTransactions?: Prisma.PaymentTransactionUncheckedCreateNestedManyWithoutUserInput
+}
+
+export type UserCreateOrConnectWithoutCatchupSessionsInput = {
+  where: Prisma.UserWhereUniqueInput
+  create: Prisma.XOR<Prisma.UserCreateWithoutCatchupSessionsInput, Prisma.UserUncheckedCreateWithoutCatchupSessionsInput>
+}
+
+export type UserUpsertWithoutCatchupSessionsInput = {
+  update: Prisma.XOR<Prisma.UserUpdateWithoutCatchupSessionsInput, Prisma.UserUncheckedUpdateWithoutCatchupSessionsInput>
+  create: Prisma.XOR<Prisma.UserCreateWithoutCatchupSessionsInput, Prisma.UserUncheckedCreateWithoutCatchupSessionsInput>
+  where?: Prisma.UserWhereInput
+}
+
+export type UserUpdateToOneWithWhereWithoutCatchupSessionsInput = {
+  where?: Prisma.UserWhereInput
+  data: Prisma.XOR<Prisma.UserUpdateWithoutCatchupSessionsInput, Prisma.UserUncheckedUpdateWithoutCatchupSessionsInput>
+}
+
+export type UserUpdateWithoutCatchupSessionsInput = {
+  telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
+  firstName?: Prisma.StringFieldUpdateOperationsInput | string
+  username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  courseOfStudy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
+  reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
+  timezone?: Prisma.StringFieldUpdateOperationsInput | string
+  isPro?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  storageUnlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  logCount?: Prisma.IntFieldUpdateOperationsInput | number
+  nextRenewalDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
+  freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
+  onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogPromptSent?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogCompletedInOnboarding?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  hitPaywall?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
+  nudgeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastNudgeSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  nudgingPaused?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastContactedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  logs?: Prisma.LogUpdateManyWithoutUserNestedInput
+  reminderJobs?: Prisma.ReminderJobUpdateManyWithoutUserNestedInput
+  subscription?: Prisma.SubscriptionUpdateOneWithoutUserNestedInput
+  manualPayments?: Prisma.ManualPaymentUpdateManyWithoutUserNestedInput
+  paymentTransactions?: Prisma.PaymentTransactionUpdateManyWithoutUserNestedInput
+}
+
+export type UserUncheckedUpdateWithoutCatchupSessionsInput = {
+  id?: Prisma.IntFieldUpdateOperationsInput | number
+  telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
+  firstName?: Prisma.StringFieldUpdateOperationsInput | string
+  username?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  paymentEmail?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  courseOfStudy?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  logFrequency?: Prisma.StringFieldUpdateOperationsInput | string
+  reminderTime?: Prisma.StringFieldUpdateOperationsInput | string
+  timezone?: Prisma.StringFieldUpdateOperationsInput | string
+  isPro?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  storageUnlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  logCount?: Prisma.IntFieldUpdateOperationsInput | number
+  nextRenewalDate?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  freeAiRefinements?: Prisma.IntFieldUpdateOperationsInput | number
+  freeVoiceLogs?: Prisma.IntFieldUpdateOperationsInput | number
+  onboardingDone?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogPromptSent?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  firstLogCompletedInOnboarding?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  hitPaywall?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  botBlocked?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastGreetingSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  lastGreetingType?: Prisma.NullableEnumGreetingTypeFieldUpdateOperationsInput | $Enums.GreetingType | null
+  nudgeCount?: Prisma.IntFieldUpdateOperationsInput | number
+  lastNudgeSentAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  nudgingPaused?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  lastContactedAt?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  logs?: Prisma.LogUncheckedUpdateManyWithoutUserNestedInput
+  reminderJobs?: Prisma.ReminderJobUncheckedUpdateManyWithoutUserNestedInput
   subscription?: Prisma.SubscriptionUncheckedUpdateOneWithoutUserNestedInput
   manualPayments?: Prisma.ManualPaymentUncheckedUpdateManyWithoutUserNestedInput
   paymentTransactions?: Prisma.PaymentTransactionUncheckedUpdateManyWithoutUserNestedInput
@@ -1491,6 +1678,7 @@ export type UserCreateWithoutManualPaymentsInput = {
   reminderJobs?: Prisma.ReminderJobCreateNestedManyWithoutUserInput
   subscription?: Prisma.SubscriptionCreateNestedOneWithoutUserInput
   paymentTransactions?: Prisma.PaymentTransactionCreateNestedManyWithoutUserInput
+  catchupSessions?: Prisma.CatchupSessionCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutManualPaymentsInput = {
@@ -1525,6 +1713,7 @@ export type UserUncheckedCreateWithoutManualPaymentsInput = {
   reminderJobs?: Prisma.ReminderJobUncheckedCreateNestedManyWithoutUserInput
   subscription?: Prisma.SubscriptionUncheckedCreateNestedOneWithoutUserInput
   paymentTransactions?: Prisma.PaymentTransactionUncheckedCreateNestedManyWithoutUserInput
+  catchupSessions?: Prisma.CatchupSessionUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutManualPaymentsInput = {
@@ -1574,6 +1763,7 @@ export type UserUpdateWithoutManualPaymentsInput = {
   reminderJobs?: Prisma.ReminderJobUpdateManyWithoutUserNestedInput
   subscription?: Prisma.SubscriptionUpdateOneWithoutUserNestedInput
   paymentTransactions?: Prisma.PaymentTransactionUpdateManyWithoutUserNestedInput
+  catchupSessions?: Prisma.CatchupSessionUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutManualPaymentsInput = {
@@ -1608,6 +1798,7 @@ export type UserUncheckedUpdateWithoutManualPaymentsInput = {
   reminderJobs?: Prisma.ReminderJobUncheckedUpdateManyWithoutUserNestedInput
   subscription?: Prisma.SubscriptionUncheckedUpdateOneWithoutUserNestedInput
   paymentTransactions?: Prisma.PaymentTransactionUncheckedUpdateManyWithoutUserNestedInput
+  catchupSessions?: Prisma.CatchupSessionUncheckedUpdateManyWithoutUserNestedInput
 }
 
 export type UserCreateWithoutPaymentTransactionsInput = {
@@ -1641,6 +1832,7 @@ export type UserCreateWithoutPaymentTransactionsInput = {
   reminderJobs?: Prisma.ReminderJobCreateNestedManyWithoutUserInput
   subscription?: Prisma.SubscriptionCreateNestedOneWithoutUserInput
   manualPayments?: Prisma.ManualPaymentCreateNestedManyWithoutUserInput
+  catchupSessions?: Prisma.CatchupSessionCreateNestedManyWithoutUserInput
 }
 
 export type UserUncheckedCreateWithoutPaymentTransactionsInput = {
@@ -1675,6 +1867,7 @@ export type UserUncheckedCreateWithoutPaymentTransactionsInput = {
   reminderJobs?: Prisma.ReminderJobUncheckedCreateNestedManyWithoutUserInput
   subscription?: Prisma.SubscriptionUncheckedCreateNestedOneWithoutUserInput
   manualPayments?: Prisma.ManualPaymentUncheckedCreateNestedManyWithoutUserInput
+  catchupSessions?: Prisma.CatchupSessionUncheckedCreateNestedManyWithoutUserInput
 }
 
 export type UserCreateOrConnectWithoutPaymentTransactionsInput = {
@@ -1724,6 +1917,7 @@ export type UserUpdateWithoutPaymentTransactionsInput = {
   reminderJobs?: Prisma.ReminderJobUpdateManyWithoutUserNestedInput
   subscription?: Prisma.SubscriptionUpdateOneWithoutUserNestedInput
   manualPayments?: Prisma.ManualPaymentUpdateManyWithoutUserNestedInput
+  catchupSessions?: Prisma.CatchupSessionUpdateManyWithoutUserNestedInput
 }
 
 export type UserUncheckedUpdateWithoutPaymentTransactionsInput = {
@@ -1758,6 +1952,7 @@ export type UserUncheckedUpdateWithoutPaymentTransactionsInput = {
   reminderJobs?: Prisma.ReminderJobUncheckedUpdateManyWithoutUserNestedInput
   subscription?: Prisma.SubscriptionUncheckedUpdateOneWithoutUserNestedInput
   manualPayments?: Prisma.ManualPaymentUncheckedUpdateManyWithoutUserNestedInput
+  catchupSessions?: Prisma.CatchupSessionUncheckedUpdateManyWithoutUserNestedInput
 }
 
 
@@ -1770,6 +1965,7 @@ export type UserCountOutputType = {
   reminderJobs: number
   manualPayments: number
   paymentTransactions: number
+  catchupSessions: number
 }
 
 export type UserCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1777,6 +1973,7 @@ export type UserCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.I
   reminderJobs?: boolean | UserCountOutputTypeCountReminderJobsArgs
   manualPayments?: boolean | UserCountOutputTypeCountManualPaymentsArgs
   paymentTransactions?: boolean | UserCountOutputTypeCountPaymentTransactionsArgs
+  catchupSessions?: boolean | UserCountOutputTypeCountCatchupSessionsArgs
 }
 
 /**
@@ -1817,6 +2014,13 @@ export type UserCountOutputTypeCountPaymentTransactionsArgs<ExtArgs extends runt
   where?: Prisma.PaymentTransactionWhereInput
 }
 
+/**
+ * UserCountOutputType without action
+ */
+export type UserCountOutputTypeCountCatchupSessionsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.CatchupSessionWhereInput
+}
+
 
 export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -1851,6 +2055,7 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   subscription?: boolean | Prisma.User$subscriptionArgs<ExtArgs>
   manualPayments?: boolean | Prisma.User$manualPaymentsArgs<ExtArgs>
   paymentTransactions?: boolean | Prisma.User$paymentTransactionsArgs<ExtArgs>
+  catchupSessions?: boolean | Prisma.User$catchupSessionsArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["user"]>
 
@@ -1951,6 +2156,7 @@ export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
   subscription?: boolean | Prisma.User$subscriptionArgs<ExtArgs>
   manualPayments?: boolean | Prisma.User$manualPaymentsArgs<ExtArgs>
   paymentTransactions?: boolean | Prisma.User$paymentTransactionsArgs<ExtArgs>
+  catchupSessions?: boolean | Prisma.User$catchupSessionsArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type UserIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {}
@@ -1964,6 +2170,7 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     subscription: Prisma.$SubscriptionPayload<ExtArgs> | null
     manualPayments: Prisma.$ManualPaymentPayload<ExtArgs>[]
     paymentTransactions: Prisma.$PaymentTransactionPayload<ExtArgs>[]
+    catchupSessions: Prisma.$CatchupSessionPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: number
@@ -2392,6 +2599,7 @@ export interface Prisma__UserClient<T, Null = never, ExtArgs extends runtime.Typ
   subscription<T extends Prisma.User$subscriptionArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$subscriptionArgs<ExtArgs>>): Prisma.Prisma__SubscriptionClient<runtime.Types.Result.GetResult<Prisma.$SubscriptionPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   manualPayments<T extends Prisma.User$manualPaymentsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$manualPaymentsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ManualPaymentPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   paymentTransactions<T extends Prisma.User$paymentTransactionsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$paymentTransactionsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$PaymentTransactionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  catchupSessions<T extends Prisma.User$catchupSessionsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.User$catchupSessionsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$CatchupSessionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -2953,6 +3161,30 @@ export type User$paymentTransactionsArgs<ExtArgs extends runtime.Types.Extension
   take?: number
   skip?: number
   distinct?: Prisma.PaymentTransactionScalarFieldEnum | Prisma.PaymentTransactionScalarFieldEnum[]
+}
+
+/**
+ * User.catchupSessions
+ */
+export type User$catchupSessionsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the CatchupSession
+   */
+  select?: Prisma.CatchupSessionSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the CatchupSession
+   */
+  omit?: Prisma.CatchupSessionOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.CatchupSessionInclude<ExtArgs> | null
+  where?: Prisma.CatchupSessionWhereInput
+  orderBy?: Prisma.CatchupSessionOrderByWithRelationInput | Prisma.CatchupSessionOrderByWithRelationInput[]
+  cursor?: Prisma.CatchupSessionWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.CatchupSessionScalarFieldEnum | Prisma.CatchupSessionScalarFieldEnum[]
 }
 
 /**

@@ -15,3 +15,37 @@ export const GreetingType = {
 } as const
 
 export type GreetingType = (typeof GreetingType)[keyof typeof GreetingType]
+
+
+export const CatchupTier = {
+  QUICK_FIX: 'QUICK_FIX',
+  FULL_BACKLOG: 'FULL_BACKLOG',
+  VIP_DEFENSE: 'VIP_DEFENSE'
+} as const
+
+export type CatchupTier = (typeof CatchupTier)[keyof typeof CatchupTier]
+
+
+export const TimeframeType = {
+  WEEKS: 'WEEKS',
+  MONTHS: 'MONTHS'
+} as const
+
+export type TimeframeType = (typeof TimeframeType)[keyof typeof TimeframeType]
+
+
+export const CatchupPaymentStatus = {
+  PENDING: 'PENDING',
+  PAID: 'PAID'
+} as const
+
+export type CatchupPaymentStatus = (typeof CatchupPaymentStatus)[keyof typeof CatchupPaymentStatus]
+
+
+export const TransactionStatus = {
+  PENDING: 'PENDING',
+  SUCCESS: 'SUCCESS',
+  FAILED: 'FAILED'
+} as const
+
+export type TransactionStatus = (typeof TransactionStatus)[keyof typeof TransactionStatus]

@@ -57,6 +57,7 @@ export const ModelName = {
   ReminderJob: 'ReminderJob',
   ReminderEvent: 'ReminderEvent',
   Session: 'Session',
+  CatchupSession: 'CatchupSession',
   ManualPayment: 'ManualPayment',
   PaymentTransaction: 'PaymentTransaction',
   ReplayEvent: 'ReplayEvent',
@@ -181,6 +182,22 @@ export const SessionScalarFieldEnum = {
 export type SessionScalarFieldEnum = (typeof SessionScalarFieldEnum)[keyof typeof SessionScalarFieldEnum]
 
 
+export const CatchupSessionScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  tierSelected: 'tierSelected',
+  totalDuration: 'totalDuration',
+  currentBlock: 'currentBlock',
+  startDate: 'startDate',
+  contextDump: 'contextDump',
+  paymentStatus: 'paymentStatus',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type CatchupSessionScalarFieldEnum = (typeof CatchupSessionScalarFieldEnum)[keyof typeof CatchupSessionScalarFieldEnum]
+
+
 export const ManualPaymentScalarFieldEnum = {
   id: 'id',
   userId: 'userId',
@@ -200,6 +217,7 @@ export const PaymentTransactionScalarFieldEnum = {
   provider: 'provider',
   reference: 'reference',
   metadata: 'metadata',
+  status: 'status',
   paidAt: 'paidAt',
   createdAt: 'createdAt'
 } as const

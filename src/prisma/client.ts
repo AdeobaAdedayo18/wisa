@@ -70,6 +70,11 @@ export type ReminderEvent = Prisma.ReminderEventModel
  */
 export type Session = Prisma.SessionModel
 /**
+ * Model CatchupSession
+ * 
+ */
+export type CatchupSession = Prisma.CatchupSessionModel
+/**
  * Model ManualPayment
  * 
  */

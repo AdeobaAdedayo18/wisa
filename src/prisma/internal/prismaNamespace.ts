@@ -390,6 +390,7 @@ export const ModelName = {
   ReminderJob: 'ReminderJob',
   ReminderEvent: 'ReminderEvent',
   Session: 'Session',
+  CatchupSession: 'CatchupSession',
   ManualPayment: 'ManualPayment',
   PaymentTransaction: 'PaymentTransaction',
   ReplayEvent: 'ReplayEvent',
@@ -409,7 +410,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "log" | "subscription" | "reminderJob" | "reminderEvent" | "session" | "manualPayment" | "paymentTransaction" | "replayEvent" | "weeklyQuote"
+    modelProps: "user" | "log" | "subscription" | "reminderJob" | "reminderEvent" | "session" | "catchupSession" | "manualPayment" | "paymentTransaction" | "replayEvent" | "weeklyQuote"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -857,6 +858,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    CatchupSession: {
+      payload: Prisma.$CatchupSessionPayload<ExtArgs>
+      fields: Prisma.CatchupSessionFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.CatchupSessionFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CatchupSessionPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.CatchupSessionFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CatchupSessionPayload>
+        }
+        findFirst: {
+          args: Prisma.CatchupSessionFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CatchupSessionPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.CatchupSessionFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CatchupSessionPayload>
+        }
+        findMany: {
+          args: Prisma.CatchupSessionFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CatchupSessionPayload>[]
+        }
+        create: {
+          args: Prisma.CatchupSessionCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CatchupSessionPayload>
+        }
+        createMany: {
+          args: Prisma.CatchupSessionCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.CatchupSessionCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CatchupSessionPayload>[]
+        }
+        delete: {
+          args: Prisma.CatchupSessionDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CatchupSessionPayload>
+        }
+        update: {
+          args: Prisma.CatchupSessionUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CatchupSessionPayload>
+        }
+        deleteMany: {
+          args: Prisma.CatchupSessionDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.CatchupSessionUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.CatchupSessionUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CatchupSessionPayload>[]
+        }
+        upsert: {
+          args: Prisma.CatchupSessionUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$CatchupSessionPayload>
+        }
+        aggregate: {
+          args: Prisma.CatchupSessionAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateCatchupSession>
+        }
+        groupBy: {
+          args: Prisma.CatchupSessionGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.CatchupSessionGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.CatchupSessionCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.CatchupSessionCountAggregateOutputType> | number
+        }
+      }
+    }
     ManualPayment: {
       payload: Prisma.$ManualPaymentPayload<ExtArgs>
       fields: Prisma.ManualPaymentFieldRefs
@@ -1294,6 +1369,22 @@ export const SessionScalarFieldEnum = {
 export type SessionScalarFieldEnum = (typeof SessionScalarFieldEnum)[keyof typeof SessionScalarFieldEnum]
 
 
+export const CatchupSessionScalarFieldEnum = {
+  id: 'id',
+  userId: 'userId',
+  tierSelected: 'tierSelected',
+  totalDuration: 'totalDuration',
+  currentBlock: 'currentBlock',
+  startDate: 'startDate',
+  contextDump: 'contextDump',
+  paymentStatus: 'paymentStatus',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type CatchupSessionScalarFieldEnum = (typeof CatchupSessionScalarFieldEnum)[keyof typeof CatchupSessionScalarFieldEnum]
+
+
 export const ManualPaymentScalarFieldEnum = {
   id: 'id',
   userId: 'userId',
@@ -1313,6 +1404,7 @@ export const PaymentTransactionScalarFieldEnum = {
   provider: 'provider',
   reference: 'reference',
   metadata: 'metadata',
+  status: 'status',
   paidAt: 'paidAt',
   createdAt: 'createdAt'
 } as const
@@ -1481,6 +1573,48 @@ export type EnumQueryModeFieldRefInput<$PrismaModel> = FieldRefInputType<$Prisma
 
 
 /**
+ * Reference to a field of type 'CatchupTier'
+ */
+export type EnumCatchupTierFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'CatchupTier'>
+    
+
+
+/**
+ * Reference to a field of type 'CatchupTier[]'
+ */
+export type ListEnumCatchupTierFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'CatchupTier[]'>
+    
+
+
+/**
+ * Reference to a field of type 'CatchupPaymentStatus'
+ */
+export type EnumCatchupPaymentStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'CatchupPaymentStatus'>
+    
+
+
+/**
+ * Reference to a field of type 'CatchupPaymentStatus[]'
+ */
+export type ListEnumCatchupPaymentStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'CatchupPaymentStatus[]'>
+    
+
+
+/**
+ * Reference to a field of type 'TransactionStatus'
+ */
+export type EnumTransactionStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'TransactionStatus'>
+    
+
+
+/**
+ * Reference to a field of type 'TransactionStatus[]'
+ */
+export type ListEnumTransactionStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'TransactionStatus[]'>
+    
+
+
+/**
  * Reference to a field of type 'Float'
  */
 export type FloatFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Float'>
@@ -1609,6 +1743,7 @@ export type GlobalOmitConfig = {
   reminderJob?: Prisma.ReminderJobOmit
   reminderEvent?: Prisma.ReminderEventOmit
   session?: Prisma.SessionOmit
+  catchupSession?: Prisma.CatchupSessionOmit
   manualPayment?: Prisma.ManualPaymentOmit
   paymentTransaction?: Prisma.PaymentTransactionOmit
   replayEvent?: Prisma.ReplayEventOmit
