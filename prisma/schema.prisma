@@ -18,6 +18,28 @@ enum GreetingType {
   AFTERNOON
 }
 
+enum CatchupTier {
+  QUICK_FIX
+  FULL_BACKLOG
+  VIP_DEFENSE
+}
+
+enum TimeframeType {
+  WEEKS
+  MONTHS
+}
+
+enum CatchupPaymentStatus {
+  PENDING
+  PAID
+}
+
+enum TransactionStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
 model User {
   id                 Int             @id @default(autoincrement())
   telegramId         BigInt          @unique
@@ -30,6 +52,8 @@ model User {
   timezone           String          @default("Africa/Lagos")
   isPro              Boolean         @default(false) // legacy compatibility flag
   storageUnlocked    Boolean         @default(false)
+  // Meters the free storage allowance, NOT the total number of logs. Rescue Pass
+  // (catch-up) logs are paid for separately and are excluded from this counter.
   logCount           Int             @default(0)
   nextRenewalDate    DateTime?
   freeAiRefinements  Int             @default(5) // 🚀 Bumped to 5
@@ -51,6 +75,7 @@ model User {
   subscription       Subscription?
   manualPayments     ManualPayment[]
   paymentTransactions PaymentTransaction[]
+  catchupSessions    CatchupSession[]
 
   @@index([logFrequency, onboardingDone, botBlocked, lastGreetingSentAt])
   @@index([lastGreetingType])
@@ -67,6 +92,12 @@ model Log {
   isAiRefined    Boolean  @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+
+  // Backstop against concurrent catch-up fulfilment writing the same day twice.
+  // NOTE: this keys on the exact timestamp, not the calendar day — catch-up logs
+  // are normalised to midnight UTC, so it is only a true one-per-day guarantee
+  // for those. Logs saved with a wall-clock time still need the app-level check.
+  @@unique([userId, logDate])
 }
 
 model Subscription {
@@ -85,7 +116,7 @@ model Subscription {
 
 model ReminderJob {
   id             Int       @id @default(autoincrement())
-  cycleId        String    @default(cuid())
+  cycleId        String?   @default(cuid())
   userId         Int
   user           User      @relation(fields: [userId], references: [id])
   telegramId     BigInt
@@ -124,6 +155,22 @@ model Session {
   value String
 }
 
+model CatchupSession {
+  id            String               @id @default(uuid())
+  userId        Int
+  user          User                 @relation(fields: [userId], references: [id])
+  tierSelected  CatchupTier
+  totalDuration  Int
+  currentBlock  Int                  @default(1)
+  startDate     DateTime
+  contextDump   Json?
+  paymentStatus CatchupPaymentStatus @default(PENDING)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  @@index([userId, createdAt])
+}
+
 model ManualPayment {
   id        Int      @id @default(autoincrement())
   userId    Int
@@ -134,18 +181,20 @@ model ManualPayment {
 }
 
 model PaymentTransaction {
-  id        Int      @id @default(autoincrement())
+  id        Int               @id @default(autoincrement())
   userId    Int
-  user      User     @relation(fields: [userId], references: [id])
+  user      User              @relation(fields: [userId], references: [id])
   amount    Int
   currency  String
   provider  String
-  reference String   @unique
+  reference String            @unique
   metadata  Json?
-  paidAt    DateTime
-  createdAt DateTime @default(now())
+  status    TransactionStatus @default(PENDING)
+  paidAt    DateTime? // null until the charge is confirmed
+  createdAt DateTime          @default(now())
 
   @@index([userId, paidAt])
+  @@index([status])
 }
 
 model ReplayEvent {
