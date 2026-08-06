@@ -1,4 +1,5 @@
 import { prisma } from "../../lib/prisma";
+import { TransactionStatus } from "../../prisma/enums";
 import { addUtcDays, endOfUtcDay, startOfUtcDay } from "../utils/date";
 
 function percentChange(current: number, previous: number): number {
@@ -31,12 +32,22 @@ export async function getPayments(): Promise<Record<string, unknown>> {
   const prevWeekStart = addUtcDays(weekStart, -7);
   const prevWeekEnd = endOfUtcDay(addUtcDays(weekStart, -1));
 
-  const transactions = await prisma.paymentTransaction.findMany({
+  // Revenue only counts settled charges — PENDING rows are unpaid invoices
+  // (e.g. a Rescue Pass link the user never completed) and FAILED rows never
+  // brought money in. Both would otherwise inflate MRR.
+  const settledTransactions = await prisma.paymentTransaction.findMany({
+    where: { status: TransactionStatus.SUCCESS },
     orderBy: { paidAt: "desc" },
     include: {
       user: { select: { firstName: true, username: true, createdAt: true } },
     },
   });
+
+  // paidAt is nullable in the schema; a SUCCESS row should always carry one,
+  // but narrow explicitly rather than assert so a bad row can't crash the API.
+  const transactions = settledTransactions.filter(
+    (t): t is (typeof settledTransactions)[number] & { paidAt: Date } => t.paidAt !== null,
+  );
 
   const [totalPaidUsers, churnedUsers] = await Promise.all([
     prisma.user.count({ where: { nextRenewalDate: { not: null } } }),
@@ -107,7 +118,7 @@ export async function getPayments(): Promise<Record<string, unknown>> {
       amount: minorToMajor(t.amount),
       method: t.provider,
       date: t.paidAt.toISOString(),
-      status: "success",
+      status: t.status.toLowerCase(),
       reference: t.reference,
       currency: t.currency,
     })),
