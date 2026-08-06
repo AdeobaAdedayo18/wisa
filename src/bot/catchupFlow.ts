@@ -20,10 +20,24 @@ import { bot } from "./index";
 // leak even if the returned stopper is never called.
 // ----------------------------------------------------------------------------
 
-const LOADING_STEPS = ["Analyzing... ", "Generating your logs... ", "Almost done... "];
+const LOADING_STEPS = [
+  "Warming up... ⚙️",
+  "Analyzing... ",
+  "Mapping missing days... ",
+  "Drafting your logs... ",
+];
 
-export function startLoadingCycler(api: any, chatId: number | string, messageId: number) {
-  let step = 1;
+/**
+ * `fromStep` is the index of the NEXT frame; the caller has already sent
+ * LOADING_STEPS[fromStep - 1] as the message being cycled.
+ */
+export function startLoadingCycler(
+  api: any,
+  chatId: number | string,
+  messageId: number,
+  fromStep = 1,
+) {
+  let step = fromStep;
   const timer = setInterval(() => {
     if (step >= LOADING_STEPS.length) {
       clearInterval(timer);
@@ -476,7 +490,7 @@ function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-type CatchupSessionLike = { id: string; userId: number; tierSelected: CatchupTier };
+type CatchupSessionLike = { id: string; userId: number; tierSelected: CatchupTier; totalDuration: number };
 
 /** How long a pending Paystack link is considered still usable. */
 const PENDING_INVOICE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -567,10 +581,18 @@ async function sendRescuePassInvoice(
     startedAt: ctx.session.catchup?.startedAt ?? Date.now(),
   };
 
+  const unit = getCatchupTierUnit(catchupSession.tierSelected);
+  const coverage = `${catchupSession.totalDuration} ${
+    catchupSession.totalDuration === 1 ? unit.slice(0, -1) : unit
+  }`;
+
   await ctx.reply(
-    `Your Rescue Pass is ₦${priceNaira.toLocaleString("en-NG")} — that unlocks every remaining day of your logbook. 💳\n\n` +
-      `Reference: \`${reference}\`\n\n` +
-      `Once you've paid, tap *I have paid* and I'll start writing immediately.`,
+    `*Rescue Pass Ready* 🚀\n\n` +
+      `🗓️ *Coverage:* ${coverage}\n` +
+      `⚡ *Delivery:* ~90 seconds\n` +
+      `💰 *Price:* ₦${priceNaira.toLocaleString("en-NG")}\n\n` +
+      `Tap below to pay securely via Paystack. I'll start generating the moment it clears! 👇\n\n` +
+      `\`Ref: ${reference}\``,
     {
       parse_mode: "Markdown",
       reply_markup: new InlineKeyboard()
@@ -859,13 +881,12 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
     const rawDump = blockEntries.join("\n\n");
     const courseOfStudy = catchupSession.user.courseOfStudy?.trim() || "IT";
 
-    // Block 1 is the one the user just paid for; later blocks are triggered by
-    // their own brain-dump, so don't re-announce the payment. This one stays on
-    // screen — the cycler gets its own throwaway message below.
-    await notifyCatchupUser(
-      telegramId,
-      blockIndex === 1 ? "Payment confirmed ✅" : `Writing Month ${blockIndex} now...`,
-    );
+    // Block 1 is the one that follows the charge. This is the user's receipt:
+    // sent standalone and deliberately NOT captured as `loadingMsg`, so the
+    // cleanup in `finally` never touches it and it stays in their history.
+    if (blockIndex === 1) {
+      await notifyCatchupUser(telegramId, "Payment successful! 💳✅");
+    }
 
     const loadingMsg = await notifyCatchupUser(telegramId, LOADING_STEPS[0]);
     const stopLoading = loadingMsg
@@ -990,8 +1011,8 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
 
     await notifyCatchupUser(
       telegramId,
-      "All logs generated successfully and saved to your logbook! 🎉",
-      { reply_markup: new InlineKeyboard().text("📅 View calendar", "nav_calendar").text("🏠 Menu", "nav_menu") },
+      "Boom. You're caught up! 🎉\n\nYour missing logs are safely stored.\n\nReady to write today's log?",
+      { reply_markup: new InlineKeyboard().text("📝 Write Today's Log", "nav_write") },
     );
 
     if (catchupSession.tierSelected === CatchupTier.VIP_DEFENSE) {
@@ -1094,8 +1115,11 @@ export async function startCatchupFlow(ctx: BotContext) {
   };
 
   await ctx.reply(
-    "How far behind is this logbook?🚨",
-    { reply_markup: generateCatchupTierKeyboard() }
+    "Got some empty days in your logbook? 🗓️\n\n" +
+      "Don't stress. With a *Rescue Pass*, just tell me a bit about what you've been up to lately, " +
+      "and I'll write all the logs for you.\n\n" +
+      "How much time do you need me to cover?",
+    { parse_mode: "Markdown", reply_markup: generateCatchupTierKeyboard() }
   );
 }
 
@@ -1364,9 +1388,13 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
         }
 
         const cap = getMaxTierDuration(catchupSession.tierSelected);
+        const unit = getCatchupTierUnit(catchupSession.tierSelected);
         const duration = parseInt(text.trim(), 10);
         if (!Number.isFinite(duration) || duration <= 0 || duration > cap) {
-          await ctx.reply(`Please send a valid number between 1 and ${cap}.`);
+          await ctx.reply(
+            `Whoops! This tier only covers up to ${cap} ${unit}.\n\n` +
+              `Reply with a number from 1 to ${cap}, or type /catchup to pick a larger tier. 👇`,
+          );
           return;
         }
 
