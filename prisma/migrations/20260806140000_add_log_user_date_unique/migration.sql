@@ -1,0 +1,26 @@
+-- Backstop against duplicate catch-up logs. The application-level `takenDates`
+-- check is not atomic, so two concurrent fulfilments could both pass it and
+-- both insert. This makes that impossible at the database level.
+--
+-- ⚠️ PRE-FLIGHT REQUIRED. This will FAIL if any duplicate (userId, logDate)
+-- rows already exist. Check first:
+--
+--   SELECT "userId", "logDate", COUNT(*)
+--   FROM "Log"
+--   GROUP BY "userId", "logDate"
+--   HAVING COUNT(*) > 1
+--   ORDER BY COUNT(*) DESC;
+--
+-- If that returns rows, decide what to keep before applying this migration.
+-- The statement below keeps the OLDEST row of each duplicate group and deletes
+-- the rest. It is commented out because it destroys user data — read the
+-- pre-flight output and uncomment it deliberately, or merge the rows by hand.
+--
+-- DELETE FROM "Log" a
+-- USING "Log" b
+-- WHERE a."userId" = b."userId"
+--   AND a."logDate" = b."logDate"
+--   AND a."id" > b."id";
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Log_userId_logDate_key" ON "Log"("userId", "logDate");
