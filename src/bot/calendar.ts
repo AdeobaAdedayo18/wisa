@@ -486,8 +486,11 @@ export async function handleDeleteLogConfirm(ctx: BotContext): Promise<void> {
 
     await prisma.$transaction([
       prisma.log.delete({ where: { id: logId } }),
-      prisma.user.update({
-        where: { id: dbUser.id },
+      // Guarded at zero: Rescue Pass logs never increment logCount, so deleting
+      // one would otherwise push the free-allowance counter negative and hand
+      // the user unlimited free storage.
+      prisma.user.updateMany({
+        where: { id: dbUser.id, logCount: { gt: 0 } },
         data: { logCount: { decrement: 1 } },
       }),
     ]);
