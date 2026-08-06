@@ -1,5 +1,4 @@
 import "dotenv/config";
-import crypto from "crypto";
 import { bot } from "./bot/index";
 import { getMainMenuKeyboard } from "./bot/onboarding";
 import { startScheduler } from "./services/scheduler";
@@ -11,8 +10,25 @@ import { dashboardRouter } from "./dashboard/routes";
 import { flushReplayBuffer, captureReplayError } from "./services/replayCapture";
 import { activateStorageForUser } from "./bot/payments";
 import { resolveUser } from "./services/resolveUser";
-import { collapseToOneSubscription } from "./services/paystack";
+import {
+  collapseToOneSubscription,
+  hasValidPaystackSignature,
+  isRescuePassPayment,
+  readPaystackCustomField,
+} from "./services/paystack";
+import { markRescuePassPaid, resumeCatchupGeneration, sweepAbandonedCatchupBlocks } from "./bot/catchupFlow";
 import { InlineKeyboard } from "grammy";
+
+// Fail fast rather than discovering a bad config one silently-rejected payment at
+// a time: an empty secret hashes fine and 401s every delivery, and a missing one
+// throws inside the handler. Both look like "payments stopped working".
+const REQUIRED_ENV = ["PAYSTACK_WEBHOOK_SECRET", "PAYSTACK_SECRET_KEY", "TELEGRAM_BOT_TOKEN"] as const;
+for (const key of REQUIRED_ENV) {
+  if (!process.env[key]?.trim()) {
+    console.error(`[boot] Missing or empty required env var ${key} — refusing to start.`);
+    process.exit(1);
+  }
+}
 
 const app = express();
 
@@ -27,8 +43,15 @@ function extractSubscriptionCode(payload: any): string | undefined {
 // Paystack webhook endpoint
 app.post("/webhook/paystack", express.raw({ type: "application/json" }), async (req, res) => {
   const rawBody = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : "";
-  let payload: any;
 
+  // Authenticate BEFORE parsing — nothing unverified reaches the parser or the DB.
+  // Paystack signs with your Secret Key: PAYSTACK_WEBHOOK_SECRET must equal PAYSTACK_SECRET_KEY.
+  if (!hasValidPaystackSignature(rawBody, req.headers["x-paystack-signature"])) {
+    console.warn("[webhook] Rejected Paystack delivery — signature missing or invalid.");
+    return res.sendStatus(401);
+  }
+
+  let payload: any;
   try {
     payload = JSON.parse(rawBody);
   } catch {
@@ -36,22 +59,50 @@ app.post("/webhook/paystack", express.raw({ type: "application/json" }), async (
     return res.sendStatus(400);
   }
 
-  const signature = req.headers["x-paystack-signature"] as string | undefined;
-
-  console.log(`[webhook] Paystack event received: ${payload?.event ?? "unknown"} | sig present: ${!!signature}`);
-
-  // Paystack signs with your Secret Key — PAYSTACK_WEBHOOK_SECRET must equal PAYSTACK_SECRET_KEY
-  const hash = crypto
-    .createHmac("sha512", process.env.PAYSTACK_WEBHOOK_SECRET!)
-    .update(rawBody)
-    .digest("hex");
-
-  if (hash !== signature) {
-    console.warn(`[webhook] Signature mismatch. Expected ${hash.slice(0, 16)}…, got ${String(signature).slice(0, 16)}…`);
-    return res.sendStatus(401);
-  }
+  console.log(`[webhook] Paystack event received: ${payload?.event ?? "unknown"}`);
 
   if (payload.event === "charge.success") {
+    // ── SIWES Rescue Pass ────────────────────────────────────────────────────
+    // One-off catch-up purchase — must be handled BEFORE activateStorageForUser
+    // so it never grants a 30-day Pro subscription.
+    if (isRescuePassPayment(payload.data?.metadata)) {
+      const catchupSessionId = readPaystackCustomField(payload.data?.metadata, "catchup_session_id");
+      const rescueRef: string = payload.data?.reference;
+
+      if (!catchupSessionId) {
+        console.warn(`[webhook] rescue_pass charge.success without catchup_session_id (ref=${rescueRef})`);
+        return res.sendStatus(200);
+      }
+
+      try {
+        const paidAt = payload.data?.paid_at ? new Date(payload.data.paid_at) : new Date();
+        const catchupSession = await markRescuePassPaid({
+          catchupSessionId,
+          reference: rescueRef,
+          amount: Number(payload.data?.amount ?? 0),
+          currency: String(payload.data?.currency ?? "NGN"),
+          paidAt,
+          providerMetadata: payload.data?.metadata ?? null,
+        });
+
+        if (!catchupSession) return res.sendStatus(200);
+
+        console.log(`[webhook] rescue_pass paid — session=${catchupSessionId} ref=${rescueRef}`);
+
+        // Generation calls OpenAI and can outlive Paystack's webhook timeout —
+        // acknowledge first, then fulfil in the background. resumeCatchupGeneration
+        // is idempotent (in-flight guard + fulfilledBlocks ledger).
+        res.sendStatus(200);
+        void resumeCatchupGeneration(catchupSessionId).catch((err) => {
+          console.error("[webhook] rescue_pass fulfilment failed:", err);
+        });
+        return;
+      } catch (err) {
+        console.error("[webhook] Error processing rescue_pass charge.success:", err);
+        return res.sendStatus(500);
+      }
+    }
+
     const resolvedUser = await resolveUser(payload);
     if (!resolvedUser) {
       console.warn(
@@ -90,82 +141,14 @@ app.post("/webhook/paystack", express.raw({ type: "application/json" }), async (
 
       console.log(`[webhook] User ${resolvedUser.id} storage unlocked. Renewal set to ${newRenewalDate.toISOString()}`);
 
-      // ✅ FIX #3: NEW — Recover held logs from catch-up session
-      let sessionData: any = null; // 🚀 FIXED: Moved outside the try block so the build passes!
       try {
-        const sessionKey = telegramId.toString();
-        const sessionRow = await prisma.session.findUnique({
-          where: { key: sessionKey },
-          select: { key: true, value: true },
-        });
-
-        if (sessionRow?.value) {
-          try {
-            sessionData = JSON.parse(sessionRow.value);
-          } catch {
-            sessionData = null;
-          }
-
-          // ✅ If there are heldLogs, save them now!
-          if (sessionData?.catchup?.heldLogs && Array.isArray(sessionData.catchup.heldLogs)) {
-            const heldLogs = sessionData.catchup.heldLogs;
-            const dbUser = await prisma.user.findUnique({
-              where: { telegramId },
-              select: { id: true }
-            });
-
-            if (dbUser && heldLogs.length > 0) {
-              const insertData = heldLogs.map((log: any) => ({
-                userId: dbUser.id,
-                content: log.content,
-                isAiRefined: true,
-                isVoice: false,
-                logDate: log.logDate ? new Date(log.logDate) : new Date(),
-              }));
-
-              await prisma.$transaction([
-                prisma.log.createMany({ data: insertData }),
-                prisma.user.update({
-                  where: { id: dbUser.id },
-                  data: { logCount: { increment: heldLogs.length } }
-                })
-              ]);
-
-              // ✅ Clear the held logs from session
-              delete sessionData.catchup.heldLogs;
-              delete sessionData.catchup.savedLogsCount;
-              await prisma.session.update({
-                where: { key: sessionKey },
-                data: { value: JSON.stringify(sessionData) },
-              });
-
-              console.log(`[webhook] Recovered ${heldLogs.length} held logs for user ${dbUser.id}`);
-            }
-          }
-        }
-      } catch (heldErr) {
-        console.error("[webhook] Failed to recover held logs:", heldErr);
-        // Don't fail the payment flow for this
-      }
-
-      const hasHeldLogs = sessionData?.catchup?.heldLogs && Array.isArray(sessionData.catchup.heldLogs) && sessionData.catchup.heldLogs.length > 0;
-
-      try {
-        if (hasHeldLogs) {
-          await bot.api.sendMessage(
-            Number(telegramId),
-            `🎉 *Payment successful!* All your pending logs have been unlocked and instantly added to your logbook!`,
-            { parse_mode: "Markdown" },
-          );
-        } else {
-          await bot.api.sendMessage(
-            Number(telegramId),
-            `🎉 *Storage unlocked!*\n\n` +
-              `You're all set for the next 30 days 🔓\n\n` +
-              `You now have unlimited log storage, unlimited voice logs, and unlimited AI refinements.`,
-            { parse_mode: "Markdown" },
-          );
-        }
+        await bot.api.sendMessage(
+          Number(telegramId),
+          `🎉 *Storage unlocked!*\n\n` +
+            `You're all set for the next 30 days 🔓\n\n` +
+            `You now have unlimited log storage, unlimited voice logs, and unlimited AI refinements.`,
+          { parse_mode: "Markdown" },
+        );
       } catch (notifyErr) {
         console.error("[webhook] Failed to send unlock notification:", notifyErr);
       }
@@ -426,6 +409,11 @@ process.on("SIGINT", async () => {
 
 async function main() {
   await prisma.$connect();
+
+  // Recover any block whose worker was killed mid-generation on the last run.
+  // Fire-and-forget: a paid session must not block the bot from coming up.
+  void sweepAbandonedCatchupBlocks();
+
   startScheduler(bot);
   startUserActivity(bot);
   bot.start();
