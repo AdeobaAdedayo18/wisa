@@ -1,7 +1,7 @@
 import { Bot, InlineKeyboard, session } from "grammy";
 import { replayMiddleware, replayTransformer, captureReplayError } from "../services/replayCapture";
 import { conversations, createConversation } from "@grammyjs/conversations";
-import { PrismaAdapter } from "@grammyjs/storage-prisma";
+import { createSessionStorage } from "./sessionStorage";
 import { prisma } from "../lib/prisma";
 import { parseISO, differenceInDays } from "date-fns";
 import { localTimeToUtc } from "../utils/dateHelpers";
@@ -79,10 +79,12 @@ bot.use(replayMiddleware());
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 bot.api.config.use(replayTransformer as any);
 
-// Session middleware backed by Prisma/PostgreSQL
+// Session middleware backed by Prisma/PostgreSQL.
+// The storage adapter merges out-of-band catch-up patches on write-back — see
+// ./sessionStorage — so webhook fulfilment is not clobbered by in-flight updates.
 bot.use(session({
   initial: (): SessionData => ({ awaitingLog: false, pendingLogParts: [] }),
-  storage: new PrismaAdapter<SessionData>(prisma.session),
+  storage: createSessionStorage(),
 }));
 bot.use(conversations());
 
