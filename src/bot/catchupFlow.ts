@@ -12,6 +12,7 @@ import { patchStoredSessionCatchup, readStoredSession } from "./sessionStorage";
 import {
   getCatchupTierPrice,
   getCatchupTierUnit,
+  getCatchupTotalBlocks,
   getMaxTierDuration,
   CATCHUP_BLOCK_CLAIM_LEASE_MS,
 } from "../services/catchupTiers";
@@ -24,8 +25,8 @@ import { bot } from "./index";
 // ----------------------------------------------------------------------------
 // LOADING STATES
 // One message that walks through the steps below every 5s, so a long generation
-// never looks frozen. The timer clears itself at the final step, so it cannot
-// leak even if the returned stopper is never called.
+// never looks frozen. It runs until the caller's `finally` stops it, backed by
+// an absolute time cap so a missed stopper cannot spin forever.
 // ----------------------------------------------------------------------------
 
 const LOADING_STEPS = [
@@ -36,8 +37,25 @@ const LOADING_STEPS = [
 ];
 
 /**
+ * Absolute backstop. The cycler no longer self-clears at the last frame, so a
+ * caller that never invoked its stopper would edit a message and fire a typing
+ * action every 5s forever. Set beyond the worst-case generation (~30 min) so it
+ * can only ever trip on a genuine leak, never during real work.
+ */
+const LOADING_CYCLER_MAX_MS = 40 * 60 * 1000;
+
+/**
  * `fromStep` is the index of the NEXT frame; the caller has already sent
  * LOADING_STEPS[fromStep - 1] as the message being cycled.
+ *
+ * Cycles for as long as generation runs. It used to stop after the final frame,
+ * which froze the message ~20s in while OpenAI kept working for minutes — the
+ * user was left staring at a dead "Drafting your logs..." on a purchase they had
+ * just made. The typing action is what actually reads as "alive" in Telegram;
+ * the text rotation is secondary.
+ *
+ * CALLERS MUST invoke the returned stopper in a `finally`. There is no self-clear
+ * any more, only the leak backstop above.
  */
 export function startLoadingCycler(
   api: any,
@@ -45,18 +63,37 @@ export function startLoadingCycler(
   messageId: number,
   fromStep = 1,
 ) {
+  const startedAt = Date.now();
   let step = fromStep;
+
+  /** Telegram shows "typing..." for ~5s, which is exactly the tick interval. */
+  const showTyping = () => {
+    try {
+      void Promise.resolve(api.sendChatAction(chatId, "typing")).catch(() => {});
+    } catch {
+      // best-effort only; never let this escape the timer callback
+    }
+  };
+
+  showTyping(); // don't make the user wait 5s for the first sign of life
+
   const timer = setInterval(() => {
-    if (step >= LOADING_STEPS.length) {
+    if (Date.now() - startedAt > LOADING_CYCLER_MAX_MS) {
       clearInterval(timer);
       return;
     }
 
-    const current = step++;
+    showTyping();
+
+    const current = step;
+    // Wrap to 1, not 0. Re-showing "Warming up..." three minutes into a
+    // generation reads as a crash-and-restart; every later frame stays honest.
+    step = step + 1 >= LOADING_STEPS.length ? 1 : step + 1;
+
     try {
       // Promise.resolve guards a non-thenable return; the try/catch guards a
       // synchronous throw. Either would escape the timer callback as an
-      // uncaughtException and leave this interval running until its self-clear.
+      // uncaughtException and leave this interval running until the backstop.
       void Promise.resolve(api.editMessageText(chatId, messageId, LOADING_STEPS[current]))
         .catch(() => {});
     } catch {
@@ -140,6 +177,51 @@ function generateCatchupTierKeyboard(): InlineKeyboard {
 
 /** Tiers a user is allowed to newly select. Retired tiers stay out of this list. */
 const SELECTABLE_CATCHUP_TIERS = ["QUICK_FIX", "FULL_BACKLOG"] as const;
+
+// ----------------------------------------------------------------------------
+// WORKPLACE ROLE VALIDATION
+// `workplaceRole` is the single strongest signal the generator has. A greeting
+// saved into it silently degrades every future log, so both capture points run
+// the same check rather than trusting a bare length test.
+// ----------------------------------------------------------------------------
+
+const CONVERSATIONAL_REPLIES = new Set([
+  "hi", "hii", "hiii", "hey", "heyy", "hello", "helo", "hallo", "yo", "hola",
+  "ok", "okay", "okk", "oky", "kk", "yes", "yeah", "yep", "no", "nope", "nah",
+  "help", "thanks", "thank you", "thankyou", "tanks", "thx", "ty",
+  "please", "pls", "abeg", "sure", "fine", "good", "great", "nice", "cool",
+  "hmm", "hmmm", "start", "menu", "cancel", "done", "test", "testing",
+  "morning", "good morning", "good afternoon", "good evening", "how are you",
+]);
+
+/**
+ * Rejects greetings and filler so they never reach `User.workplaceRole`.
+ * Exported because index.ts captures the same field on the AI-refine path.
+ */
+export function isPlausibleWorkplaceRole(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length < 4) return false;
+
+  const normalized = trimmed
+    .toLowerCase()
+    .replace(/[^a-z\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!normalized) return false;
+  return !CONVERSATIONAL_REPLIES.has(normalized);
+}
+
+/** The exact rejection shown at every workplace-role capture point. */
+export const INVALID_ROLE_REPLY =
+  "That doesn't look like a job role 😅 Please reply with your actual position so I can write accurate logs for you.";
+
+/**
+ * Shown when a block completed but wrote nothing, because every date in its
+ * range already had a log. Used INSTEAD of any "all done" claim.
+ */
+const ZERO_NEW_LOGS_MESSAGE =
+  "It looks like you already have logs saved for all these dates! 😅 No new logs were added.";
 
 /**
  * Durations offered per tier, so the user taps instead of typing a number.
@@ -560,6 +642,73 @@ async function findReusablePendingInvoice(
   return { authorization_url: storedUrl, reference: existingPending.reference };
 }
 
+type RescuePassInvoice = { authorization_url: string; reference: string };
+
+/**
+ * De-duplicates concurrent invoice minting, keyed by catch-up session.
+ *
+ * `findReusablePendingInvoice` is a read-then-write with no lock: two taps on
+ * "Approve and continue" landing together both read "no pending invoice" and both
+ * called Paystack, producing two live links with different references. Nothing
+ * downstream reconciles that, so the user could pay twice. Both callers now await
+ * the same promise and receive the same link.
+ *
+ * In-process only, which covers this deployment (one Node process serves both the
+ * bot and the webhook). A second instance would need a DB-level unique index on
+ * the pending (session, status) pair.
+ */
+const inFlightRescueInvoices = new Map<string, Promise<RescuePassInvoice>>();
+
+async function getOrCreateRescuePassInvoice(
+  catchupSession: CatchupSessionLike,
+  email: string,
+): Promise<RescuePassInvoice & { deduped: boolean }> {
+  const pending = inFlightRescueInvoices.get(catchupSession.id);
+  if (pending) {
+    console.log(`[catchup] Joining in-flight invoice creation for session ${catchupSession.id}`);
+    return { ...(await pending), deduped: true };
+  }
+
+  const amountKobo = getCatchupTierPrice(catchupSession.tierSelected) * 100;
+
+  const work = (async (): Promise<RescuePassInvoice> => {
+    const reusable = await findReusablePendingInvoice(catchupSession);
+    if (reusable) {
+      console.log(`[catchup] Reusing pending Rescue Pass invoice ${reusable.reference} for session ${catchupSession.id}`);
+      return reusable;
+    }
+
+    const created = await initializeCatchupPassTransaction(email, amountKobo, catchupSession.id);
+
+    await prisma.paymentTransaction.create({
+      data: {
+        userId: catchupSession.userId,
+        amount: amountKobo,
+        currency: "NGN",
+        provider: "paystack",
+        reference: created.reference,
+        metadata: {
+          payment_type: RESCUE_PASS_PAYMENT_TYPE,
+          catchup_session_id: catchupSession.id,
+          tier: catchupSession.tierSelected,
+          // Needed to re-send this exact link instead of minting another charge.
+          authorization_url: created.authorization_url,
+        },
+        // status defaults to PENDING; paidAt stays null until the charge lands.
+      },
+    });
+
+    return created;
+  })();
+
+  inFlightRescueInvoices.set(catchupSession.id, work);
+  try {
+    return { ...(await work), deduped: false };
+  } finally {
+    inFlightRescueInvoices.delete(catchupSession.id);
+  }
+}
+
 /**
  * Generates the Paystack link for the Rescue Pass, records the pending
  * PaymentTransaction, and sends the invoice with the manual-check button.
@@ -571,42 +720,25 @@ async function sendRescuePassInvoice(
   email: string,
 ): Promise<void> {
   const priceNaira = getCatchupTierPrice(catchupSession.tierSelected);
-  const amountKobo = priceNaira * 100;
 
-  const reusable = await findReusablePendingInvoice(catchupSession);
-  let authorization_url: string;
-  let reference: string;
-
-  if (reusable) {
-    ({ authorization_url, reference } = reusable);
-    console.log(`[catchup] Reusing pending Rescue Pass invoice ${reference} for session ${catchupSession.id}`);
-  } else {
-    ({ authorization_url, reference } = await initializeCatchupPassTransaction(
-      email,
-      amountKobo,
-      catchupSession.id,
-    ));
-
-    await prisma.paymentTransaction.create({
-      data: {
-        userId: catchupSession.userId,
-        amount: amountKobo,
-        currency: "NGN",
-        provider: "paystack",
-        reference,
-        metadata: {
-          payment_type: RESCUE_PASS_PAYMENT_TYPE,
-          catchup_session_id: catchupSession.id,
-          tier: catchupSession.tierSelected,
-          // Needed to re-send this exact link instead of minting another charge.
-          authorization_url,
-        },
-        // status defaults to PENDING; paidAt stays null until the charge lands.
-      },
-    });
-  }
+  const { authorization_url, reference, deduped } = await getOrCreateRescuePassInvoice(
+    catchupSession,
+    email,
+  );
 
   ctx.session.pendingPaystackRef = reference;
+
+  // The tap we raced with is already sending this exact invoice. Keep the state
+  // write above (same reference), but do not post a duplicate message.
+  if (deduped) {
+    ctx.session.catchup = {
+      active: true,
+      step: 'awaiting_payment',
+      startedAt: ctx.session.catchup?.startedAt ?? Date.now(),
+    };
+    return;
+  }
+
   ctx.session.catchup = {
     active: true,
     step: 'awaiting_payment',
@@ -794,10 +926,16 @@ async function reclaimAbandonedBlock(session: {
  */
 export async function sweepAbandonedCatchupBlocks(): Promise<void> {
   try {
+    // `gte: 1`, NOT `gt: 1`. The claim increments currentBlock, so a process that
+    // died between markRescuePassPaid and the claim leaves the session paid at
+    // block 1 — which `gt: 1` excluded, stranding that user permanently with no
+    // Paystack retry (the webhook already 200'd). Sessions that finished cleanly
+    // are still cheap to include: currentBlock has advanced past totalBlocks, so
+    // resumeCatchupGeneration's guards return immediately.
     const stale = await prisma.catchupSession.findMany({
       where: {
         paymentStatus: CatchupPaymentStatus.PAID,
-        currentBlock: { gt: 1 },
+        currentBlock: { gte: 1 },
         updatedAt: { lt: new Date(Date.now() - BLOCK_CLAIM_LEASE_MS) },
       },
       select: { id: true },
@@ -914,6 +1052,20 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
     const rawDump = blockEntries.join("\n\n");
     const workplaceRole = catchupSession.user.workplaceRole?.trim() || "IT";
 
+    // Nothing to write from. Now reachable because the sweep covers block 1, and
+    // generating from an empty dump would invent a month out of thin air. Release
+    // the claim and leave it: /catchup resumes paid sessions and will ask for the
+    // dump. Deliberately silent, since the sweep runs on every boot.
+    if (!rawDump.trim() && previewLogs.length === 0) {
+      console.warn(`[catchup] Block ${blockIndex} of session ${sessionId} has no source text — releasing claim.`);
+      await prisma.catchupSession.updateMany({
+        where: { id: sessionId, currentBlock: blockIndex + 1 },
+        data: { currentBlock: blockIndex },
+      });
+      claimedBlock = null;
+      return;
+    }
+
     // Block 1 is the one that follows the charge. This is the user's receipt:
     // sent standalone and deliberately NOT captured as `loadingMsg`, so the
     // cleanup in `finally` never touches it and it stays in their history.
@@ -929,6 +1081,13 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
     let savedCount = 0;
     let isFinalBlock: boolean;
     let nextBlock: number;
+    /**
+     * The model returned nothing at all — a failure, NOT "those dates were
+     * already taken". The two both end at savedCount === 0 but are opposite
+     * situations: this one means we charged for a month we never wrote, so the
+     * block must not be marked fulfilled.
+     */
+    let generationEmpty = false;
 
     try {
       const generated = daysToGenerate > 0
@@ -988,6 +1147,8 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
       isFinalBlock = blockIndex >= totalBlocks;
       nextBlock = isFinalBlock ? blockIndex : blockIndex + 1;
 
+      generationEmpty = blockLogs.length === 0;
+
       // Logs and the fulfilment ledger commit together — a crash between them
       // used to leave the block written but unmarked, so a retry regenerated it
       // and reported "0 days saved".
@@ -996,7 +1157,7 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
       // storage allowance, and these logs were paid for by the Rescue Pass —
       // charging them against the free ceiling locked users out of ordinary
       // logging the moment their catch-up landed.
-      savedCount = await prisma.$transaction(async (tx) => {
+      savedCount = generationEmpty ? 0 : await prisma.$transaction(async (tx) => {
         let created = 0;
 
         if (insertData.length > 0) {
@@ -1026,7 +1187,33 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
       }
     }
 
+    // The model gave us nothing to write. The block is deliberately NOT marked
+    // fulfilled and the claim goes back, so the user keeps what they paid for and
+    // the block can be retried once they add detail. Treated exactly like a
+    // thrown generation error, because that is what it is.
+    if (generationEmpty) {
+      console.error(`[catchup] Block ${blockIndex} of session ${sessionId} generated 0 logs — not marking fulfilled.`);
+
+      await prisma.catchupSession.updateMany({
+        where: { id: sessionId, currentBlock: blockIndex + 1 },
+        data: { currentBlock: blockIndex },
+      });
+      claimedBlock = null;
+
+      await applyState({ active: true, step: 'awaiting_block_dump', startedAt: Date.now() });
+      await notifyCatchupUser(
+        telegramId,
+        "Your payment went through, but I hit a snag writing those logs 😔\n\nNothing is lost. Send me a message and I'll pick it right back up.",
+      );
+      return;
+    }
+
     console.log(`[catchup] Session ${sessionId} — block ${blockIndex}/${totalBlocks} fulfilled (${savedCount} logs saved)`);
+
+    // Logs were generated, but every date already had one. The block IS done —
+    // there is genuinely nothing left to write for it — so it stays fulfilled and
+    // we say so plainly instead of claiming "All 0 days have been saved".
+    const nothingNewSaved = savedCount === 0;
 
     if (!isFinalBlock) {
       // The block is written and committed, so the text that produced it is spent.
@@ -1041,11 +1228,15 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
       });
 
       const monthStart = new Date(catchupSession.startDate);
+      const blockSummary = nothingNewSaved
+        ? ZERO_NEW_LOGS_MESSAGE
+        : `*${getBlockMonthName(monthStart, blockIndex)}* is complete!\n\n` +
+          `All ${savedCount} ${savedCount === 1 ? 'day has' : 'days have'} been safely saved to your calendar. ` +
+          `You can view or copy them anytime.`;
+
       await notifyCatchupUser(
         telegramId,
-        `*${getBlockMonthName(monthStart, blockIndex)}* is complete!\n\n` +
-          `All ${savedCount} ${savedCount === 1 ? 'day has' : 'days have'} been safely saved to your calendar. ` +
-          `You can view or copy them anytime.\n\n` +
+        `${blockSummary}\n\n` +
           `Now, let's keep the momentum going. Tell me what you did for *${getBlockMonthName(monthStart, nextBlock)}*...\n\n` +
           `(Feel free to use a voice note)`,
         { parse_mode: "Markdown" },
@@ -1055,12 +1246,22 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
 
     await applyState({ active: false, step: 'none', startedAt: undefined }, { clearSessionId: true });
 
+    // Never claim the backlog is filled out when we added nothing to it.
+    if (nothingNewSaved) {
+      await notifyCatchupUser(
+        telegramId,
+        ZERO_NEW_LOGS_MESSAGE,
+        { reply_markup: new InlineKeyboard().text("View my logs", "nav_logs") },
+      );
+    }
+
     // Fast-track users get the reminder bridge INSTEAD of the standard sign-off,
     // not after it — that message opens with its own "caught up" line, and its
-    // "Write Today's Log" button would compete with the time picker.
+    // "Write Today's Log" button would compete with the time picker. They still
+    // get it when nothing was saved: the reminder setup is their onboarding.
     if (await isFastTrackUser(telegramId, ctx)) {
       await promptFastTrackReminderSetup(telegramId);
-    } else {
+    } else if (!nothingNewSaved) {
       await notifyCatchupUser(
         telegramId,
         "All done! Your backlog is completely filled out.",
@@ -1164,8 +1365,13 @@ export async function promptFastTrackReminderSetup(telegramId: bigint): Promise<
   );
 }
 
-/** Sends the persistent main menu, ending the fast track on the standard state. */
-async function sendMainMenuAfterFastTrack(ctx: BotContext, text: string): Promise<void> {
+/**
+ * Sends a message together with the persistent main menu keyboard.
+ *
+ * Doubles as the way out of the funnel: deep-link users never received this
+ * keyboard during onboarding, so this is the first point at which they get one.
+ */
+async function sendMainMenuWithMessage(ctx: BotContext, text: string): Promise<void> {
   const user = await prisma.user.findUnique({
     where: { telegramId: BigInt(ctx.from!.id) },
     select: { id: true, firstName: true, isPro: true, storageUnlocked: true, logCount: true, nextRenewalDate: true },
@@ -1188,7 +1394,7 @@ export async function handleFastTrackReminderCallback(ctx: BotContext): Promise<
   clearActiveFlow(ctx.session);
 
   if (data === FAST_TRACK_SKIP_DATA) {
-    await sendMainMenuAfterFastTrack(
+    await sendMainMenuWithMessage(
       ctx,
       "No worries! You can always set one up later in the menu. Welcome to Wisa.",
     );
@@ -1211,10 +1417,10 @@ export async function handleFastTrackReminderCallback(ctx: BotContext): Promise<
     });
     await createInitialReminderJobs(user.id, telegramId, user.logFrequency, reminderTime, user.timezone);
 
-    await sendMainMenuAfterFastTrack(ctx, `Done! I'll ping you daily at ${reminderTime}. Welcome to Wisa.`);
+    await sendMainMenuWithMessage(ctx, `Done! I'll ping you daily at ${reminderTime}. Welcome to Wisa.`);
   } catch (err) {
     console.error(`[catchup] Fast-track reminder setup failed for ${telegramId}:`, err);
-    await sendMainMenuAfterFastTrack(
+    await sendMainMenuWithMessage(
       ctx,
       "I couldn't save that reminder time 😔 Your logs are safe. You can set one up any time from Settings.",
     );
@@ -1267,9 +1473,75 @@ export function nthWorkingDayFrom(startDate: Date, n: number): Date {
 // ----------------------------------------------------------------------------
 // START UP FLOW
 // ----------------------------------------------------------------------------
-export async function startCatchupFlow(ctx: BotContext) {
-  clearActiveFlow(ctx.session);
+/** True once the session's final block has been fulfilled. */
+function isCatchupSessionComplete(session: {
+  tierSelected: CatchupTier;
+  totalDuration: number;
+  contextDump: unknown;
+}): boolean {
+  const totalBlocks = getCatchupTotalBlocks(session.tierSelected, session.totalDuration);
+  return readContextPayload(session.contextDump).fulfilledBlocks.some((block) => block >= totalBlocks);
+}
 
+/**
+ * Finds a session the user has already paid for but not finished.
+ *
+ * Multi-month tiers need one brain dump per month, which almost never happens
+ * inside a single 2-hour window. Before this, the expiry cleared the flow and
+ * `/catchup` only ever reused a PENDING row, so the paid session became
+ * unreachable and the user was quoted a second invoice.
+ */
+async function findIncompletePaidSession(userId: number) {
+  const paidSessions = await prisma.catchupSession.findMany({
+    where: { userId, paymentStatus: CatchupPaymentStatus.PAID },
+    orderBy: { createdAt: "desc" },
+    take: 5,
+  });
+
+  return paidSessions.find((session) => !isCatchupSessionComplete(session)) ?? null;
+}
+
+/**
+ * Puts the user back into a paid session: generates straight away if the block
+ * already has its dump, otherwise asks for the one that is missing.
+ */
+async function resumePaidCatchupSession(
+  ctx: BotContext,
+  session: Awaited<ReturnType<typeof findIncompletePaidSession>>,
+): Promise<void> {
+  if (!session) return;
+
+  const blockIndex = Math.max(1, session.currentBlock);
+  const payload = readContextPayload(session.contextDump);
+  const hasDumpForBlock = Boolean(
+    payload.blocks.find((block) => block.block === blockIndex)?.entries.length,
+  );
+
+  ctx.session.catchupSessionId = session.id;
+  ctx.session.catchup = {
+    active: true,
+    step: hasDumpForBlock ? 'generating' : 'awaiting_block_dump',
+    startedAt: Date.now(),
+  };
+
+  await ctx.reply("You've already paid for this rescue, picking up right where we left off.");
+
+  if (hasDumpForBlock) {
+    await resumeCatchupGeneration(session.id, ctx);
+    return;
+  }
+
+  const monthStart = new Date(session.startDate);
+  await ctx.reply(
+    `Tell me what you did for *${getBlockMonthName(monthStart, blockIndex)}*...\n\n` +
+      `(Feel free to use a voice note)`,
+    { parse_mode: "Markdown" },
+  );
+}
+
+/** The tier keyboard. Extracted so the deep-link funnel can reach it after the
+ *  role question without the copy being duplicated. */
+async function sendCatchupTierPrompt(ctx: BotContext): Promise<void> {
   ctx.session.catchup = {
     active: true,
     step: 'awaiting_tier_selection',
@@ -1277,12 +1549,44 @@ export async function startCatchupFlow(ctx: BotContext) {
   };
 
   await ctx.reply(
-    "Got some empty days in your logbook?\n\n" +
-      "Don't stress. With a *Rescue Pass*, just tell me a bit about what you've been up to lately, " +
-      "and I'll write all the logs for you.\n\n" +
-      "How much time do you need me to cover?",
+    "Got some empty days in your logbook? No worries. Just tell me a bit about what you've been doing at work lately, and I'll handle writing the actual logs for you. How many weeks or months are you missing?",
     { parse_mode: "Markdown", reply_markup: generateCatchupTierKeyboard() }
   );
+}
+
+export async function startCatchupFlow(ctx: BotContext) {
+  clearActiveFlow(ctx.session);
+
+  // A paid, unfinished session outranks starting a new one — otherwise the user
+  // is sold a second Rescue Pass for months they already own.
+  const dbUser = await prisma.user.findUnique({
+    where: { telegramId: BigInt(ctx.from!.id) },
+    select: { id: true, workplaceRole: true },
+  });
+
+  if (dbUser) {
+    const outstanding = await findIncompletePaidSession(dbUser.id);
+    if (outstanding) return resumePaidCatchupSession(ctx, outstanding);
+
+    // Deep-link arrivals land here with no role on file. Ask BEFORE the tiers so
+    // the broadcast funnel never shows a price to someone whose logs we cannot
+    // write accurately, and so the role is on file for the very first block.
+    if (!dbUser.workplaceRole?.trim()) {
+      // Signals "asked pre-tier" to the awaiting_course handler: a mid-flow
+      // interceptor always runs with a live session id, this path never does.
+      ctx.session.catchupSessionId = undefined;
+      ctx.session.catchup = {
+        active: true,
+        step: 'awaiting_course',
+        startedAt: Date.now(),
+      };
+
+      await ctx.reply("Before we write this, what exactly is your job role and department at your IT placement?");
+      return;
+    }
+  }
+
+  await sendCatchupTierPrompt(ctx);
 }
 
 /**
@@ -1315,7 +1619,30 @@ async function applyCatchupDuration(
 // ----------------------------------------------------------------------------
 // CALLBACK HANDLER (Handles Calendar Taps)
 // ----------------------------------------------------------------------------
+/**
+ * Error boundary for every catch-up callback.
+ *
+ * Without this, a Prisma or Telegram failure mid-handler escaped to bot.catch
+ * with the callback query still unanswered, so the button span until Telegram
+ * timed it out and the user was told nothing.
+ */
 export async function handleCatchupCallback(ctx: BotContext) {
+  try {
+    await routeCatchupCallback(ctx);
+  } catch (err) {
+    console.error("[catchup] Callback handler failed:", err);
+    // Best-effort: answering twice throws, so swallow. The reply is what the
+    // user actually sees either way.
+    await ctx.answerCallbackQuery().catch(() => {});
+    await ctx
+      .reply(
+        "Something went wrong on our end 😔\n\nYour dates and notes are still saved. Type /catchup to try again. You won't have to start over.",
+      )
+      .catch(() => {});
+  }
+}
+
+async function routeCatchupCallback(ctx: BotContext) {
   const data = ctx.callbackQuery?.data;
   if (!data) return;
   const state = ctx.session.catchup;
@@ -1337,6 +1664,10 @@ export async function handleCatchupCallback(ctx: BotContext) {
     }
 
     const tierSelected = CatchupTier[tier as keyof typeof CatchupTier];
+
+    // Answered BEFORE the writes below. Everything past this point can fail, and
+    // a spinning button with no explanation is worse than an error message.
+    await ctx.answerCallbackQuery();
 
     // Reuse the open session rather than creating one per tap — tapping through
     // the tier keyboard used to leave a trail of half-built PENDING rows, and
@@ -1378,7 +1709,6 @@ export async function handleCatchupCallback(ctx: BotContext) {
       `Got it. How many ${unit} are you missing?`,
       { reply_markup: generateCatchupDurationKeyboard(tierSelected) },
     ).catch(() => {});
-    await ctx.answerCallbackQuery();
     return;
   }
 
@@ -1402,8 +1732,9 @@ export async function handleCatchupCallback(ctx: BotContext) {
       return;
     }
 
-    await applyCatchupDuration(ctx, catchupSession.id, duration, state.startedAt);
+    // Answered before the write, for the same reason as the tier handler above.
     await ctx.answerCallbackQuery();
+    await applyCatchupDuration(ctx, catchupSession.id, duration, state.startedAt);
     return;
   }
 
@@ -1432,6 +1763,18 @@ export async function handleCatchupCallback(ctx: BotContext) {
       "Tell me more about what you were doing during the rest of that period. Rough notes are fine."
     );
     await ctx.answerCallbackQuery();
+    return;
+  }
+
+  // The way out of the funnel, from the tier keyboard or the week-1 paywall.
+  // Handled ABOVE the `state.active` guard on purpose: a stale keyboard left in
+  // the chat must still be able to close the flow rather than report an error.
+  if (data === "catchup_exit") {
+    clearActiveFlow(ctx.session);
+    await ctx.answerCallbackQuery();
+    // Retire the keyboard so the paywall cannot be re-tapped from history.
+    await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+    await sendMainMenuWithMessage(ctx, "No problem! You can always catch up later.");
     return;
   }
 
@@ -1577,11 +1920,24 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
 
   const CATCHUP_TIMEOUT_MS = 2 * 60 * 60 * 1000;
   if (state.startedAt && Date.now() - state.startedAt > CATCHUP_TIMEOUT_MS) {
-    clearActiveFlow(ctx.session);
-    await ctx.reply(
-      "Your catch-up session expired after 2 hours of inactivity. Type /catchup to start a new one."
-    );
-    return;
+    // Never expire work the user has already paid for. A six-month backlog is
+    // one dump per month; expiring it stranded the paid session and quoted them
+    // a second invoice. Unpaid sessions still time out exactly as before.
+    const openSession = await getCatchupSessionForCurrentUser(ctx);
+    const paidWorkOutstanding =
+      openSession?.paymentStatus === CatchupPaymentStatus.PAID && !isCatchupSessionComplete(openSession);
+
+    if (!paidWorkOutstanding) {
+      clearActiveFlow(ctx.session);
+      await ctx.reply(
+        "Your catch-up session expired after 2 hours of inactivity. Type /catchup to start a new one."
+      );
+      return;
+    }
+
+    // Roll the window forward so the next gap is measured from now.
+    state.startedAt = Date.now();
+    ctx.session.catchup = state;
   }
 
   if (text.toLowerCase() === 'cancel' || text === '/cancel') {
@@ -1637,14 +1993,11 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
         return;
       }
 
+      // The preview has already been sent by the time the user can type here.
+      // Re-running it billed another OpenAI call and posted a second set of five
+      // logs plus a duplicate paywall, so stray text only gets a nudge now.
       case 'ready_for_week_1_generation': {
-        await sendWeekOneBait(ctx);
-
-        ctx.session.catchup = {
-          active: true,
-          step: 'ready_for_week_1_generation',
-          startedAt: state.startedAt ?? Date.now(),
-        };
+        await ctx.reply("Please tap 'Approve and continue' or 'Tweak' below to proceed!");
         return;
       }
 
@@ -1683,13 +2036,13 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
       }
 
       // Captures the user's workplace ROLE, not an academic course. It is stored
-      // on `User.workplaceRole` so no migration is needed — the field name is
-      // legacy; the value it now carries for catch-up is a job role.
+      // on `User.workplaceRole`; the column name is legacy.
       case 'awaiting_course': {
         const roleText = text.trim();
 
-        if (roleText.length < 2) {
-          await ctx.reply("Please enter a valid job role!");
+        // Stays on this step so a greeting cannot become their job role.
+        if (!isPlausibleWorkplaceRole(roleText)) {
+          await ctx.reply(INVALID_ROLE_REPLY);
           return;
         }
 
@@ -1702,6 +2055,14 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
           where: { telegramId },
           data: { workplaceRole: roleText },
         });
+
+        // Asked BEFORE the tiers (deep-link funnel): there is no session yet, so
+        // hand them straight to the tier keyboard rather than a dump prompt for
+        // a period they have not chosen.
+        if (!ctx.session.catchupSessionId) {
+          await sendCatchupTierPrompt(ctx);
+          return;
+        }
 
         ctx.session.catchup = {
           active: true,
@@ -1740,9 +2101,12 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
       case 'awaiting_end_date':
       case 'awaiting_tier_selection':
       case 'awaiting_anchor_date': {
-        // ✅ SILENT DELETION: Instead of nagging, silently delete stray text to keep chat clean
-        await ctx.deleteMessage().catch(() => {});
-        break;
+        // Was a silent delete. Bots CAN delete incoming messages in private
+        // chats, so the user watched their own text vanish and got no reply —
+        // and at the tier step they have no other exit. Nudge instead, and keep
+        // the state active so they are not booted out of the flow.
+        await ctx.reply("Please tap one of the buttons above, or type /cancel to exit.");
+        return;
       }
 
       // Escape hatch: any step with no handler (e.g. 'generating' after a failed
