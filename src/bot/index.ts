@@ -71,7 +71,9 @@ import {
   handleCatchupFlow,
   handleCatchupCallback,
   handleFastTrackReminderCallback,
+  isPlausibleWorkplaceRole,
   FAST_TRACK_REMINDER_PATTERN,
+  INVALID_ROLE_REPLY,
 } from "./catchupFlow";
 
 export type { SessionData, BotContext };
@@ -281,6 +283,16 @@ bot.on("message:text", async (ctx, next) => {
   // the keyword to be the ENTIRE content — prevents "go pro" from matching inside a sentence.
   const mainMenuPattern = /^[^a-zA-Z0-9]*(write today.?s log|see my logs|leave feedback|ai refine|go pro|settings|catch up missed days)[^a-zA-Z0-9]*$/i;
   
+  // Any command aborts a pending job-role capture. Registered commands (/start,
+  // /menu, /cancel, /catchup) are handled before this middleware and clear the
+  // flow via clearActiveFlow; this covers unregistered ones and typos, so an
+  // abandoned prompt can never save command text as someone's workplaceRole.
+  if (text.startsWith("/") && (ctx.session.awaitingCourse || ctx.session.draftLogForCourse)) {
+    ctx.session.awaitingCourse = false;
+    ctx.session.awaitingCourseForVoice = false;
+    ctx.session.draftLogForCourse = undefined;
+  }
+
   // 🚀 THE FIX: If user taps ANY menu button, instantly kill all active flows
   if (mainMenuPattern.test(text)) {
     clearActiveFlow(ctx.session);
@@ -329,14 +341,19 @@ bot.on("message:text", async (ctx, next) => {
     const incomingText = ctx.message?.text ?? "";
     const trimmedText = incomingText.trim();
 
-    if (incomingText.startsWith("/")) {
+    // Trimmed, not raw: " /start" used to slip past this and get saved as the
+    // user's job role. Registered commands never reach here (they are handled
+    // above and call clearActiveFlow), so this covers unregistered ones.
+    if (trimmedText.startsWith("/")) {
       ctx.session.awaitingCourse = false;
       ctx.session.draftLogForCourse = undefined;
       return;
     }
 
-    if (trimmedText.length < 2) {
-      await ctx.reply("Please enter a valid job role so I can personalize your logs!");
+    // Same rule as the catch-up capture point. A greeting saved here poisons
+    // every future refinement, so the state stays active until we get a role.
+    if (!isPlausibleWorkplaceRole(trimmedText)) {
+      await ctx.reply(INVALID_ROLE_REPLY);
       return;
     }
 
