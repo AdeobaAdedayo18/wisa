@@ -86,7 +86,7 @@ export const UserScalarFieldEnum = {
   firstName: 'firstName',
   username: 'username',
   paymentEmail: 'paymentEmail',
-  courseOfStudy: 'courseOfStudy',
+  workplaceRole: 'workplaceRole',
   logFrequency: 'logFrequency',
   reminderTime: 'reminderTime',
   timezone: 'timezone',

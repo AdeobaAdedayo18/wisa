@@ -132,7 +132,7 @@ export async function handleLogText(
     storageUnlocked: boolean;
     logCount: number;
     nextRenewalDate: Date | null;
-    courseOfStudy: string | null;
+    workplaceRole: string | null;
   },
   options?: { react?: boolean },
 ): Promise<boolean> {
@@ -142,7 +142,7 @@ export async function handleLogText(
   const text = ctx.message?.text ?? "";
   if (!text.trim()) return true; // ignore blank messages but still consume them
 
-  if (!dbUser.courseOfStudy) return false;
+  if (!dbUser.workplaceRole) return false;
 
   ctx.session.awaitingLog = false;
   ctx.session.pendingLogParts = [];
@@ -161,7 +161,7 @@ export async function handleLogText(
   });
 
   try {
-    const refinedText = await refineLog(text, dbUser.courseOfStudy);
+    const refinedText = await refineLog(text, dbUser.workplaceRole);
 
     // 🚀 THE GATEKEEPER INTERCEPTOR
     if (refinedText.startsWith("REJECTED:")) {

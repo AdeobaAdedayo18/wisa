@@ -270,6 +270,7 @@ export type LogOrderByWithRelationInput = {
 
 export type LogWhereUniqueInput = Prisma.AtLeast<{
   id?: number
+  userId_logDate?: Prisma.LogUserIdLogDateCompoundUniqueInput
   AND?: Prisma.LogWhereInput | Prisma.LogWhereInput[]
   OR?: Prisma.LogWhereInput[]
   NOT?: Prisma.LogWhereInput | Prisma.LogWhereInput[]
@@ -282,7 +283,7 @@ export type LogWhereUniqueInput = Prisma.AtLeast<{
   createdAt?: Prisma.DateTimeFilter<"Log"> | Date | string
   updatedAt?: Prisma.DateTimeFilter<"Log"> | Date | string
   user?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
-}, "id">
+}, "id" | "userId_logDate">
 
 export type LogOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
@@ -404,6 +405,11 @@ export type LogListRelationFilter = {
 
 export type LogOrderByRelationAggregateInput = {
   _count?: Prisma.SortOrder
+}
+
+export type LogUserIdLogDateCompoundUniqueInput = {
+  userId: number
+  logDate: Date | string
 }
 
 export type LogCountOrderByAggregateInput = {

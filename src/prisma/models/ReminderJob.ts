@@ -245,7 +245,7 @@ export type ReminderJobGroupByArgs<ExtArgs extends runtime.Types.Extensions.Inte
 
 export type ReminderJobGroupByOutputType = {
   id: number
-  cycleId: string
+  cycleId: string | null
   userId: number
   telegramId: bigint
   scheduledFor: Date
@@ -284,7 +284,7 @@ export type ReminderJobWhereInput = {
   OR?: Prisma.ReminderJobWhereInput[]
   NOT?: Prisma.ReminderJobWhereInput | Prisma.ReminderJobWhereInput[]
   id?: Prisma.IntFilter<"ReminderJob"> | number
-  cycleId?: Prisma.StringFilter<"ReminderJob"> | string
+  cycleId?: Prisma.StringNullableFilter<"ReminderJob"> | string | null
   userId?: Prisma.IntFilter<"ReminderJob"> | number
   telegramId?: Prisma.BigIntFilter<"ReminderJob"> | bigint | number
   scheduledFor?: Prisma.DateTimeFilter<"ReminderJob"> | Date | string
@@ -302,7 +302,7 @@ export type ReminderJobWhereInput = {
 
 export type ReminderJobOrderByWithRelationInput = {
   id?: Prisma.SortOrder
-  cycleId?: Prisma.SortOrder
+  cycleId?: Prisma.SortOrderInput | Prisma.SortOrder
   userId?: Prisma.SortOrder
   telegramId?: Prisma.SortOrder
   scheduledFor?: Prisma.SortOrder
@@ -323,7 +323,7 @@ export type ReminderJobWhereUniqueInput = Prisma.AtLeast<{
   AND?: Prisma.ReminderJobWhereInput | Prisma.ReminderJobWhereInput[]
   OR?: Prisma.ReminderJobWhereInput[]
   NOT?: Prisma.ReminderJobWhereInput | Prisma.ReminderJobWhereInput[]
-  cycleId?: Prisma.StringFilter<"ReminderJob"> | string
+  cycleId?: Prisma.StringNullableFilter<"ReminderJob"> | string | null
   userId?: Prisma.IntFilter<"ReminderJob"> | number
   telegramId?: Prisma.BigIntFilter<"ReminderJob"> | bigint | number
   scheduledFor?: Prisma.DateTimeFilter<"ReminderJob"> | Date | string
@@ -341,7 +341,7 @@ export type ReminderJobWhereUniqueInput = Prisma.AtLeast<{
 
 export type ReminderJobOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
-  cycleId?: Prisma.SortOrder
+  cycleId?: Prisma.SortOrderInput | Prisma.SortOrder
   userId?: Prisma.SortOrder
   telegramId?: Prisma.SortOrder
   scheduledFor?: Prisma.SortOrder
@@ -365,7 +365,7 @@ export type ReminderJobScalarWhereWithAggregatesInput = {
   OR?: Prisma.ReminderJobScalarWhereWithAggregatesInput[]
   NOT?: Prisma.ReminderJobScalarWhereWithAggregatesInput | Prisma.ReminderJobScalarWhereWithAggregatesInput[]
   id?: Prisma.IntWithAggregatesFilter<"ReminderJob"> | number
-  cycleId?: Prisma.StringWithAggregatesFilter<"ReminderJob"> | string
+  cycleId?: Prisma.StringNullableWithAggregatesFilter<"ReminderJob"> | string | null
   userId?: Prisma.IntWithAggregatesFilter<"ReminderJob"> | number
   telegramId?: Prisma.BigIntWithAggregatesFilter<"ReminderJob"> | bigint | number
   scheduledFor?: Prisma.DateTimeWithAggregatesFilter<"ReminderJob"> | Date | string
@@ -380,7 +380,7 @@ export type ReminderJobScalarWhereWithAggregatesInput = {
 }
 
 export type ReminderJobCreateInput = {
-  cycleId?: string
+  cycleId?: string | null
   telegramId: bigint | number
   scheduledFor: Date | string
   status: string
@@ -397,7 +397,7 @@ export type ReminderJobCreateInput = {
 
 export type ReminderJobUncheckedCreateInput = {
   id?: number
-  cycleId?: string
+  cycleId?: string | null
   userId: number
   telegramId: bigint | number
   scheduledFor: Date | string
@@ -413,7 +413,7 @@ export type ReminderJobUncheckedCreateInput = {
 }
 
 export type ReminderJobUpdateInput = {
-  cycleId?: Prisma.StringFieldUpdateOperationsInput | string
+  cycleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
   scheduledFor?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   status?: Prisma.StringFieldUpdateOperationsInput | string
@@ -430,7 +430,7 @@ export type ReminderJobUpdateInput = {
 
 export type ReminderJobUncheckedUpdateInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
-  cycleId?: Prisma.StringFieldUpdateOperationsInput | string
+  cycleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   userId?: Prisma.IntFieldUpdateOperationsInput | number
   telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
   scheduledFor?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -447,7 +447,7 @@ export type ReminderJobUncheckedUpdateInput = {
 
 export type ReminderJobCreateManyInput = {
   id?: number
-  cycleId?: string
+  cycleId?: string | null
   userId: number
   telegramId: bigint | number
   scheduledFor: Date | string
@@ -462,7 +462,7 @@ export type ReminderJobCreateManyInput = {
 }
 
 export type ReminderJobUpdateManyMutationInput = {
-  cycleId?: Prisma.StringFieldUpdateOperationsInput | string
+  cycleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
   scheduledFor?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   status?: Prisma.StringFieldUpdateOperationsInput | string
@@ -477,7 +477,7 @@ export type ReminderJobUpdateManyMutationInput = {
 
 export type ReminderJobUncheckedUpdateManyInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
-  cycleId?: Prisma.StringFieldUpdateOperationsInput | string
+  cycleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   userId?: Prisma.IntFieldUpdateOperationsInput | number
   telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
   scheduledFor?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -627,7 +627,7 @@ export type ReminderJobUpdateOneRequiredWithoutReminderEventsNestedInput = {
 }
 
 export type ReminderJobCreateWithoutUserInput = {
-  cycleId?: string
+  cycleId?: string | null
   telegramId: bigint | number
   scheduledFor: Date | string
   status: string
@@ -643,7 +643,7 @@ export type ReminderJobCreateWithoutUserInput = {
 
 export type ReminderJobUncheckedCreateWithoutUserInput = {
   id?: number
-  cycleId?: string
+  cycleId?: string | null
   telegramId: bigint | number
   scheduledFor: Date | string
   status: string
@@ -688,7 +688,7 @@ export type ReminderJobScalarWhereInput = {
   OR?: Prisma.ReminderJobScalarWhereInput[]
   NOT?: Prisma.ReminderJobScalarWhereInput | Prisma.ReminderJobScalarWhereInput[]
   id?: Prisma.IntFilter<"ReminderJob"> | number
-  cycleId?: Prisma.StringFilter<"ReminderJob"> | string
+  cycleId?: Prisma.StringNullableFilter<"ReminderJob"> | string | null
   userId?: Prisma.IntFilter<"ReminderJob"> | number
   telegramId?: Prisma.BigIntFilter<"ReminderJob"> | bigint | number
   scheduledFor?: Prisma.DateTimeFilter<"ReminderJob"> | Date | string
@@ -703,7 +703,7 @@ export type ReminderJobScalarWhereInput = {
 }
 
 export type ReminderJobCreateWithoutReminderEventsInput = {
-  cycleId?: string
+  cycleId?: string | null
   telegramId: bigint | number
   scheduledFor: Date | string
   status: string
@@ -719,7 +719,7 @@ export type ReminderJobCreateWithoutReminderEventsInput = {
 
 export type ReminderJobUncheckedCreateWithoutReminderEventsInput = {
   id?: number
-  cycleId?: string
+  cycleId?: string | null
   userId: number
   telegramId: bigint | number
   scheduledFor: Date | string
@@ -750,7 +750,7 @@ export type ReminderJobUpdateToOneWithWhereWithoutReminderEventsInput = {
 }
 
 export type ReminderJobUpdateWithoutReminderEventsInput = {
-  cycleId?: Prisma.StringFieldUpdateOperationsInput | string
+  cycleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
   scheduledFor?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   status?: Prisma.StringFieldUpdateOperationsInput | string
@@ -766,7 +766,7 @@ export type ReminderJobUpdateWithoutReminderEventsInput = {
 
 export type ReminderJobUncheckedUpdateWithoutReminderEventsInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
-  cycleId?: Prisma.StringFieldUpdateOperationsInput | string
+  cycleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   userId?: Prisma.IntFieldUpdateOperationsInput | number
   telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
   scheduledFor?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
@@ -782,7 +782,7 @@ export type ReminderJobUncheckedUpdateWithoutReminderEventsInput = {
 
 export type ReminderJobCreateManyUserInput = {
   id?: number
-  cycleId?: string
+  cycleId?: string | null
   telegramId: bigint | number
   scheduledFor: Date | string
   status: string
@@ -796,7 +796,7 @@ export type ReminderJobCreateManyUserInput = {
 }
 
 export type ReminderJobUpdateWithoutUserInput = {
-  cycleId?: Prisma.StringFieldUpdateOperationsInput | string
+  cycleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
   scheduledFor?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   status?: Prisma.StringFieldUpdateOperationsInput | string
@@ -812,7 +812,7 @@ export type ReminderJobUpdateWithoutUserInput = {
 
 export type ReminderJobUncheckedUpdateWithoutUserInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
-  cycleId?: Prisma.StringFieldUpdateOperationsInput | string
+  cycleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
   scheduledFor?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   status?: Prisma.StringFieldUpdateOperationsInput | string
@@ -828,7 +828,7 @@ export type ReminderJobUncheckedUpdateWithoutUserInput = {
 
 export type ReminderJobUncheckedUpdateManyWithoutUserInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
-  cycleId?: Prisma.StringFieldUpdateOperationsInput | string
+  cycleId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   telegramId?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
   scheduledFor?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   status?: Prisma.StringFieldUpdateOperationsInput | string
@@ -962,7 +962,7 @@ export type $ReminderJobPayload<ExtArgs extends runtime.Types.Extensions.Interna
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: number
-    cycleId: string
+    cycleId: string | null
     userId: number
     telegramId: bigint
     scheduledFor: Date

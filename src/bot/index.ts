@@ -66,7 +66,13 @@ import { clearActiveFlow, type SessionData, type BotContext } from "./types";
 import { FREE_LOG_LIMIT, getMonetizationUserByTelegramId, getStorageLimitReachedAfterSaveText, hasActiveStorage } from "./monetization";
 
 // 🚀 IMPORT THE CATCH-UP ENGINE & CALENDAR HANDLERS
-import { startCatchupFlow, handleCatchupFlow, handleCatchupCallback } from "./catchupFlow";
+import {
+  startCatchupFlow,
+  handleCatchupFlow,
+  handleCatchupCallback,
+  handleFastTrackReminderCallback,
+  FAST_TRACK_REMINDER_PATTERN,
+} from "./catchupFlow";
 
 export type { SessionData, BotContext };
 
@@ -90,6 +96,58 @@ bot.use(conversations());
 
 // ── Conversations ──────────────────────────────────────────────────────────
 bot.use(createConversation(onboardingConversation, "onboarding"));
+
+// ── Catch-up fast track (deep link) ────────────────────────────────────────
+// Registered HERE, ahead of the dormant-welcome middleware below, and not with
+// the other commands further down. A `?start=catchup…` user has never onboarded
+// and has no logs, so the dormant branch would greet them with "Welcome back —
+// ready to pick up where you left off?" before the catch-up flow ever ran.
+//
+// Ordinary /start falls through via next() to the handler registered later.
+
+/** Deep-link payloads are `catchup` plus an optional attribution suffix. */
+function readCatchupDeepLink(match: unknown): string | null {
+  if (typeof match !== "string") return null;
+  const payload = match.trim();
+  return payload.toLowerCase().startsWith("catchup") ? payload : null;
+}
+
+bot.command("start", async (ctx, next) => {
+  const deepLink = readCatchupDeepLink(ctx.match);
+
+  // Block other /start variants mid-flow (previously FIX #9).
+  if (ctx.session.catchup?.active && !deepLink) {
+    await ctx.reply("You're in the middle of Catch-Up Mode! Tap 'Cancel' in the calendar or type /cancel to exit.");
+    return;
+  }
+
+  if (!deepLink) return next();
+
+  const telegramId = BigInt(ctx.from!.id);
+  const dbUser = await prisma.user.findUnique({ where: { telegramId } });
+
+  if (!dbUser) {
+    // Created WITHOUT workplaceRole so the catch-up flow's interceptor asks for
+    // it — that value now drives the field-of-study constraint on the LLM.
+    await prisma.user.create({
+      data: {
+        telegramId,
+        firstName: ctx.from?.first_name || "Student",
+        onboardingDone: true, // Bypass normal onboarding
+        logFrequency: "daily",
+        reminderTime: "18:00",
+        workplaceRole: null,
+      },
+    });
+  }
+
+  // Set BEFORE startCatchupFlow, which calls clearActiveFlow — that helper
+  // deliberately leaves these two keys alone (see ./types).
+  ctx.session.isCatchupFastTrack = true;
+  ctx.session.catchupEntrySource = deepLink;
+
+  return startCatchupFlow(ctx);
+});
 
 // ── Bot-unblock recovery + returning-dormant detection ────────────────────
 // Single middleware to handle both cases with one DB round-trip per request.
@@ -193,43 +251,10 @@ bot.use(async (ctx, next) => {
 });
 
 // ── Command handlers ───────────────────────────────────────────────────────
-bot.command("start", async (ctx) => {
-  const payload = ctx.match; // This grabs the "catchup" part from the deep link
-
-  // ✅ FIX #9: Block other /start variants during catch-up
-  if (ctx.session.catchup?.active && payload !== "catchup") {
-    await ctx.reply("You're in the middle of Catch-Up Mode! Tap 'Cancel' in the calendar or type /cancel to exit.");
-    return;
-  }
-
-  if (payload === "catchup") {
-    const telegramId = BigInt(ctx.from!.id);
-    let dbUser = await prisma.user.findUnique({ where: { telegramId } });
-
-  
-    if (!dbUser) {
-      // ✅ FIX #10: Create user WITHOUT courseOfStudy so they go through the interceptor
-      dbUser = await prisma.user.create({
-        data: {
-          telegramId,
-          firstName: ctx.from?.first_name || "Student",
-          onboardingDone: true, // Bypass normal onboarding
-          logFrequency: "daily",
-          reminderTime: "18:00",
-          courseOfStudy: null,  // ✅ Leave null to trigger course interceptor in catchupFlow
-        },
-      });
-    }
-
-    // ✅ Don't set a default courseOfStudy — let catchupFlow ask for it
-
-    // ✅ NOW launch catch-up — will ask for course if not set
-    return startCatchupFlow(ctx);
-  }
-
-  // Normal start command for regular users
-  return handleStart(ctx);
-});
+// Ordinary /start only. The `?start=catchup…` deep link and the mid-flow guard
+// are handled by the earlier bot.command("start") near the top of this file,
+// which calls next() for everything else.
+bot.command("start", handleStart);
 
 // ✅ FIX #9: Allow /cancel to exit catch-up cleanly
 bot.command("cancel", async (ctx) => {
@@ -296,7 +321,7 @@ bot.on("message:text", async (ctx, next) => {
       logCount: true,
       nextRenewalDate: true,
       freeAiRefinements: true,
-      courseOfStudy: true,
+      workplaceRole: true,
     },
   });
 
@@ -311,7 +336,7 @@ bot.on("message:text", async (ctx, next) => {
     }
 
     if (trimmedText.length < 2) {
-      await ctx.reply("Please enter a valid Course of Study so I can personalize your logs!");
+      await ctx.reply("Please enter a valid job role so I can personalize your logs!");
       return;
     }
 
@@ -327,7 +352,7 @@ bot.on("message:text", async (ctx, next) => {
 
     await prisma.user.update({
       where: { id: dbUser.id },
-      data: { courseOfStudy: trimmedText },
+      data: { workplaceRole: trimmedText },
     });
 
     ctx.session.awaitingCourse = false;
@@ -454,14 +479,14 @@ bot.on("message:text", async (ctx, next) => {
     }
   }
 
-  if (ctx.session.awaitingLog && !dbUser?.courseOfStudy) {
+  if (ctx.session.awaitingLog && !dbUser?.workplaceRole) {
     ctx.session.awaitingCourse = true;
     ctx.session.draftLogForCourse = ctx.message?.text ?? "";
-    await ctx.reply("✨ I'd love to refine this for you! But to make it perfect for your logbook, what is your Area of Study?");
+    await ctx.reply("I'd love to refine this for you! But to make it perfect for your logbook, what is your job role?");
     return;
   }
 
-  if (ctx.session.awaitingLog && dbUser?.courseOfStudy) {
+  if (ctx.session.awaitingLog && dbUser?.workplaceRole) {
     if (await handleLogText(ctx, dbUser)) return;
   }
   
@@ -494,7 +519,12 @@ bot.callbackQuery(/^skip_\d+$/, handleSkip);
 bot.callbackQuery("trigger_catchup", startCatchupFlow);
 
 // 🚀 ROUTE CALENDAR CLICKS TO CATCHUP HANDLER
-bot.callbackQuery(/^(ccal_|catchup_)/, handleCatchupCallback);
+bot.callbackQuery(/^(ccal_|catchup_|cdur_)/, handleCatchupCallback);
+
+// Post-catchup bridge: the reminder setup offered to fast-track users once
+// their backlog is generated. Own `ftrem_` prefix so it cannot collide with the
+// onboarding conversation's `time_` picker or Settings' `stg_time_` one.
+bot.callbackQuery(FAST_TRACK_REMINDER_PATTERN, handleFastTrackReminderCallback);
 
 // Logging flow
 bot.callbackQuery(/^write_log_\d+_\d{4}-\d{2}-\d{2}$/, handleWriteFromReminder);

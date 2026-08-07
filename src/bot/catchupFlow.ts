@@ -8,7 +8,15 @@ import type { BotContext, SessionData } from "./types";
 import { clearActiveFlow } from "./types";
 import { evaluateCatchupDump, generateCatchupLogs } from "../services/openai";
 import { initializeCatchupPassTransaction, RESCUE_PASS_PAYMENT_TYPE } from "../services/paystack";
-import { patchStoredSessionCatchup } from "./sessionStorage";
+import { patchStoredSessionCatchup, readStoredSession } from "./sessionStorage";
+import {
+  getCatchupTierPrice,
+  getCatchupTierUnit,
+  getMaxTierDuration,
+  CATCHUP_BLOCK_CLAIM_LEASE_MS,
+} from "../services/catchupTiers";
+import { buildTimeKeyboard, createInitialReminderJobs, getMainMenuKeyboard } from "./onboarding";
+import { hasActiveStorage } from "./monetization";
 // NOTE: `bot` is only ever touched inside function bodies — the import cycle with
 // ./index resolves lazily under CommonJS, so it is safe.
 import { bot } from "./index";
@@ -21,7 +29,7 @@ import { bot } from "./index";
 // ----------------------------------------------------------------------------
 
 const LOADING_STEPS = [
-  "Warming up... ⚙️",
+  "Warming up...",
   "Analyzing... ",
   "Mapping missing days... ",
   "Drafting your logs... ",
@@ -69,7 +77,7 @@ export function generateCatchupCalendar(year: number, month: number, mode: 'star
   const date = new Date(year, month);
   
   // Row 1: Header
-  const title = `${format(date, 'MMMM yyyy')} - ${mode === 'start' ? '🟢 Start Date' : '🔴 End Date'}`;
+  const title = `${format(date, 'MMMM yyyy')} (${mode === 'start' ? 'Start Date' : 'End Date'})`;
   kb.text(title, "ccal_noop").row();
 
   // Row 2: Days of the week
@@ -111,39 +119,54 @@ export function generateCatchupCalendar(year: number, month: number, mode: 'star
   const nextMonth = month === 11 ? 0 : month + 1;
   const nextYear = month === 11 ? year + 1 : year;
 
-  kb.text("◀️ Prev", `ccal_nav_${mode}_${prevYear}_${prevMonth}`);
-  kb.text("❌ Cancel", "ccal_cancel");
-  kb.text("Next ▶️", `ccal_nav_${mode}_${nextYear}_${nextMonth}`);
+  kb.text("Prev", `ccal_nav_${mode}_${prevYear}_${prevMonth}`);
+  kb.text("Cancel", "ccal_cancel");
+  kb.text("Next", `ccal_nav_${mode}_${nextYear}_${nextMonth}`);
 
   return kb;
 }
 
+/**
+ * VIP_DEFENSE is deliberately absent — the tier is retired at the UI layer only.
+ * The enum value, its price, and its duration cap all stay put so sessions and
+ * invoices created before the retirement still resolve correctly.
+ */
 function generateCatchupTierKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("📅 A Few Weeks (Max 4)", "catchup_tier_QUICK_FIX")
+    .text("A Few Weeks (Max 4)", "catchup_tier_QUICK_FIX")
     .row()
-    .text("🚨 2-6 Months", "catchup_tier_FULL_BACKLOG")
-    .row()
-    .text("👑 VIP + Final Report", "catchup_tier_VIP_DEFENSE");
+    .text("2 to 6 Months", "catchup_tier_FULL_BACKLOG");
 }
 
-function getCatchupTierUnit(tier: string): "weeks" | "months" {
-  return tier === "QUICK_FIX" ? "weeks" : "months";
-}
+/** Tiers a user is allowed to newly select. Retired tiers stay out of this list. */
+const SELECTABLE_CATCHUP_TIERS = ["QUICK_FIX", "FULL_BACKLOG"] as const;
 
 /**
- * Hard ceiling on totalDuration per tier — weeks for QUICK_FIX, months otherwise.
- * QUICK_FIX feeds `totalDuration * 5` days into a single OpenAI request, so an
- * unbounded value here turns into an unbounded completion.
+ * Durations offered per tier, so the user taps instead of typing a number.
+ *
+ * The set is tier-derived rather than a fixed list, because the tier already
+ * fixes the unit and the price: offering "1 Week" under FULL_BACKLOG would sell
+ * a week at the six-month price. QUICK_FIX starts at 1 week; FULL_BACKLOG starts
+ * at 2 months, matching what its own button advertises (anyone wanting a single
+ * month is better served by 4 weeks on the cheaper tier).
  */
-const MAX_TIER_DURATION: Record<CatchupTier, number> = {
-  [CatchupTier.QUICK_FIX]: 4,
-  [CatchupTier.FULL_BACKLOG]: 6,
-  [CatchupTier.VIP_DEFENSE]: 6,
-};
+function getCatchupDurationOptions(tier: CatchupTier): number[] {
+  const first = tier === CatchupTier.QUICK_FIX ? 1 : 2;
+  const options: number[] = [];
+  for (let n = first; n <= getMaxTierDuration(tier); n++) options.push(n);
+  return options;
+}
 
-function getMaxTierDuration(tier: CatchupTier): number {
-  return MAX_TIER_DURATION[tier] ?? 4;
+function generateCatchupDurationKeyboard(tier: CatchupTier): InlineKeyboard {
+  const kb = new InlineKeyboard();
+  const unit = getCatchupTierUnit(tier) === "weeks" ? "Week" : "Month";
+
+  getCatchupDurationOptions(tier).forEach((n, index) => {
+    kb.text(`${n} ${unit}${n === 1 ? "" : "s"}`, `cdur_${n}`);
+    if ((index + 1) % 3 === 0) kb.row();
+  });
+
+  return kb.row().text("Cancel", "ccal_cancel");
 }
 
 async function getCatchupSessionForCurrentUser(ctx: BotContext) {
@@ -167,10 +190,10 @@ type CatchupBlockDump = { block: number; entries: string[] };
 
 type CatchupContextDump = {
   blocks: CatchupBlockDump[];
+  // Legacy rows may also carry `task` / `weeklySummary`; both are ignored now
+  // that entries are a single raw string.
   week1Preview?: Array<{
     dateOffset: number;
-    task: string;
-    weeklySummary: string;
     content: string;
   }>;
   fulfilledBlocks?: number[];
@@ -247,6 +270,24 @@ function buildContextDump(payload: NormalizedContextPayload): Prisma.InputJsonVa
 const WORKING_DAYS_PER_WEEK = 5;
 const WORKING_DAYS_PER_MONTH = 20;
 
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+/**
+ * Calendar month name for a given block, anchored on the session's startDate.
+ * Block 1 is the month the user started in, block 2 the one after, etc.
+ *
+ * Read in UTC on purpose — startDate is stored as midnight UTC (see DATE
+ * HELPERS), so date-fns `format` would resolve to the previous day, and
+ * therefore the previous month, on any host west of UTC.
+ */
+function getBlockMonthName(startDate: Date, blockIndex: number): string {
+  const monthOffset = new Date(startDate).getUTCMonth() + Math.max(1, blockIndex) - 1;
+  return MONTH_NAMES[((monthOffset % 12) + 12) % 12];
+}
+
 // ----------------------------------------------------------------------------
 // OUT-OF-CONTEXT HELPERS
 // Fulfilment is triggered by the Paystack webhook, so there is no `ctx` — we
@@ -316,7 +357,11 @@ async function appendCatchupDumpToSession(ctx: BotContext, text: string) {
     },
   });
 
-  return { catchupSession, blocks, currentBlockIndex };
+  // Only this block's entries — the caller must never evaluate a new month
+  // against text the user wrote for a previous one.
+  const currentEntries = blocks.find((block) => block.block === currentBlockIndex)?.entries ?? [];
+
+  return { catchupSession, blocks, currentBlockIndex, currentEntries };
 }
 
 async function evaluateCurrentCatchupChunk(ctx: BotContext, rawText: string, opts?: { afterMoreDetail?: boolean }): Promise<void> {
@@ -328,18 +373,18 @@ async function evaluateCurrentCatchupChunk(ctx: BotContext, rawText: string, opt
 
   const user = await prisma.user.findUnique({
     where: { id: catchupSession.userId },
-    select: { courseOfStudy: true },
+    select: { workplaceRole: true },
   });
-  const courseOfStudy = user?.courseOfStudy?.trim() ?? "";
+  const workplaceRole = user?.workplaceRole?.trim() ?? "";
 
-  if (!courseOfStudy) {
+  if (!workplaceRole) {
     ctx.session.catchup = {
       active: true,
       step: 'awaiting_course',
       startedAt: ctx.session.catchup?.startedAt ?? Date.now(),
     };
 
-    await ctx.reply("Wait, before we generate anything, what is your exact course of study and department?");
+    await ctx.reply("Before we write this, what exactly is your job role and department at your IT placement?");
     return;
   }
 
@@ -347,7 +392,7 @@ async function evaluateCurrentCatchupChunk(ctx: BotContext, rawText: string, opt
     rawText,
     catchupSession.tierSelected,
     catchupSession.totalDuration,
-    courseOfStudy,
+    workplaceRole,
   );
 
   if (!evaluation.sufficientForCurrentChunk) {
@@ -376,7 +421,7 @@ async function evaluateCurrentCatchupChunk(ctx: BotContext, rawText: string, opt
       startedAt: ctx.session.catchup?.startedAt ?? Date.now(),
     };
 
-    await ctx.reply("Perfect, that's solid detail. Writing these up now — give me a moment ✍️");
+    await ctx.reply("Perfect, that's solid detail. Writing these up now, give me a moment.");
     await resumeCatchupGeneration(catchupSession.id, ctx);
     return;
   }
@@ -391,31 +436,14 @@ async function evaluateCurrentCatchupChunk(ctx: BotContext, rawText: string, opt
   await sendWeekOneBait(ctx);
 }
 
-function getCatchupTierPrice(tier: CatchupTier): number {
-  switch (tier) {
-    case CatchupTier.QUICK_FIX:
-      return 1000;
-    case CatchupTier.FULL_BACKLOG:
-      return 2500;
-    case CatchupTier.VIP_DEFENSE:
-      return 4000;
-    default:
-      return 1000;
-  }
-}
-
-function formatWeekOneLog(log: {
-  dateOffset: number;
-  task: string;
-  weeklySummary: string;
-  content: string;
-}, date: Date, dayNumber: number): string {
+/**
+ * Renders one preview day. The date line is Telegram chrome so the user can tell
+ * the samples apart — the entry itself is printed raw, exactly as it will be
+ * saved, so what they see is what they copy.
+ */
+function formatWeekOneLog(log: { dateOffset: number; content: string }, date: Date, dayNumber: number): string {
   const dateLabel = format(date, "EEE, d MMM yyyy");
-  return [
-    `*Day ${dayNumber}* • ${dateLabel}`,
-    `Task: ${log.task}`,
-    `Weekly Summary: ${log.weeklySummary}`,
-  ].join("\n");
+  return `*Day ${dayNumber}* • ${dateLabel}\n\n${log.content}`;
 }
 
 async function sendWeekOneBait(ctx: BotContext): Promise<void> {
@@ -427,9 +455,9 @@ async function sendWeekOneBait(ctx: BotContext): Promise<void> {
 
   const user = await prisma.user.findUnique({
     where: { id: catchupSession.userId },
-    select: { courseOfStudy: true },
+    select: { workplaceRole: true },
   });
-  const courseOfStudy = user?.courseOfStudy?.trim() || "IT";
+  const workplaceRole = user?.workplaceRole?.trim() || "IT";
 
   const rawDump = normalizeContextDump(catchupSession.contextDump)
     .flatMap((block) => block.entries)
@@ -443,7 +471,7 @@ async function sendWeekOneBait(ctx: BotContext): Promise<void> {
     generated = await generateCatchupLogs(
       rawDump,
       catchupSession.totalDuration,
-      courseOfStudy,
+      workplaceRole,
       5,
     );
   } finally {
@@ -459,7 +487,11 @@ async function sendWeekOneBait(ctx: BotContext): Promise<void> {
     const date = nthWorkingDayFrom(startDate, log.dateOffset);
     const formattedLog = formatWeekOneLog(log, date, index + 1);
 
-    await ctx.reply(formattedLog, { parse_mode: "Markdown" });
+    // The entry is now printed raw, so an underscore or asterisk in the model's
+    // prose (snake_case, a * in a formula) makes Telegram reject the whole
+    // message as unparseable Markdown. Falling back to plain text keeps the
+    // paywall preview intact instead of failing the flow right before checkout.
+    await ctx.reply(formattedLog, { parse_mode: "Markdown" }).catch(() => ctx.reply(formattedLog));
   }
 
   await prisma.catchupSession.update({
@@ -473,11 +505,11 @@ async function sendWeekOneBait(ctx: BotContext): Promise<void> {
   });
 
   await ctx.reply(
-    "Week 1 is locked in and perfectly formatted! ✅",
+    "Week 1 is locked in and perfectly formatted.",
     {
       reply_markup: new InlineKeyboard()
-        .text("💳 Approve & Unlock the Rest", "catchup_approve_wk1")
-        .text("🔄 Tweak Week 1", "catchup_tweak_wk1"),
+        .text("Approve and continue", "catchup_approve_wk1")
+        .text("Tweak Week 1", "catchup_tweak_wk1"),
     },
   );
 }
@@ -587,18 +619,19 @@ async function sendRescuePassInvoice(
   }`;
 
   await ctx.reply(
-    `*Rescue Pass Ready* 🚀\n\n` +
-      `🗓️ *Coverage:* ${coverage}\n` +
-      `⚡ *Delivery:* ~90 seconds\n` +
-      `💰 *Price:* ₦${priceNaira.toLocaleString("en-NG")}\n\n` +
-      `Tap below to pay securely via Paystack. I'll start generating the moment it clears! 👇\n\n` +
+    `*Rescue Pass Ready*\n\n` +
+      `*Coverage:* ${coverage}\n` +
+      `*Delivery:* about 90 seconds\n` +
+      `*Price:* ₦${priceNaira.toLocaleString("en-NG")}\n\n` +
+      `Tap below to pay securely via Paystack. This covers the full ${coverage}. ` +
+      `The moment you pay, your logs will be ready to copy straight into your logbook.\n\n` +
       `\`Ref: ${reference}\``,
     {
       parse_mode: "Markdown",
       reply_markup: new InlineKeyboard()
-        .url("💳 Pay with Paystack", authorization_url)
+        .url("Pay with Paystack", authorization_url)
         .row()
-        .text("🔄 I have paid", "check_payment"),
+        .text("I have paid", "check_payment"),
     },
   );
 }
@@ -617,11 +650,11 @@ async function startRescuePassCheckout(ctx: BotContext, catchupSession: CatchupS
       startedAt: ctx.session.catchup?.startedAt ?? Date.now(),
     };
 
-    await ctx.reply("Almost there — what email should I send the receipt to?");
+    await ctx.reply("Almost there. What email should I send the receipt to?");
     return;
   }
 
-  await ctx.reply("Generating your secure payment link, one sec...⏳");
+  await ctx.reply("Generating your secure payment link, one sec...");
 
   try {
     await sendRescuePassInvoice(ctx, catchupSession, user.paymentEmail);
@@ -710,7 +743,7 @@ export async function markRescuePassPaid(params: {
 }
 
 /** A block claim older than this is treated as abandoned (the worker died). */
-const BLOCK_CLAIM_LEASE_MS = 15 * 60 * 1000;
+const BLOCK_CLAIM_LEASE_MS = CATCHUP_BLOCK_CLAIM_LEASE_MS;
 
 /**
  * Reclaims a block whose claim was never released.
@@ -811,7 +844,7 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
   try {
     const catchupSession = await prisma.catchupSession.findUnique({
       where: { id: sessionId },
-      include: { user: { select: { id: true, telegramId: true, courseOfStudy: true } } },
+      include: { user: { select: { id: true, telegramId: true, workplaceRole: true } } },
     });
 
     if (!catchupSession) {
@@ -879,13 +912,13 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
     const blockEntries = payload.blocks.find((block) => block.block === blockIndex)?.entries
       ?? payload.blocks.flatMap((block) => block.entries);
     const rawDump = blockEntries.join("\n\n");
-    const courseOfStudy = catchupSession.user.courseOfStudy?.trim() || "IT";
+    const workplaceRole = catchupSession.user.workplaceRole?.trim() || "IT";
 
     // Block 1 is the one that follows the charge. This is the user's receipt:
     // sent standalone and deliberately NOT captured as `loadingMsg`, so the
     // cleanup in `finally` never touches it and it stays in their history.
     if (blockIndex === 1) {
-      await notifyCatchupUser(telegramId, "Payment successful! 💳✅");
+      await notifyCatchupUser(telegramId, "Payment successful!");
     }
 
     const loadingMsg = await notifyCatchupUser(telegramId, LOADING_STEPS[0]);
@@ -899,7 +932,7 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
 
     try {
       const generated = daysToGenerate > 0
-        ? (await generateCatchupLogs(rawDump, daysToGenerate, courseOfStudy, daysToGenerate)).logs.slice(0, daysToGenerate)
+        ? (await generateCatchupLogs(rawDump, daysToGenerate, workplaceRole, daysToGenerate)).logs.slice(0, daysToGenerate)
         : [];
 
       // Map every log in this block onto a calendar date. Blocks are laid out
@@ -996,12 +1029,25 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
     console.log(`[catchup] Session ${sessionId} — block ${blockIndex}/${totalBlocks} fulfilled (${savedCount} logs saved)`);
 
     if (!isFinalBlock) {
-      await applyState({ active: true, step: 'awaiting_block_dump', startedAt: Date.now() });
+      // The block is written and committed, so the text that produced it is spent.
+      // Clearing it here — BEFORE the next prompt goes out — is what stops a
+      // restart mid-flow from feeding last month's dump into next month's block.
+      await applyState({
+        active: true,
+        step: 'awaiting_block_dump',
+        startedAt: Date.now(),
+        rawDump: undefined,
+        questionCount: undefined,
+      });
+
+      const monthStart = new Date(catchupSession.startDate);
       await notifyCatchupUser(
         telegramId,
-        `Month ${blockIndex} complete! ✅ ${savedCount} day${savedCount === 1 ? '' : 's'} saved to your logbook.\n\n` +
-          `Now, tell me what you did for Month ${nextBlock}...\n\n` +
-          `*(Feel free to use a voice note 🎙️)*`,
+        `*${getBlockMonthName(monthStart, blockIndex)}* is complete!\n\n` +
+          `All ${savedCount} ${savedCount === 1 ? 'day has' : 'days have'} been safely saved to your calendar. ` +
+          `You can view or copy them anytime.\n\n` +
+          `Now, let's keep the momentum going. Tell me what you did for *${getBlockMonthName(monthStart, nextBlock)}*...\n\n` +
+          `(Feel free to use a voice note)`,
         { parse_mode: "Markdown" },
       );
       return;
@@ -1009,11 +1055,18 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
 
     await applyState({ active: false, step: 'none', startedAt: undefined }, { clearSessionId: true });
 
-    await notifyCatchupUser(
-      telegramId,
-      "Boom. You're caught up! 🎉\n\nYour missing logs are safely stored.\n\nReady to write today's log?",
-      { reply_markup: new InlineKeyboard().text("📝 Write Today's Log", "nav_write") },
-    );
+    // Fast-track users get the reminder bridge INSTEAD of the standard sign-off,
+    // not after it — that message opens with its own "caught up" line, and its
+    // "Write Today's Log" button would compete with the time picker.
+    if (await isFastTrackUser(telegramId, ctx)) {
+      await promptFastTrackReminderSetup(telegramId);
+    } else {
+      await notifyCatchupUser(
+        telegramId,
+        "All done! Your backlog is completely filled out.",
+        { reply_markup: new InlineKeyboard().text("View my logs", "nav_logs") },
+      );
+    }
 
     if (catchupSession.tierSelected === CatchupTier.VIP_DEFENSE) {
       // TODO: Generate Final Report
@@ -1050,12 +1103,121 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
 
         await notifyCatchupUser(
           owner.user.telegramId,
-          "Your payment went through, but I hit a snag writing those logs 😔\n\nNothing is lost — send me a message and I'll pick it right back up.",
+          "Your payment went through, but I hit a snag writing those logs 😔\n\nNothing is lost. Send me a message and I'll pick it right back up.",
         );
       }
     } catch {
       // best-effort notification only
     }
+  }
+}
+
+// ----------------------------------------------------------------------------
+// POST-CATCHUP BRIDGE (FAST TRACK)
+// Deep-link users never went through onboarding: they have `onboardingDone:
+// true`, a placeholder reminderTime, and no ReminderJob row at all. Once their
+// backlog is written, this is where we owe them the reminder setup.
+// ----------------------------------------------------------------------------
+
+const FAST_TRACK_TIME_PREFIX = "ftrem_time_";
+const FAST_TRACK_SKIP_DATA = "ftrem_skip";
+/** Matches both branches of the fast-track reminder keyboard. */
+export const FAST_TRACK_REMINDER_PATTERN = /^ftrem_(time_\d{2}:\d{2}|skip)$/;
+
+/**
+ * Reads the fast-track flag for a user who may not be the one driving the
+ * current update.
+ *
+ * Completion is reached from the Paystack webhook (`src/index.ts`) and the
+ * abandoned-block sweep with no `ctx` at all — and for QUICK_FIX, the webhook is
+ * the *usual* path — so `ctx.session` cannot be the source of truth here.
+ */
+async function isFastTrackUser(telegramId: bigint, ctx?: BotContext): Promise<boolean> {
+  if (ctx?.from && BigInt(ctx.from.id) === telegramId) {
+    return ctx.session.isCatchupFastTrack === true;
+  }
+
+  try {
+    const stored = await readStoredSession(telegramId.toString());
+    return stored?.isCatchupFastTrack === true;
+  } catch (err) {
+    console.error(`[catchup] Could not read fast-track flag for ${telegramId}:`, err);
+    return false; // fall back to the standard completion message
+  }
+}
+
+/**
+ * Offers the reminder setup a fast-track user never got during onboarding.
+ * Takes a telegramId rather than a ctx because the caller often has no ctx.
+ */
+export async function promptFastTrackReminderSetup(telegramId: bigint): Promise<void> {
+  const keyboard = buildTimeKeyboard(FAST_TRACK_TIME_PREFIX)
+    .row()
+    .text("Skip for now", FAST_TRACK_SKIP_DATA);
+
+  await notifyCatchupUser(
+    telegramId,
+    "You're completely caught up.\n\n" +
+      "To make sure you never have to do a massive backlog again, let's set up a quick daily reminder. " +
+      "What time should I text you to ask for your daily log?",
+    { reply_markup: keyboard },
+  );
+}
+
+/** Sends the persistent main menu, ending the fast track on the standard state. */
+async function sendMainMenuAfterFastTrack(ctx: BotContext, text: string): Promise<void> {
+  const user = await prisma.user.findUnique({
+    where: { telegramId: BigInt(ctx.from!.id) },
+    select: { id: true, firstName: true, isPro: true, storageUnlocked: true, logCount: true, nextRenewalDate: true },
+  });
+
+  await ctx.reply(text, { reply_markup: getMainMenuKeyboard(user ? hasActiveStorage(user) : false) });
+}
+
+/** Handles both the time picker and the Skip button on the fast-track prompt. */
+export async function handleFastTrackReminderCallback(ctx: BotContext): Promise<void> {
+  const data = ctx.callbackQuery?.data ?? "";
+  await ctx.answerCallbackQuery();
+
+  // Retire the keyboard either way, so the prompt cannot be answered twice.
+  await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+
+  // Cleared before the DB work: if that throws, the user still leaves the
+  // express lane rather than being re-prompted on every future completion.
+  ctx.session.isCatchupFastTrack = false;
+  clearActiveFlow(ctx.session);
+
+  if (data === FAST_TRACK_SKIP_DATA) {
+    await sendMainMenuAfterFastTrack(
+      ctx,
+      "No worries! You can always set one up later in the menu. Welcome to Wisa.",
+    );
+    return;
+  }
+
+  const reminderTime = data.replace(FAST_TRACK_TIME_PREFIX, "");
+  const telegramId = BigInt(ctx.from!.id);
+
+  try {
+    const user = await prisma.user.update({
+      where: { telegramId },
+      data: { reminderTime },
+    });
+
+    // Same replace-then-recreate as the settings flow — a fast-track user should
+    // have no jobs at all, but a stray one would otherwise double their pings.
+    await prisma.reminderJob.deleteMany({
+      where: { userId: user.id, status: { in: ["pending", "sent"] } },
+    });
+    await createInitialReminderJobs(user.id, telegramId, user.logFrequency, reminderTime, user.timezone);
+
+    await sendMainMenuAfterFastTrack(ctx, `Done! I'll ping you daily at ${reminderTime}. Welcome to Wisa.`);
+  } catch (err) {
+    console.error(`[catchup] Fast-track reminder setup failed for ${telegramId}:`, err);
+    await sendMainMenuAfterFastTrack(
+      ctx,
+      "I couldn't save that reminder time 😔 Your logs are safe. You can set one up any time from Settings.",
+    );
   }
 }
 
@@ -1115,12 +1277,39 @@ export async function startCatchupFlow(ctx: BotContext) {
   };
 
   await ctx.reply(
-    "Got some empty days in your logbook? 🗓️\n\n" +
+    "Got some empty days in your logbook?\n\n" +
       "Don't stress. With a *Rescue Pass*, just tell me a bit about what you've been up to lately, " +
       "and I'll write all the logs for you.\n\n" +
       "How much time do you need me to cover?",
     { parse_mode: "Markdown", reply_markup: generateCatchupTierKeyboard() }
   );
+}
+
+/**
+ * Records the chosen duration and moves the user on to the date picker.
+ * Shared by the duration keyboard and the typed-number fallback.
+ */
+async function applyCatchupDuration(
+  ctx: BotContext,
+  sessionId: string,
+  duration: number,
+  startedAt?: number,
+): Promise<void> {
+  await prisma.catchupSession.update({
+    where: { id: sessionId },
+    data: { totalDuration: duration },
+  });
+
+  ctx.session.catchup = {
+    active: true,
+    step: 'awaiting_anchor_date',
+    startedAt: startedAt ?? Date.now(),
+  };
+
+  const now = new Date();
+  await ctx.reply("What exact date did this start?", {
+    reply_markup: generateCatchupCalendar(now.getFullYear(), now.getMonth(), 'start'),
+  });
 }
 
 // ----------------------------------------------------------------------------
@@ -1133,8 +1322,10 @@ export async function handleCatchupCallback(ctx: BotContext) {
 
   if (data.startsWith("catchup_tier_")) {
     const tier = data.replace("catchup_tier_", "");
-    if (!["QUICK_FIX", "FULL_BACKLOG", "VIP_DEFENSE"].includes(tier)) {
-      await ctx.answerCallbackQuery("Invalid tier selection. Please try again.");
+    // Also the backstop for a retired tier: an old keyboard still sitting in a
+    // chat can replay `catchup_tier_VIP_DEFENSE`, and it must not open a session.
+    if (!SELECTABLE_CATCHUP_TIERS.includes(tier as typeof SELECTABLE_CATCHUP_TIERS[number])) {
+      await ctx.answerCallbackQuery("That option isn't available anymore. Please pick one below.");
       return;
     }
 
@@ -1182,10 +1373,36 @@ export async function handleCatchupCallback(ctx: BotContext) {
       startedAt: Date.now(),
     };
 
-    const unit = getCatchupTierUnit(tier);
+    const unit = getCatchupTierUnit(tierSelected);
     await ctx.editMessageText(
-      `Got it. Exactly how many ${unit} are you missing? (Type a number)`
+      `Got it. How many ${unit} are you missing?`,
+      { reply_markup: generateCatchupDurationKeyboard(tierSelected) },
     ).catch(() => {});
+    await ctx.answerCallbackQuery();
+    return;
+  }
+
+  // Duration is tapped, not typed. The text handler still accepts a number as a
+  // fallback for anyone who types anyway.
+  if (data.startsWith("cdur_")) {
+    if (!state?.active) {
+      await ctx.answerCallbackQuery("This flow has expired. Please type /catchup again.");
+      return;
+    }
+
+    const catchupSession = await getCatchupSessionForCurrentUser(ctx);
+    if (!catchupSession) {
+      await ctx.answerCallbackQuery("Couldn't find this catch-up session. Please type /catchup again.");
+      return;
+    }
+
+    const duration = Number(data.replace("cdur_", ""));
+    if (!getCatchupDurationOptions(catchupSession.tierSelected).includes(duration)) {
+      await ctx.answerCallbackQuery("That option isn't available on this plan. Please pick one below.");
+      return;
+    }
+
+    await applyCatchupDuration(ctx, catchupSession.id, duration, state.startedAt);
     await ctx.answerCallbackQuery();
     return;
   }
@@ -1197,8 +1414,8 @@ export async function handleCatchupCallback(ctx: BotContext) {
 
   if (data === "ccal_cancel") {
     clearActiveFlow(ctx.session);
-    await ctx.editMessageText("Catch-up cancelled. Let me know when you're ready! 🏠", {
-      reply_markup: new InlineKeyboard().text("🏠 Menu", "nav_menu")
+    await ctx.editMessageText("Catch-up cancelled. Let me know when you're ready.", {
+      reply_markup: new InlineKeyboard().text("Menu", "nav_menu")
     });
     await ctx.answerCallbackQuery();
     return;
@@ -1212,7 +1429,7 @@ export async function handleCatchupCallback(ctx: BotContext) {
     state.step = 'awaiting_more_detail';
     ctx.session.catchup = state;
     await ctx.editMessageText(
-      "Tell me more about what you were doing during the rest of that period — rough notes are fine. 📝"
+      "Tell me more about what you were doing during the rest of that period. Rough notes are fine."
     );
     await ctx.answerCallbackQuery();
     return;
@@ -1221,8 +1438,8 @@ export async function handleCatchupCallback(ctx: BotContext) {
   if (data === "catchup_skip") {
     clearActiveFlow(ctx.session);
     await ctx.editMessageText(
-      "No problem — the logs I generated are already in your logbook. 👍",
-      { reply_markup: new InlineKeyboard().text("📅 View calendar", "nav_calendar").text("🏠 Menu", "nav_menu") }
+      "No problem, the logs I generated are already in your logbook.",
+      { reply_markup: new InlineKeyboard().text("View calendar", "nav_calendar").text("Menu", "nav_menu") }
     );
     await ctx.answerCallbackQuery();
     return;
@@ -1238,7 +1455,7 @@ export async function handleCatchupCallback(ctx: BotContext) {
     await ctx.answerCallbackQuery();
 
     if (catchupSession.paymentStatus === CatchupPaymentStatus.PAID) {
-      await ctx.reply("You've already paid for this rescue — picking up right where we left off ✅");
+      await ctx.reply("You've already paid for this rescue, picking up right where we left off.");
       await resumeCatchupGeneration(catchupSession.id, ctx);
       return;
     }
@@ -1288,19 +1505,21 @@ export async function handleCatchupCallback(ctx: BotContext) {
       },
     });
 
-    const userCourseOfStudy = (await prisma.user.findUnique({
+    const userWorkplaceRole = (await prisma.user.findUnique({
       where: { id: catchupSession.userId },
-      select: { courseOfStudy: true },
-    }))?.courseOfStudy;
+      select: { workplaceRole: true },
+    }))?.workplaceRole;
 
-    if (!userCourseOfStudy) {
+    if (!userWorkplaceRole) {
       ctx.session.catchup = {
         active: true,
         step: 'awaiting_course',
         startedAt: state.startedAt ?? Date.now(),
       };
 
-      await ctx.editMessageText("Before we continue, what is your course or department?").catch(() => {});
+      await ctx.editMessageText(
+        "Before we write this, what exactly is your job role and department at your IT placement?",
+      ).catch(() => {});
       await ctx.answerCallbackQuery();
       return;
     }
@@ -1311,10 +1530,12 @@ export async function handleCatchupCallback(ctx: BotContext) {
       startedAt: state.startedAt ?? Date.now(),
     };
 
+    // The row was just updated above, so read the month off the date we wrote.
+    const anchorDate = new Date(selectedDate);
     const dumpPrompt = (catchupSession.tierSelected === CatchupTier.QUICK_FIX
       ? `Perfect. Tell me everything you worked on during this entire ${catchupSession.totalDuration}-week period. Drop the projects, tools, challenges, and lessons. Leave nothing out.`
-      : "Perfect. Tell me everything you worked on during this first month. Drop the projects, tools, challenges, and lessons. Leave nothing out.")
-      + "\n\n*(You can type it out, or just send a voice note 🎙️)*";
+      : `Perfect. Tell me everything you worked on during *${getBlockMonthName(anchorDate, catchupSession.currentBlock)}*. Drop the projects, tools, challenges, and lessons. Leave nothing out.`)
+      + "\n\n(You can type it out, or just send a voice note)";
 
     await ctx.editMessageText(dumpPrompt, { parse_mode: "Markdown" }).catch(() => {});
     await ctx.answerCallbackQuery();
@@ -1358,15 +1579,15 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
   if (state.startedAt && Date.now() - state.startedAt > CATCHUP_TIMEOUT_MS) {
     clearActiveFlow(ctx.session);
     await ctx.reply(
-      "Your catch-up session expired after 2 hours of inactivity. Type /catchup to start a new one 👇"
+      "Your catch-up session expired after 2 hours of inactivity. Type /catchup to start a new one."
     );
     return;
   }
 
   if (text.toLowerCase() === 'cancel' || text === '/cancel') {
     clearActiveFlow(ctx.session);
-    await ctx.reply("Catch-up cancelled. Let me know when you're ready! 🏠", {
-      reply_markup: new InlineKeyboard().text("🏠 Menu", "nav_menu")
+    await ctx.reply("Catch-up cancelled. Let me know when you're ready.", {
+      reply_markup: new InlineKeyboard().text("Menu", "nav_menu")
     });
     return;
   }
@@ -1379,42 +1600,29 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
 
   try {
     switch (state.step) {
+      // Duration is normally tapped from the keyboard. This stays as a fallback
+      // for anyone who types a number anyway, so their answer is not swallowed.
       case 'awaiting_duration': {
-        // Fetched first — the valid range depends on the tier they picked.
+        // Fetched first, since the valid range depends on the tier they picked.
         const catchupSession = await getCatchupSessionForCurrentUser(ctx);
         if (!catchupSession) {
           await ctx.reply("I couldn't find this catch-up session. Please type /catchup again.");
           return;
         }
 
-        const cap = getMaxTierDuration(catchupSession.tierSelected);
+        const options = getCatchupDurationOptions(catchupSession.tierSelected);
         const unit = getCatchupTierUnit(catchupSession.tierSelected);
         const duration = parseInt(text.trim(), 10);
-        if (!Number.isFinite(duration) || duration <= 0 || duration > cap) {
+
+        if (!Number.isFinite(duration) || !options.includes(duration)) {
           await ctx.reply(
-            `Whoops! This tier only covers up to ${cap} ${unit}.\n\n` +
-              `Reply with a number from 1 to ${cap}, or type /catchup to pick a larger tier. 👇`,
+            `This plan covers ${options[0]} to ${options[options.length - 1]} ${unit}.\n\n` +
+              "Tap one of the options above, or type /catchup to pick a different plan.",
           );
           return;
         }
 
-        await prisma.catchupSession.update({
-          where: { id: catchupSession.id },
-          data: { totalDuration: duration },
-        });
-
-        const now = new Date();
-        const calendarKb = generateCatchupCalendar(now.getFullYear(), now.getMonth(), 'start');
-
-        ctx.session.catchup = {
-          active: true,
-          step: 'awaiting_anchor_date',
-          startedAt: state.startedAt ?? Date.now(),
-        };
-
-        await ctx.reply("What exact date did this start?", {
-          reply_markup: calendarKb,
-        });
+        await applyCatchupDuration(ctx, catchupSession.id, duration, state.startedAt);
         return;
       }
 
@@ -1425,7 +1633,7 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
           return;
         }
 
-        await evaluateCurrentCatchupChunk(ctx, appended.blocks.flatMap((block) => block.entries).join("\n\n"));
+        await evaluateCurrentCatchupChunk(ctx, appended.currentEntries.join("\n\n"));
         return;
       }
 
@@ -1455,7 +1663,7 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
           return;
         }
 
-        await ctx.reply(`✅ Saved! Generating your secure payment link, one sec...⏳`);
+        await ctx.reply(`Saved! Generating your secure payment link, one sec...`);
 
         try {
           await sendRescuePassInvoice(ctx, catchupSession, email);
@@ -1468,28 +1676,31 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
 
       case 'awaiting_payment': {
         await ctx.reply(
-          "I'm still waiting on that payment. Tap *I have paid* on the invoice above once it's done — or send /cancel to stop.",
+          "I'm still waiting on that payment. Tap *I have paid* on the invoice above once it's done, or send /cancel to stop.",
           { parse_mode: "Markdown" },
         );
         return;
       }
 
+      // Captures the user's workplace ROLE, not an academic course. It is stored
+      // on `User.workplaceRole` so no migration is needed — the field name is
+      // legacy; the value it now carries for catch-up is a job role.
       case 'awaiting_course': {
-        const courseText = text.trim();
+        const roleText = text.trim();
 
-        if (courseText.length < 2) {
-          await ctx.reply("Please enter a valid Course of Study!");
+        if (roleText.length < 2) {
+          await ctx.reply("Please enter a valid job role!");
           return;
         }
 
-        if (courseText.length > 100) {
-          await ctx.reply("Course of Study is too long. Please keep it under 100 characters.");
+        if (roleText.length > 100) {
+          await ctx.reply("That's a bit long. Please keep your job role under 100 characters.");
           return;
         }
 
         await prisma.user.update({
           where: { telegramId },
-          data: { courseOfStudy: courseText },
+          data: { workplaceRole: roleText },
         });
 
         ctx.session.catchup = {
@@ -1501,8 +1712,15 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
         const courseCatchupSession = await getCatchupSessionForCurrentUser(ctx);
         await ctx.reply(
           courseCatchupSession?.tierSelected === CatchupTier.QUICK_FIX
-            ? `Got it! Now, tell me everything you worked on during this entire ${courseCatchupSession.totalDuration}-week period. Drop the projects, tools, challenges, and lessons. Leave nothing out.`
-            : "Got it! Now, tell me everything you worked on during this first month. Drop the projects, tools, challenges, and lessons. Leave nothing out."
+            ? `Got it! Now, tell me everything you worked on during this entire ${courseCatchupSession.totalDuration}-week period. Drop the projects, tools, challenges, and lessons. Leave nothing out.` +
+                "\n\n(You can type it out, or just send a voice note)"
+            : `Got it! Now, tell me everything you worked on during *${
+                courseCatchupSession
+                  ? getBlockMonthName(new Date(courseCatchupSession.startDate), courseCatchupSession.currentBlock)
+                  : "that month"
+              }*. Drop the projects, tools, challenges, and lessons. Leave nothing out.` +
+                "\n\n(You can type it out, or just send a voice note)",
+          { parse_mode: "Markdown" },
         );
         return;
       }
@@ -1514,7 +1732,7 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
           return;
         }
 
-        await evaluateCurrentCatchupChunk(ctx, appended.blocks.flatMap((block) => block.entries).join("\n\n"), { afterMoreDetail: true });
+        await evaluateCurrentCatchupChunk(ctx, appended.currentEntries.join("\n\n"), { afterMoreDetail: true });
         return;
       }
 
@@ -1532,7 +1750,7 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
       default: {
         await ctx.reply(
           "I lost track of where we were in your catch-up 😅 Type /catchup to pick it back up.",
-          { reply_markup: new InlineKeyboard().text("🏠 Menu", "nav_menu") },
+          { reply_markup: new InlineKeyboard().text("Menu", "nav_menu") },
         );
         clearActiveFlow(ctx.session);
         return;
@@ -1542,7 +1760,7 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
     console.error("Error in catchup flow:", error);
     if (ctx.session.catchup) ctx.session.catchup.active = false;
     await ctx.reply(
-      "Something went wrong on our end 😔\n\nYour dates and notes are still saved. Type /catchup to try again — you won't have to start over."
+      "Something went wrong on our end 😔\n\nYour dates and notes are still saved. Type /catchup to try again. You won't have to start over."
     );
   }
 }

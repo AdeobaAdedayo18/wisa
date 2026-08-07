@@ -125,12 +125,12 @@ export async function onboardingConversation(conversation: OnboardingConversatio
   await timeCtx.answerCallbackQuery();
   const reminderTime = timeCtx.callbackQuery.data.replace("time_", "");
 
-  // ── Step 3b — Area of interest ────────────────────────────────────────────
+  // ── Step 3b — Workplace role ──────────────────────────────────────────────
   await ctx.reply(
-    "What's your area of interest at your SIWES placement? (e.g. Web Development, Network Administration, Accounting, Electrical Maintenance) 👇",
+    "What is your job role at your SIWES placement? (e.g. web development intern, network support intern, accounts intern, maintenance technician)",
   );
   const courseCtx = await conversation.waitFor("message:text");
-  const courseOfStudy = courseCtx.message.text.trim();
+  const workplaceRole = courseCtx.message.text.trim();
 
   // ── Step 4 — Confirmation + DB save ──────────────────────────────────────
   const telegramId = BigInt(ctx.from!.id);
@@ -141,7 +141,7 @@ export async function onboardingConversation(conversation: OnboardingConversatio
         logFrequency: frequency,
         reminderTime,
         onboardingDone: true,
-        courseOfStudy,
+        workplaceRole,
       },
     }),
   );

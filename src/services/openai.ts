@@ -7,7 +7,7 @@ export const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
  * Refines a raw SIWES logbook entry into a professional, well-structured
  * write-up suitable for academic submission.
  */
-export async function refineLog(rawLog: string, courseOfStudy: string = "IT"): Promise<string> {
+export async function refineLog(rawLog: string, workplaceRole: string = "IT"): Promise<string> {
   console.log(`[refineLog] Refining log of length ${rawLog.length}`);
   const start = Date.now();
   
@@ -18,7 +18,7 @@ export async function refineLog(rawLog: string, courseOfStudy: string = "IT"): P
       messages: [
         {
           role: "system",
-          content: `You are an expert academic advisor helping a university student write their daily SIWES (Industrial Training) logbook. The student is studying: ${courseOfStudy}.
+          content: `You are helping a Nigerian student on an industrial placement write their daily SIWES (Industrial Training) logbook. The user works as: ${workplaceRole}.
 
 STEP 1: EVALUATION (THE STRICT LENIENCY RULE)
 Check if the user's input is a valid log attempt. YOU MUST BE EXTREMELY LENIENT.
@@ -26,7 +26,7 @@ Check if the user's input is a valid log attempt. YOU MUST BE EXTREMELY LENIENT.
 - REJECT (isValid: false): ONLY reject if the input is PURELY a simple greeting ("hey", "hello", "hi"), completely empty, or literal keyboard smash gibberish ("hjhj", "asdfgh"). If there is even a tiny hint of work or learning, do NOT reject.
 
 STEP 2: REFINEMENT (ONLY IF VALID)
-If isValid is true, rewrite their raw log to be professional, coherent, and grammatically correct based on what they likely meant. Expand on it intelligently based on their ${courseOfStudy}.
+If isValid is true, rewrite their raw log to be professional, coherent, and grammatically correct based on what they likely meant. Expand on it intelligently using the practical, day-to-day responsibilities of someone working as "${workplaceRole}", not generic academic concepts.
 - Length: You MUST write strictly between 40 and 45 words. Count your words.
 - Structure: Break into 2 short paragraphs.
 - Tone: Simple, natural English.
@@ -132,8 +132,11 @@ export interface CatchupEvaluation {
 export interface GeneratedCatchup {
   logs: Array<{
     dateOffset: number; // 0 for start date, 1 for the next working day, etc.
-    task: string;
-    weeklySummary: string;
+    /**
+     * The raw logbook entry, and nothing else — no headings, labels, or bullets.
+     * This string is written straight to `Log.content` for the student to copy
+     * into their physical logbook, so anything decorative here ends up there.
+     */
     content: string;
   }>;
 }
@@ -141,12 +144,15 @@ export interface GeneratedCatchup {
 /**
  * The Gatekeeper: Evaluates whether the current block has enough technical detail
  * to be safely expanded without hallucinating or repeating itself.
+ *
+ * `workplaceRole` is the user's job role and department at their placement
+ * (e.g. "network support intern, IT department"), NOT an academic course.
  */
 export async function evaluateCatchupDump(
   rawText: string,
   tier: CatchupTier,
   totalDuration: number,
-  courseOfStudy: string = "IT",
+  workplaceRole: string = "IT",
 ): Promise<CatchupDumpEvaluation> {
   console.log(`[evaluateCatchupDump] Checking dump of "${rawText.substring(0, 30)}..." for tier=${tier}, totalDuration=${totalDuration}`);
   const start = Date.now();
@@ -164,7 +170,7 @@ export async function evaluateCatchupDump(
       messages: [
         {
           role: "system",
-          content: `You are evaluating a SIWES (Industrial Training) logbook brain-dump for a Nigerian university student studying ${courseOfStudy}.
+          content: `You are evaluating a SIWES (Industrial Training) logbook brain-dump for a Nigerian student on an industrial placement working as: ${workplaceRole}.
 
 The current catch-up chunk is for tier ${tier} (${tierLabel}) and the user selected a totalDuration of ${totalDuration}.
 
@@ -177,6 +183,11 @@ SAY YES only when the text contains enough concrete technical substance to write
 SAY NO when the dump is too vague, too thin, or would force the model to pad with invented detail.
 
 If the answer is NO, return 1–2 targeted follow-up questions that ask for the missing technical specifics needed for this current chunk. Questions must be concrete and grounded in the student's work context.
+
+WORKPLACE ROLE RULE (STRICT):
+The user's specific role and department at their workplace is: ${workplaceRole}. You MUST ensure that every generated daily task strictly aligns with the practical, day-to-day responsibilities of this specific job role, rather than generic academic concepts.
+
+When asking follow-up questions, strictly tailor them to that role and the work it actually involves (e.g., a lab analyst, an accounts clerk, a site engineer). DO NOT default to asking about "programming languages" or "software tools" unless the role is explicitly an IT/software one.
 
 Return ONLY valid JSON:
 {
@@ -202,8 +213,8 @@ Return ONLY valid JSON:
   }
 }
 
-export async function evaluateCatchupDetail(rawText: string, days: number, courseOfStudy: string = "IT"): Promise<CatchupEvaluation> {
-  const result = await evaluateCatchupDump(rawText, CatchupTier.QUICK_FIX, days, courseOfStudy);
+export async function evaluateCatchupDetail(rawText: string, days: number, workplaceRole: string = "IT"): Promise<CatchupEvaluation> {
+  const result = await evaluateCatchupDump(rawText, CatchupTier.QUICK_FIX, days, workplaceRole);
   return {
     isAdequate: result.sufficientForCurrentChunk,
     followUpQuestions: result.followUpQuestions,
@@ -212,13 +223,28 @@ export async function evaluateCatchupDetail(rawText: string, days: number, cours
 }
 
 /**
+ * Belt-and-braces for the raw-entry rule: strips a leading `Task:` /
+ * `Summary:` / `Learnings:` style label if the model prepends one anyway.
+ *
+ * Deliberately narrow — it only fires on a known label at the very start of the
+ * string, so ordinary prose that happens to contain a colon is left untouched.
+ */
+function stripEntryLabels(content: string): string {
+  return content
+    .replace(/^\s*(?:daily\s+)?(?:log\s+entry|entry|task|activity|work\s+done|weekly\s+summary|summary|learnings?|lessons?\s+learn(?:ed|t))\s*:\s*/i, "")
+    .trim();
+}
+
+/**
  * The Generator: Uses a Task Lifecycle to stretch the brain-dump into distinct,
  * high-quality daily logs.
+ *
+ * `workplaceRole` is the user's job role and department. See `evaluateCatchupDump`.
  */
 export async function generateCatchupLogs(
   rawText: string,
   days: number,
-  courseOfStudy: string = "IT",
+  workplaceRole: string = "IT",
   maxDays: number = days,
 ): Promise<GeneratedCatchup> {
   console.log(`[generateCatchupLogs] Generating up to ${maxDays} logs for ${days} requested days...`);
@@ -231,7 +257,9 @@ export async function generateCatchupLogs(
       messages: [
         {
           role: "system",
-          content: `You are a professional SIWES (Industrial Training) logbook writer for a Nigerian university student studying: ${courseOfStudy}.
+          content: `You are a professional SIWES (Industrial Training) logbook writer for a Nigerian student on an industrial placement.
+
+The user's specific role and department at their workplace is: ${workplaceRole}. You MUST ensure that every generated daily task strictly aligns with the practical, day-to-day responsibilities of this specific job role, rather than generic academic concepts.
 
 Your task: Generate daily log entries from the student's brain-dump.
 The requested block duration is ${days} days, but you must generate at most ${maxDays} entries.
@@ -272,12 +300,10 @@ MULTIPLE TASKS:
   • NEVER introduce a task the student did not mention to fill remaining days
 
 STRUCTURE REQUIRED FOR EACH ENTRY:
-Return each log as a JSON object with exactly these keys:
+Return each log as a JSON object with exactly these two keys:
 {
   "dateOffset": number,
-  "task": "one concise sentence about the day's technical work",
-  "weeklySummary": "2-3 sentence summary of the day's work and lesson",
-  "content": "a fully formatted plain-text version of the same log"
+  "content": "the raw log entry text for that day"
 }
 
 Do not exceed ${maxDays} entries.
@@ -300,19 +326,23 @@ The evaluation step already capped the count to match this input. Trust that cap
 
 3. NATURAL LANGUAGE: Write like a real university student producing a professional log. Use simple, clear sentences. BANNED WORDS (never use): delve, orchestrate, seamless, foster, testament, utilize, navigate, leverage, synergize, spearhead, embark.
 
-4. FIELD-APPROPRIATE: Use technical terminology realistic for ${courseOfStudy}. A civil engineering student writes about sites, concrete, and measurements — not code reviews. A computer science student writes about algorithms, testing, and deployments — not structural surveys.
+4. ROLE-APPROPRIATE: Use the technical terminology and tools someone actually working as "${workplaceRole}" would handle day to day. Write the tasks that role performs on the job — not what a student studying the subject would learn in a lecture. A site supervisor writes about pours, setting-out, and site measurements; an accounts intern writes about postings, reconciliations, and vouchers; a network support intern writes about switches, tickets, and connectivity faults.
 
 5. NEVER WARN: Do NOT include any notices, disclaimers, or apologies. Write every log as if it is a real, lived experience.
+
+6. RAW ENTRY ONLY: For each day, output ONLY the raw narrative log entry. Do not include headings, labels (e.g., 'Task:', 'Summary:', 'Learnings:'), bullet points, or any extra metadata. Provide only the exact continuous text the student will copy-paste directly into their physical logbook.
+   The "content" value must begin with the first word of the entry itself — never with a label, a day number, a date, or a title.
 
 ════════════════════════════════════════
    OUTPUT FORMAT (STRICTLY JSON)
 ════════════════════════════════════════
 
-Return ONLY a valid JSON object with exactly this structure — no extra text, no markdown fences:
+Return ONLY a valid JSON object with exactly this structure — no extra text, no markdown fences.
+Each entry maps a day to one raw string. No other keys are permitted:
 {
   "logs": [
-    { "dateOffset": 0, "task": "...", "weeklySummary": "...", "content": "..." },
-    { "dateOffset": 1, "task": "...", "weeklySummary": "...", "content": "..." },
+    { "dateOffset": 0, "content": "..." },
+    { "dateOffset": 1, "content": "..." },
     ...continue until dateOffset ${days - 1}
   ]
 }
@@ -325,25 +355,24 @@ Aim for exactly ${maxDays} objects. Return fewer only if you cannot fill the rem
     });
 
     const parsed = JSON.parse(completion.choices[0].message.content || '{"logs": []}');
-    const logs = Array.isArray(parsed.logs)
+    const rawEntries = Array.isArray(parsed.logs)
       ? parsed.logs
           .filter((entry: unknown) => entry && typeof entry === "object")
-          .map((entry: any) => {
-            const task = String(entry.task ?? "Worked on the assigned tasks for the day.");
-            const weeklySummary = String(entry.weeklySummary ?? "Completed the day's work and documented the progress made.");
-
-            return {
-              dateOffset: Number(entry.dateOffset ?? 0),
-              task,
-              weeklySummary,
-              content: String(
-                entry.content ??
-                `Task: ${task}\nWeekly Summary: ${weeklySummary}`
-              ),
-            };
-          })
-          .slice(0, maxDays)
+          .map((entry: any) => ({
+            dateOffset: Number(entry.dateOffset ?? 0),
+            content: stripEntryLabels(typeof entry.content === "string" ? entry.content : ""),
+          }))
       : [];
+
+    // An entry with no usable content used to be backfilled with
+    // `Task: …\nWeekly Summary: …` — the exact labelled format this prompt now
+    // forbids, written straight into the student's logbook. There is nothing
+    // honest to substitute, so drop the entry instead of decorating it.
+    const logs = rawEntries.filter((entry: { content: string }) => entry.content.length > 0).slice(0, maxDays);
+
+    if (logs.length < rawEntries.length) {
+      console.warn(`[generateCatchupLogs] Dropped ${rawEntries.length - logs.length} entr(ies) with empty content`);
+    }
 
     console.log(`[generateCatchupLogs] Success in ${Date.now() - start}ms`);
     return { logs } as GeneratedCatchup;
@@ -353,6 +382,6 @@ Aim for exactly ${maxDays} objects. Return fewer only if you cannot fill the rem
   }
 }
 
-export async function generateMultiDayLogs(rawText: string, days: number, courseOfStudy: string = "IT"): Promise<GeneratedCatchup> {
-  return generateCatchupLogs(rawText, days, courseOfStudy, days);
+export async function generateMultiDayLogs(rawText: string, days: number, workplaceRole: string = "IT"): Promise<GeneratedCatchup> {
+  return generateCatchupLogs(rawText, days, workplaceRole, days);
 }

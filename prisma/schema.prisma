@@ -46,7 +46,9 @@ model User {
   firstName          String
   username           String?
   paymentEmail       String?
-  courseOfStudy      String?
+  // The user's job role and department at their industrial placement, e.g.
+  // "network support intern, IT department". Renamed from `courseOfStudy`.
+  workplaceRole      String?
   logFrequency       String // "daily" | "bi-daily" | "every-3-days" | "weekly"
   reminderTime       String // "HH:MM" in 24hr format
   timezone           String          @default("Africa/Lagos")

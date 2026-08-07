@@ -40,11 +40,15 @@ export interface SessionData {
    * it as a log entry.
    */
   pendingVoiceTranscription?: string;
-  /** True while the bot is waiting for the user's course of study (for text logs). */
+  /**
+   * True while the bot is waiting for the user's workplace role (for text logs).
+   * Key name kept as-is on purpose: renaming it would strand users whose stored
+   * session already carries the old key mid-flow.
+   */
   awaitingCourse?: boolean;
-  /** Draft log text temporarily held while the user provides their course (for text logs). */
+  /** Draft log text temporarily held while the user provides their role (for text logs). */
   draftLogForCourse?: string;
-  /** True while the bot is waiting for the user's course of study specifically during a Voice Log flow. */
+  /** True while the bot is waiting for the user's workplace role during a Voice Log flow. */
   awaitingCourseForVoice?: boolean;
   /** Raw text staged for the Compare & Choose AI save flow. */
   pendingRawText?: string;
@@ -78,6 +82,23 @@ export interface SessionData {
 
   /** Active CatchupSession DB id for the current rescue flow. */
   catchupSessionId?: string;
+
+  /**
+   * True when the user arrived through the `?start=catchup…` deep link rather
+   * than normal onboarding. Persisted with the rest of the session, so a restart
+   * mid-flow does not lose the fact that they are in the express lane.
+   *
+   * These users are written with `onboardingDone: true` and never picked a
+   * reminder frequency or time, so the post-generation handoff needs this flag
+   * to know it still owes them the reminder setup.
+   */
+  isCatchupFastTrack?: boolean;
+
+  /**
+   * Raw deep-link payload the fast-track user entered on (e.g. `catchup_ig`).
+   * Kept for attribution — the flow itself only cares about the `catchup` prefix.
+   */
+  catchupEntrySource?: string;
 
   /**
    * Monotonic revision of the catch-up keys (`catchup`, `catchupSessionId`).
@@ -135,7 +156,7 @@ export interface SessionData {
     workingDays?: number;
     rawDump?: string;
     questionCount?: number;
-    courseOfStudy?: string;
+    workplaceRole?: string;
     wasCapped?: boolean;
     originalRequestedDays?: number;
     cappedWorkingDays?: number;
@@ -193,7 +214,7 @@ export function clearActiveFlow(session: SessionData): void {
     session.catchup.workingDays = undefined;
     session.catchup.rawDump = undefined;
     session.catchup.questionCount = undefined;
-    session.catchup.courseOfStudy = undefined;
+    session.catchup.workplaceRole = undefined;
   } else {
     session.catchup = { active: false, step: 'none' };
   }
@@ -201,6 +222,11 @@ export function clearActiveFlow(session: SessionData): void {
   // NOTE: intentionally does NOT clear `postPaymentAction`.
   // Payment flows call clearActiveFlow, and we still want to resume the
   // original user action after payment succeeds.
+  //
+  // NOTE: intentionally does NOT clear `isCatchupFastTrack` / `catchupEntrySource`.
+  // `startCatchupFlow` calls this on entry, and the completion handoff reads the
+  // flag long after the flow itself has been torn down. Clearing it here would
+  // wipe it before the flow it describes has even started.
 }
 
 /**

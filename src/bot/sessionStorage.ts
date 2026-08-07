@@ -79,6 +79,26 @@ export function createSessionStorage(): StorageAdapter<SessionData> {
 }
 
 /**
+ * Reads a stored session from outside the grammY update cycle.
+ *
+ * Fulfilment triggered by the Paystack webhook has no `ctx`, so anything it
+ * needs to branch on (e.g. `isCatchupFastTrack`) has to come from here rather
+ * than `ctx.session`. Returns null when the user has no session row yet or the
+ * blob is unreadable — callers should treat that as "flag not set".
+ */
+export async function readStoredSession(key: string): Promise<Partial<SessionData> | null> {
+  const row = await prisma.session.findUnique({ where: { key }, select: { value: true } });
+  if (!row?.value) return null;
+
+  try {
+    return JSON.parse(row.value) as Partial<SessionData>;
+  } catch {
+    console.warn(`[session] Could not parse stored session for ${key}`);
+    return null;
+  }
+}
+
+/**
  * Merges a patch into a stored session's catch-up state from outside the grammY
  * update cycle, bumping `catchupRev` so an in-flight update cannot clobber it.
  * Returns true when the patch was written.

@@ -70,8 +70,8 @@ export async function handleAiRefine(ctx: BotContext): Promise<void> {
   });
 
   try {
-    const courseOfStudy = dbUser.courseOfStudy ?? "IT";
-    const refined = await refineLog(log.content, courseOfStudy);
+    const workplaceRole = dbUser.workplaceRole ?? "IT";
+    const refined = await refineLog(log.content, workplaceRole);
 
     // ✅ Decrement BEFORE showing the comparison (already checked above)
     if (!unlocked) {
@@ -493,12 +493,12 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
 
     ctx.session.pendingVoiceTranscription = transcription;
 
-    if (!dbUser.courseOfStudy) {
+    if (!dbUser.workplaceRole) {
       ctx.session.awaitingCourseForVoice = true;
       await ctx.api.editMessageText(
         ctx.chat!.id,
         processingMsg.message_id,
-        "🎤 Transcription complete!\n\nBefore I refine this into a professional log, what is your **Course of Study**? (e.g., Computer Science, Accounting)\n\n_Please type it below:_",
+        "Transcription complete!\n\nBefore I refine this into a professional log, what is your **job role**? (e.g., network support intern, accounts intern)\n\n_Please type it below:_",
         { parse_mode: "Markdown" }
       ).catch(() => {});
       return;
@@ -510,7 +510,7 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
       "🎤 Voice transcribed! ✨ Refining your log...",
     ).catch(() => {});
 
-    const refined = await refineLog(transcription, dbUser.courseOfStudy);
+    const refined = await refineLog(transcription, dbUser.workplaceRole);
 
     if (!unlocked) {
       await prisma.user.update({
@@ -544,7 +544,7 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
 // ---------------------------------------------------------------------------
 // 8.4 — Voice Resume (Called when user replies with their Course of Study)
 // ---------------------------------------------------------------------------
-export async function continueVoiceRefinementAfterCourse(ctx: BotContext, courseOfStudy: string): Promise<void> {
+export async function continueVoiceRefinementAfterCourse(ctx: BotContext, workplaceRole: string): Promise<void> {
   const awaitingFirstLog = ctx.session.awaitingFirstLog;
 
   const telegramId = BigInt(ctx.from!.id);
@@ -559,7 +559,7 @@ export async function continueVoiceRefinementAfterCourse(ctx: BotContext, course
 
   const dbUser = await prisma.user.update({
     where: { telegramId },
-    data: { courseOfStudy },
+    data: { workplaceRole },
   });
 
   const monetizationUser = await getMonetizationUserByTelegramId(telegramId);
@@ -569,7 +569,7 @@ export async function continueVoiceRefinementAfterCourse(ctx: BotContext, course
   const loadingMsg = await ctx.reply("✨ Got it! Refining your voice log...", { parse_mode: "Markdown" });
 
   try {
-    const refined = await refineLog(transcription, courseOfStudy);
+    const refined = await refineLog(transcription, workplaceRole);
 
     if (!unlocked) {
       await prisma.user.update({
