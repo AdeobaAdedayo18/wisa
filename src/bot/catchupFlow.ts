@@ -160,6 +160,10 @@ export function generateCatchupCalendar(year: number, month: number, mode: 'star
   kb.text("Cancel", "ccal_cancel");
   kb.text("Next", `ccal_nav_${mode}_${nextYear}_${nextMonth}`);
 
+  // Own row so it never competes with month navigation. Built here rather than
+  // at the call site so it survives Prev/Next, which re-render the whole board.
+  kb.row().text("Back", "catchup_back_duration");
+
   return kb;
 }
 
@@ -248,7 +252,8 @@ function generateCatchupDurationKeyboard(tier: CatchupTier): InlineKeyboard {
     if ((index + 1) % 3 === 0) kb.row();
   });
 
-  return kb.row().text("Cancel", "ccal_cancel");
+  // Back returns to the tier keyboard, so a wrong plan is one tap to undo.
+  return kb.row().text("Back", "catchup_back_tier").text("Cancel", "ccal_cancel");
 }
 
 async function getCatchupSessionForCurrentUser(ctx: BotContext) {
@@ -1541,6 +1546,16 @@ async function resumePaidCatchupSession(
 
 /** The tier keyboard. Extracted so the deep-link funnel can reach it after the
  *  role question without the copy being duplicated. */
+/** Single source for the tier copy, so Back can re-render it identically. */
+const CATCHUP_TIER_PROMPT =
+  "Got some empty days in your logbook?\n\n" +
+  "No worries. Just tell me a bit about what you've been doing at work lately, and I'll handle writing the actual logs for you. How many weeks or months are you missing?";
+
+/** Single source for the duration copy, for the same reason. */
+function catchupDurationPrompt(tier: CatchupTier): string {
+  return `Got it. How many ${getCatchupTierUnit(tier)} are you missing?`;
+}
+
 async function sendCatchupTierPrompt(ctx: BotContext): Promise<void> {
   ctx.session.catchup = {
     active: true,
@@ -1549,8 +1564,7 @@ async function sendCatchupTierPrompt(ctx: BotContext): Promise<void> {
   };
 
   await ctx.reply(
-    "Got some empty days in your logbook?\n\n" +
-      "No worries. Just tell me a bit about what you've been doing at work lately, and I'll handle writing the actual logs for you. How many weeks or months are you missing?",
+    CATCHUP_TIER_PROMPT,
     { parse_mode: "Markdown", reply_markup: generateCatchupTierKeyboard() }
   );
 }
@@ -1705,9 +1719,8 @@ async function routeCatchupCallback(ctx: BotContext) {
       startedAt: Date.now(),
     };
 
-    const unit = getCatchupTierUnit(tierSelected);
     await ctx.editMessageText(
-      `Got it. How many ${unit} are you missing?`,
+      catchupDurationPrompt(tierSelected),
       { reply_markup: generateCatchupDurationKeyboard(tierSelected) },
     ).catch(() => {});
     return;
@@ -1735,7 +1748,49 @@ async function routeCatchupCallback(ctx: BotContext) {
 
     // Answered before the write, for the same reason as the tier handler above.
     await ctx.answerCallbackQuery();
+    // Retire this picker before the calendar is sent. Otherwise both keyboards
+    // stay live and Back from the calendar leaves two duration pickers on screen.
+    await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
     await applyCatchupDuration(ctx, catchupSession.id, duration, state.startedAt);
+    return;
+  }
+
+  // Back: duration picker -> tier keyboard.
+  if (data === "catchup_back_tier") {
+    await ctx.answerCallbackQuery();
+
+    ctx.session.catchup = {
+      active: true,
+      step: 'awaiting_tier_selection',
+      startedAt: state?.startedAt ?? Date.now(),
+    };
+
+    await ctx.editMessageText(CATCHUP_TIER_PROMPT, {
+      parse_mode: "Markdown",
+      reply_markup: generateCatchupTierKeyboard(),
+    }).catch(() => {});
+    return;
+  }
+
+  // Back: date picker -> duration picker. Needs the tier to rebuild the options.
+  if (data === "catchup_back_duration") {
+    const catchupSession = await getCatchupSessionForCurrentUser(ctx);
+    if (!catchupSession) {
+      await ctx.answerCallbackQuery("Couldn't find this catch-up session. Please type /catchup again.");
+      return;
+    }
+
+    await ctx.answerCallbackQuery();
+
+    ctx.session.catchup = {
+      active: true,
+      step: 'awaiting_duration',
+      startedAt: state?.startedAt ?? Date.now(),
+    };
+
+    await ctx.editMessageText(catchupDurationPrompt(catchupSession.tierSelected), {
+      reply_markup: generateCatchupDurationKeyboard(catchupSession.tierSelected),
+    }).catch(() => {});
     return;
   }
 
