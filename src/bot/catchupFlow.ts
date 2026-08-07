@@ -1549,7 +1549,8 @@ async function sendCatchupTierPrompt(ctx: BotContext): Promise<void> {
   };
 
   await ctx.reply(
-    "Got some empty days in your logbook? No worries. Just tell me a bit about what you've been doing at work lately, and I'll handle writing the actual logs for you. How many weeks or months are you missing?",
+    "Got some empty days in your logbook?\n\n" +
+      "No worries. Just tell me a bit about what you've been doing at work lately, and I'll handle writing the actual logs for you. How many weeks or months are you missing?",
     { parse_mode: "Markdown", reply_markup: generateCatchupTierKeyboard() }
   );
 }
