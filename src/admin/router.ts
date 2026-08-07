@@ -13,6 +13,7 @@ import {
 import { bot } from "../bot/index";
 import { STORAGE_PRICE_LABEL } from "../bot/monetization";
 import { sendWeeklyRecap } from "../services/scheduler";
+import { getCatchupAnalytics } from "../services/catchupAnalytics";
 
 const router = Router();
 
@@ -1105,5 +1106,18 @@ router.get(
     }
   }
 );
+
+// ─── /api/analytics/catchup ───────────────────────────────────────────────────
+// Catch-up KPIs: revenue, conversion funnel, tier popularity, fulfilment health.
+// Sits behind the router-level basicAuth like every other endpoint here, so a
+// plain `fetch('/admin/api/analytics/catchup')` from dashboard.html is already
+// authenticated by the browser's Basic credentials for this protection space.
+router.get("/api/analytics/catchup", async (_req: Request, res: Response): Promise<void> => {
+  try {
+    res.json(await getCatchupAnalytics());
+  } catch (err) {
+    handleError(res, "/api/analytics/catchup", err);
+  }
+});
 
 export { router as adminRouter };

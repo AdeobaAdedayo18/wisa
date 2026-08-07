@@ -1025,6 +1025,10 @@
         <span class="nav-icon">💳</span> Subscriptions
         <span id="payments-badge" class="nav-badge hidden">0</span>
       </div>
+      <div class="nav-item" data-panel="catchup" onclick="setPanel('catchup')">
+        <span class="nav-icon">🗓️</span> Catch-Up
+        <span id="catchup-stuck-badge" class="nav-badge hidden">0</span>
+      </div>
     </div>
 
     <div class="nav-section">
@@ -1233,6 +1237,39 @@
 
       </div><!-- /panel-payments -->
 
+      <!-- ── CATCH-UP ANALYTICS ─────────────────────────────────────── -->
+      <div id="panel-catchup" class="panel">
+
+        <div class="analytics-hero">
+          <div>
+            <h2>Catch-Up Analytics</h2>
+            <p>Rescue Pass revenue, checkout conversion, and fulfilment health for the catch-up feature.</p>
+          </div>
+        </div>
+
+        <div class="stats-grid" id="catchup-stats-grid">
+          <div class="skeleton skeleton-card"></div>
+          <div class="skeleton skeleton-card"></div>
+          <div class="skeleton skeleton-card"></div>
+          <div class="skeleton skeleton-card"></div>
+        </div>
+
+        <div id="catchup-footnote" class="card-sub" style="margin-top:-8px; margin-bottom: 24px; color: var(--t3); font-size: 11.5px;"></div>
+
+        <div class="section-row">
+          <div class="section-card">
+            <div class="section-header">
+              <h3>Tier Breakdown</h3>
+              <span class="count-badge" id="catchup-paid-count">–</span>
+            </div>
+            <div class="section-body" id="catchup-tier-wrap">
+              <div class="loading-row">Loading…</div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /panel-catchup -->
+
       <!-- ── REMINDERS ──────────────────────────────────────────────── -->
       <div id="panel-reminders" class="panel">
 
@@ -1413,6 +1450,7 @@ const PANEL_TITLES = {
   users: 'Users',
   logs: 'Logs',
   payments: 'Subscriptions',
+  catchup: 'Catch-Up Analytics',
   reminders: 'Reminders',
   replay: 'Session Replay',
 };
@@ -1467,6 +1505,7 @@ async function loadPanel(name) {
     case 'users':     return loadUsers();
     case 'logs':      return loadLogs();
     case 'payments':  return loadPayments();
+    case 'catchup':   return loadCatchup();
     case 'reminders': return loadReminders();
     case 'replay':    return loadReplaySessions();
   }
@@ -1761,6 +1800,112 @@ function renderStatCards(s) {
       <div class="card-sub">${c.sub}</div>
     </div>
   `).join('');
+}
+
+// ── Catch-Up Analytics ─────────────────────────────────────────────
+function fmtNaira(n) {
+  return '₦' + Number(n || 0).toLocaleString('en-NG');
+}
+
+async function loadCatchup() {
+  try {
+    const data = await api('/analytics/catchup');
+    renderCatchup(data);
+    markUpdated();
+  } catch (err) {
+    // Contained on purpose: a failure here must not take down the rest of the
+    // dashboard, and the auto-refresh timer keeps retrying every 60s.
+    console.error('[catchup analytics]', err);
+    toast('Failed to load catch-up analytics: ' + err.message, 'error');
+    document.getElementById('catchup-stats-grid').innerHTML =
+      `<div class="stat-card card-red">
+         <div class="card-icon">⚠️</div>
+         <div class="card-label">Catch-Up Analytics</div>
+         <div class="card-value">–</div>
+         <div class="card-sub">Could not load. Retrying on next refresh.</div>
+       </div>`;
+    document.getElementById('catchup-tier-wrap').innerHTML =
+      `<div class="loading-row">Unavailable — ${err.message}</div>`;
+    document.getElementById('catchup-footnote').textContent = '';
+  }
+}
+
+function renderCatchup(d) {
+  const revenue = d.revenue || {};
+  const funnel = d.funnel || {};
+  // The API ships this block as `fulfilment`; `active` is tolerated so a later
+  // rename on the server does not blank the page.
+  const active = d.fulfilment || d.active || {};
+  const tiers = Array.isArray(d.tiers) ? d.tiers : [];
+
+  const cards = [
+    {
+      label: 'Total Revenue (Collected)', value: fmtNaira(revenue.collectedNaira),
+      sub: `${fmt(funnel.sessionsPaid || 0)} paid session${funnel.sessionsPaid === 1 ? '' : 's'}`,
+      icon: '💰', cls: 'card-green',
+    },
+    {
+      label: 'Active Paid Sessions', value: fmt(active.inProgress || 0),
+      sub: `${fmt(active.completed || 0)} completed of ${fmt(active.paidTotal || 0)} paid`,
+      icon: '⏳', cls: 'card-purple',
+    },
+    {
+      label: 'Checkout Conversion', value: `${funnel.conversionRatePct ?? 0}%`,
+      sub: `${fmt(funnel.sessionsPaid || 0)} paid of ${fmt(funnel.sessionsInitiated || 0)} started`,
+      icon: '📈', cls: 'card-purple',
+    },
+    {
+      label: 'Stuck Users', value: fmt(active.stuck || 0),
+      sub: active.stuck
+        ? `Untouched for ${active.stuckThresholdMinutes || 15}+ min — sweeper should reclaim`
+        : 'Nothing stalled',
+      icon: '⚠️', cls: active.stuck ? 'card-red' : '',
+    },
+  ];
+
+  document.getElementById('catchup-stats-grid').innerHTML = cards.map(c => `
+    <div class="stat-card ${c.cls}">
+      <div class="card-icon">${c.icon}</div>
+      <div class="card-label">${c.label}</div>
+      <div class="card-value">${c.value}</div>
+      <div class="card-sub">${c.sub}</div>
+    </div>
+  `).join('');
+
+  // Surface stuck sessions on the sidebar so they are visible from any panel.
+  const badge = document.getElementById('catchup-stuck-badge');
+  if (badge) {
+    badge.textContent = active.stuck || 0;
+    badge.classList.toggle('hidden', !active.stuck);
+  }
+
+  // Footnote: expected (list-price) revenue, plus any caveat the API attached.
+  const note = (d.notes && d.notes.length)
+    ? ' · ' + d.notes.join(' ')
+    : ' · Priced at current list rates.';
+  document.getElementById('catchup-footnote').textContent =
+    `Expected revenue at list price: ${fmtNaira(revenue.expectedNaira)}${note}`;
+
+  document.getElementById('catchup-paid-count').textContent = fmt(funnel.sessionsPaid || 0);
+
+  const rows = tiers.filter(t => t.initiatedCount || t.paidCount);
+  document.getElementById('catchup-tier-wrap').innerHTML = rows.length
+    ? `<table class="data-table">
+         <thead>
+           <tr><th>Tier</th><th>Paid</th><th>Started</th><th>Avg size</th><th>Revenue</th></tr>
+         </thead>
+         <tbody>
+           ${rows.map(t => `
+             <tr>
+               <td>${t.tier}</td>
+               <td>${fmt(t.paidCount)}</td>
+               <td class="muted">${fmt(t.initiatedCount)}</td>
+               <td class="small">${t.averageDuration == null ? '–' : `${t.averageDuration} ${t.durationUnit}`}</td>
+               <td>${fmtNaira(t.expectedRevenueNaira)}</td>
+             </tr>`).join('')}
+         </tbody>
+       </table>`
+    : `<div class="loading-row">No catch-up sessions yet.</div>`;
 }
 
 function renderAnalyticsBucketTable(s) {
