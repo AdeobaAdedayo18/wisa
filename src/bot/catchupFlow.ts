@@ -401,6 +401,16 @@ function buildContextDump(payload: NormalizedContextPayload): Prisma.InputJsonVa
 const WORKING_DAYS_PER_WEEK = 5;
 const WORKING_DAYS_PER_MONTH = 20;
 
+/**
+ * How close the last generated log must land to today for a catch-up to count
+ * as reaching the present.
+ *
+ * Three days absorbs a weekend plus today itself, so a backlog ending last
+ * Friday still counts on a Monday morning. Anything older means the user is
+ * genuinely still behind.
+ */
+const CAUGHT_UP_TOLERANCE_MS = 3 * 24 * 60 * 60 * 1000;
+
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
@@ -1307,11 +1317,27 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
       );
     }
 
-    // Fast-track users get the reminder bridge INSTEAD of the standard sign-off,
-    // not after it — that message opens with its own "caught up" line, and its
-    // "Write Today's Log" button would compete with the time picker. They still
-    // get it when nothing was saved: the reminder setup is their onboarding.
-    if (await isFastTrackUser(telegramId, ctx)) {
+    // The reminder bridge opens with "You're completely caught up", so it may
+    // only run when that is actually true. Someone who fills a June gap in
+    // August is still behind, and asking them to pick a daily reminder time is
+    // premature. Their fast-track flag is deliberately left set, so a later
+    // catch-up that does reach the present will offer it then.
+    const totalWorkingDays = isQuickFix
+      ? safeDuration * WORKING_DAYS_PER_WEEK
+      : totalBlocks * WORKING_DAYS_PER_MONTH;
+    const lastCoveredDay = nthWorkingDayFrom(new Date(catchupSession.startDate), totalWorkingDays - 1);
+    const reachesToday = Date.now() - lastCoveredDay.getTime() <= CAUGHT_UP_TOLERANCE_MS;
+
+    if (!reachesToday) {
+      console.log(
+        `[catchup] Session ${sessionId} ends ${lastCoveredDay.toISOString().split('T')[0]} — still behind, skipping reminder setup.`,
+      );
+    }
+
+    // Otherwise it replaces the standard sign-off rather than following it: that
+    // message carries its own "caught up" line, and its button would compete
+    // with the time picker.
+    if (reachesToday && (await isFastTrackUser(telegramId, ctx))) {
       await promptFastTrackReminderSetup(telegramId);
     } else if (!nothingNewSaved) {
       await notifyCatchupUser(
