@@ -779,17 +779,17 @@ async function sendRescuePassInvoice(
   };
 
   const unit = getCatchupTierUnit(catchupSession.tierSelected);
-  const coverage = `${catchupSession.totalDuration} ${
-    catchupSession.totalDuration === 1 ? unit.slice(0, -1) : unit
-  }`;
+  const unitLabel = catchupSession.totalDuration === 1 ? unit.slice(0, -1) : unit;
+  // "3 months" for the body, "3 Months" for the headline.
+  const coverage = `${catchupSession.totalDuration} ${unitLabel}`;
+  const coverageTitle = `${catchupSession.totalDuration} ${unitLabel.charAt(0).toUpperCase()}${unitLabel.slice(1)}`;
 
   await ctx.reply(
-    `*Rescue Pass Ready*\n\n` +
-      `*Coverage:* ${coverage}\n` +
-      `*Delivery:* about 90 seconds\n` +
-      `*Price:* ₦${priceNaira.toLocaleString("en-NG")}\n\n` +
-      `Tap below to pay securely via Paystack. This covers the full ${coverage}. ` +
-      `The moment you pay, your logs will be ready to copy straight into your logbook.\n\n` +
+    `Get ${coverageTitle} of Logs, Filled For You, asap\n\n` +
+      `${coverage} of logs. Done in minutes, not weeks.\n\n` +
+      `₦${priceNaira.toLocaleString("en-NG")}\n\n` +
+      `Pay securely with Paystack below.\n` +
+      `The moment it clears, your logs are ready to copy straight into your logbook.\n\n` +
       `\`Ref: ${reference}\``,
     {
       parse_mode: "Markdown",
