@@ -1308,14 +1308,7 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
 
     await applyState({ active: false, step: 'none', startedAt: undefined }, { clearSessionId: true });
 
-    // Never claim the backlog is filled out when we added nothing to it.
-    if (nothingNewSaved) {
-      await notifyCatchupUser(
-        telegramId,
-        ZERO_NEW_LOGS_MESSAGE,
-        { reply_markup: new InlineKeyboard().text("View my logs", "nav_logs") },
-      );
-    }
+    const isFastTrack = await isFastTrackUser(telegramId, ctx);
 
     // The reminder bridge opens with "You're completely caught up", so it may
     // only run when that is actually true. Someone who fills a June gap in
@@ -1334,17 +1327,29 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
       );
     }
 
-    // Otherwise it replaces the standard sign-off rather than following it: that
-    // message carries its own "caught up" line, and its button would compete
-    // with the time picker.
-    if (reachesToday && (await isFastTrackUser(telegramId, ctx))) {
+    const willPromptReminder = reachesToday && isFastTrack;
+
+    // A fast-track user has never been sent the persistent menu — it only ever
+    // arrives at the end of the reminder flow. When that flow is skipped, the
+    // sign-off has to carry it or they are left with no menu at all. Telegram
+    // allows one markup per message, but the menu includes "See my logs", so
+    // the inline shortcut is not lost by swapping it in.
+    const signOffMarkup = !willPromptReminder && isFastTrack
+      ? await mainMenuKeyboardForUser(catchupSession.userId)
+      : new InlineKeyboard().text("View my logs", "nav_logs");
+
+    // Never claim the backlog is filled out when we added nothing to it.
+    if (nothingNewSaved) {
+      await notifyCatchupUser(telegramId, ZERO_NEW_LOGS_MESSAGE, { reply_markup: signOffMarkup });
+    }
+
+    // Otherwise the reminder bridge replaces the standard sign-off rather than
+    // following it: that message carries its own "caught up" line, and its
+    // button would compete with the time picker.
+    if (willPromptReminder) {
       await promptFastTrackReminderSetup(telegramId);
     } else if (!nothingNewSaved) {
-      await notifyCatchupUser(
-        telegramId,
-        ALL_DONE_MESSAGE,
-        { reply_markup: new InlineKeyboard().text("View my logs", "nav_logs") },
-      );
+      await notifyCatchupUser(telegramId, ALL_DONE_MESSAGE, { reply_markup: signOffMarkup });
     }
 
     if (catchupSession.tierSelected === CatchupTier.VIP_DEFENSE) {
@@ -1445,6 +1450,21 @@ export async function promptFastTrackReminderSetup(telegramId: bigint): Promise<
       "What time should I text you to ask for your daily log?",
     { reply_markup: keyboard },
   );
+}
+
+/**
+ * Builds the persistent main menu keyboard for a user we only have an id for.
+ *
+ * Needed on the fulfilment path, which frequently runs from the Paystack webhook
+ * with no ctx to reply through.
+ */
+async function mainMenuKeyboardForUser(userId: number) {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, firstName: true, isPro: true, storageUnlocked: true, logCount: true, nextRenewalDate: true },
+  });
+
+  return getMainMenuKeyboard(user ? hasActiveStorage(user) : false);
 }
 
 /**
