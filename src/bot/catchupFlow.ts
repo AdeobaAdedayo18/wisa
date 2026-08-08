@@ -224,6 +224,26 @@ export function isPlausibleWorkplaceRole(text: string): boolean {
 const WORKPLACE_ROLE_QUESTION =
   "Before I write this, what exactly is your job role and department at your IT placement?";
 
+/**
+ * The brain-dump ask, assembled from one template.
+ *
+ * Only the opener and the period change between the four entry points (weeks or
+ * months, first ask or the repeat after the role question). Everything from
+ * "Drop the projects" onward is shared, so a copy edit lands in one place and
+ * the tiers cannot end up reading differently on the same screen.
+ *
+ * `lead` carries the greeting through the verb, e.g. "Perfect. Tell me" or
+ * "Got it! Now, tell me". `period` is the span, e.g. "this entire 3-week
+ * period" or "*June*".
+ */
+function buildCatchupDumpPrompt(lead: string, period: string): string {
+  return (
+    `${lead} everything you worked on during ${period}. ` +
+    "Drop the projects, tools, challenges, and lessons. Tell me all the deets 🤭\n\n" +
+    "(You can type it out, or just send a voice note)"
+  );
+}
+
 /** The exact rejection shown at every workplace-role capture point. */
 export const INVALID_ROLE_REPLY =
   "That doesn't look like a job role 😅 Please reply with your actual position so I can write accurate logs for you.";
@@ -1941,10 +1961,12 @@ async function routeCatchupCallback(ctx: BotContext) {
 
     // The row was just updated above, so read the month off the date we wrote.
     const anchorDate = new Date(selectedDate);
-    const dumpPrompt = (catchupSession.tierSelected === CatchupTier.QUICK_FIX
-      ? `Perfect. Tell me everything you worked on during this entire ${catchupSession.totalDuration}-week period. Drop the projects, tools, challenges, and lessons. Tell me all the deets 🤭`
-      : `Perfect. Tell me everything you worked on during *${getBlockMonthName(anchorDate, catchupSession.currentBlock)}*. Drop the projects, tools, challenges, and lessons. Tell me all the deets 🤭`)
-      + "\n\n(You can type it out, or just send a voice note)";
+    const dumpPrompt = buildCatchupDumpPrompt(
+      "Perfect. Tell me",
+      catchupSession.tierSelected === CatchupTier.QUICK_FIX
+        ? `this entire ${catchupSession.totalDuration}-week period`
+        : `*${getBlockMonthName(anchorDate, catchupSession.currentBlock)}*`,
+    );
 
     await ctx.editMessageText(dumpPrompt, { parse_mode: "Markdown" }).catch(() => {});
     await ctx.answerCallbackQuery();
@@ -2137,16 +2159,16 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
         };
 
         const courseCatchupSession = await getCatchupSessionForCurrentUser(ctx);
+        const coursePeriod = courseCatchupSession?.tierSelected === CatchupTier.QUICK_FIX
+          ? `this entire ${courseCatchupSession.totalDuration}-week period`
+          : `*${
+              courseCatchupSession
+                ? getBlockMonthName(new Date(courseCatchupSession.startDate), courseCatchupSession.currentBlock)
+                : "that month"
+            }*`;
+
         await ctx.reply(
-          courseCatchupSession?.tierSelected === CatchupTier.QUICK_FIX
-            ? `Got it! Now, tell me everything you worked on during this entire ${courseCatchupSession.totalDuration}-week period. Drop the projects, tools, challenges, and lessons. Tell me all the deets 🤭` +
-                "\n\n(You can type it out, or just send a voice note)"
-            : `Got it! Now, tell me everything you worked on during *${
-                courseCatchupSession
-                  ? getBlockMonthName(new Date(courseCatchupSession.startDate), courseCatchupSession.currentBlock)
-                  : "that month"
-              }*. Drop the projects, tools, challenges, and lessons. Tell me all the deets 🤭` +
-                "\n\n(You can type it out, or just send a voice note)",
+          buildCatchupDumpPrompt("Got it! Now, tell me", coursePeriod),
           { parse_mode: "Markdown" },
         );
         return;
