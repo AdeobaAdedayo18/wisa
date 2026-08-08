@@ -156,9 +156,9 @@ export function generateCatchupCalendar(year: number, month: number, mode: 'star
   const nextMonth = month === 11 ? 0 : month + 1;
   const nextYear = month === 11 ? year + 1 : year;
 
-  kb.text("Prev", `ccal_nav_${mode}_${prevYear}_${prevMonth}`);
+  kb.text("◀️ Prev", `ccal_nav_${mode}_${prevYear}_${prevMonth}`);
   kb.text("Cancel", "ccal_cancel");
-  kb.text("Next", `ccal_nav_${mode}_${nextYear}_${nextMonth}`);
+  kb.text("Next ▶️", `ccal_nav_${mode}_${nextYear}_${nextMonth}`);
 
   // Own row so it never competes with month navigation. Built here rather than
   // at the call site so it survives Prev/Next, which re-render the whole board.
@@ -1650,7 +1650,8 @@ const CATCHUP_TIER_PROMPT =
 
 /** Single source for the duration copy, for the same reason. */
 function catchupDurationPrompt(tier: CatchupTier): string {
-  return `Got it. How many ${getCatchupTierUnit(tier)} are you missing?`;
+  const unit = getCatchupTierUnit(tier);
+  return `Got it. How many ${unit} are you missing? We'll take it one ${unit.slice(0, -1)} at a time. 😌`;
 }
 
 async function sendCatchupTierPrompt(ctx: BotContext): Promise<void> {
@@ -1705,9 +1706,38 @@ export async function startCatchupFlow(ctx: BotContext) {
  * Records the chosen duration and moves the user on to the date picker.
  * Shared by the duration keyboard and the typed-number fallback.
  */
+/**
+ * The month the date picker should open on: the chosen duration counted back
+ * from today.
+ *
+ * Someone catching up three months almost certainly started three months ago,
+ * so opening on the current month made them tap Prev three times before they
+ * could reach any plausible date. Local time throughout, matching the rest of
+ * the calendar rendering.
+ */
+function catchupCalendarStartMonth(
+  tier: CatchupTier,
+  duration: number,
+  from: Date = new Date(),
+): { year: number; month: number } {
+  if (getCatchupTierUnit(tier) === "weeks") {
+    const target = new Date(from);
+    target.setDate(target.getDate() - duration * 7);
+    return { year: target.getFullYear(), month: target.getMonth() };
+  }
+
+  // Anchored to the 1st before subtracting: setMonth on the 31st overflows
+  // (31 March minus one month lands in March again), which would show the
+  // wrong month entirely.
+  const target = new Date(from.getFullYear(), from.getMonth(), 1);
+  target.setMonth(target.getMonth() - duration);
+  return { year: target.getFullYear(), month: target.getMonth() };
+}
+
 async function applyCatchupDuration(
   ctx: BotContext,
   sessionId: string,
+  tier: CatchupTier,
   duration: number,
   startedAt?: number,
 ): Promise<void> {
@@ -1722,9 +1752,9 @@ async function applyCatchupDuration(
     startedAt: startedAt ?? Date.now(),
   };
 
-  const now = new Date();
+  const { year, month } = catchupCalendarStartMonth(tier, duration);
   await ctx.reply("What exact date did this start?", {
-    reply_markup: generateCatchupCalendar(now.getFullYear(), now.getMonth(), 'start'),
+    reply_markup: generateCatchupCalendar(year, month, 'start'),
   });
 }
 
@@ -1848,7 +1878,7 @@ async function routeCatchupCallback(ctx: BotContext) {
     // Retire this picker before the calendar is sent. Otherwise both keyboards
     // stay live and Back from the calendar leaves two duration pickers on screen.
     await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
-    await applyCatchupDuration(ctx, catchupSession.id, duration, state.startedAt);
+    await applyCatchupDuration(ctx, catchupSession.id, catchupSession.tierSelected, duration, state.startedAt);
     return;
   }
 
@@ -2121,7 +2151,7 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
           return;
         }
 
-        await applyCatchupDuration(ctx, catchupSession.id, duration, state.startedAt);
+        await applyCatchupDuration(ctx, catchupSession.id, catchupSession.tierSelected, duration, state.startedAt);
         return;
       }
 
