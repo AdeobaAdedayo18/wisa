@@ -1269,7 +1269,7 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
     } else if (!nothingNewSaved) {
       await notifyCatchupUser(
         telegramId,
-        "All done! Your backlog is completely filled out.",
+        "All done, your logs have been generated and stored. View them here.",
         { reply_markup: new InlineKeyboard().text("View my logs", "nav_logs") },
       );
     }
@@ -1357,13 +1357,17 @@ async function isFastTrackUser(telegramId: bigint, ctx?: BotContext): Promise<bo
  * Takes a telegramId rather than a ctx because the caller often has no ctx.
  */
 export async function promptFastTrackReminderSetup(telegramId: bigint): Promise<void> {
+  // Link arrivals never see the standard sign-off, so this message carries the
+  // same "logs are stored, here they are" payoff plus the same nav_logs button.
   const keyboard = buildTimeKeyboard(FAST_TRACK_TIME_PREFIX)
+    .row()
+    .text("View my logs", "nav_logs")
     .row()
     .text("Skip for now", FAST_TRACK_SKIP_DATA);
 
   await notifyCatchupUser(
     telegramId,
-    "You're completely caught up.\n\n" +
+    "You're completely caught up. Your logs are safely stored.\n\n" +
       "To make sure you never have to do a massive backlog again, let's set up a quick daily reminder. " +
       "What time should I text you to ask for your daily log?",
     { reply_markup: keyboard },
