@@ -248,6 +248,16 @@ function buildCatchupDumpPrompt(lead: string, period: string): string {
 export const INVALID_ROLE_REPLY =
   "That doesn't look like a job role 😅 Please reply with your actual position so I can write accurate logs for you.";
 
+/** The standard sign-off, shared with the stuck-on-generating recovery. */
+const ALL_DONE_MESSAGE = "All done, your logs have been generated and stored. View them here.";
+
+/**
+ * Shown when a paid user messages while their block is still being written.
+ * Generation runs for minutes, so this is a routine thing for them to do.
+ */
+const STILL_GENERATING_MESSAGE =
+  "Still writing your logs, hang tight. I'll send them here the moment they're ready.";
+
 /**
  * Shown when a block completed but wrote nothing, because every date in its
  * range already had a log. Used INSTEAD of any "all done" claim.
@@ -1297,7 +1307,7 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
     } else if (!nothingNewSaved) {
       await notifyCatchupUser(
         telegramId,
-        "All done, your logs have been generated and stored. View them here.",
+        ALL_DONE_MESSAGE,
         { reply_markup: new InlineKeyboard().text("View my logs", "nav_logs") },
       );
     }
@@ -2182,6 +2192,31 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
         }
 
         await evaluateCurrentCatchupChunk(ctx, appended.currentEntries.join("\n\n"), { afterMoreDetail: true });
+        return;
+      }
+
+      // Generation runs for MINUTES on a full block, so a paying user sending a
+      // message here is routine, not an error. This used to fall through to
+      // `default`, which told them the bot had lost track and then called
+      // clearActiveFlow — wiping the flow of someone mid-purchase.
+      case 'generating': {
+        const generatingSession = await getCatchupSessionForCurrentUser(ctx);
+
+        // Still working. Reassure and leave the state completely untouched.
+        if (generatingSession && !isCatchupSessionComplete(generatingSession)) {
+          await ctx.reply(STILL_GENERATING_MESSAGE);
+          return;
+        }
+
+        // The work is already finished, so this step was left behind by one of
+        // resumeCatchupGeneration's early returns (block already fulfilled, or
+        // claimed by the webhook). Close it out instead of stranding them on a
+        // step with nothing to do.
+        clearActiveFlow(ctx.session);
+        await ctx.reply(
+          ALL_DONE_MESSAGE,
+          { reply_markup: new InlineKeyboard().text("View my logs", "nav_logs") },
+        );
         return;
       }
 
