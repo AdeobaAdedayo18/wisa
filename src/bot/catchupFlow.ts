@@ -796,7 +796,7 @@ async function sendRescuePassInvoice(
 
   await ctx.reply(
     `Get ${coverageTitle} of Logs, Filled For You, asap\n\n` +
-      `${coverage} of logs. Done in minutes, not weeks.\n\n` +
+      `${coverage} of logs. Done in minutes.\n\n` +
       `₦${priceNaira.toLocaleString("en-NG")}\n\n` +
       `Pay securely with Paystack below.\n` +
       `The moment it clears, your logs are ready to copy straight into your logbook.\n\n` +
