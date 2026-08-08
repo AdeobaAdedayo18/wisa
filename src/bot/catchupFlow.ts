@@ -1649,9 +1649,16 @@ const CATCHUP_TIER_PROMPT =
   "No worries. Just tell me a bit about what you've been doing at work lately, and I'll handle writing the actual logs for you. How many weeks or months are you missing?";
 
 /** Single source for the duration copy, for the same reason. */
+/**
+ * The reassurance differs because the generation shape does. QUICK_FIX writes
+ * the whole period from a single brain dump, so promising to take it "one week
+ * at a time" would be contradicted by the very next screen, which asks about
+ * "this entire N-week period". The month tiers really are one dump per block.
+ */
 function catchupDurationPrompt(tier: CatchupTier): string {
-  const unit = getCatchupTierUnit(tier);
-  return `Got it. How many ${unit} are you missing? We'll take it one ${unit.slice(0, -1)} at a time. 😌`;
+  return getCatchupTierUnit(tier) === "weeks"
+    ? "Got it. How many weeks are you missing? We'll knock it out in one go. 😌"
+    : "Got it. How many months are you missing? We'll take it one month at a time. 😌";
 }
 
 async function sendCatchupTierPrompt(ctx: BotContext): Promise<void> {
