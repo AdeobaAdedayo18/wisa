@@ -222,7 +222,7 @@ export function isPlausibleWorkplaceRole(text: string): boolean {
  * wording cannot drift between them.
  */
 const WORKPLACE_ROLE_QUESTION =
-  "Before I write this, what exactly is your job role and department at your IT placement?";
+  "Before we continue, what exactly is your job role and department at your IT placement?";
 
 /**
  * The brain-dump ask, assembled from one template.
