@@ -539,7 +539,10 @@ async function evaluateCurrentCatchupChunk(ctx: BotContext, rawText: string, opt
       ? evaluation.followUpQuestions.map((question) => `• ${question}`).join("\n")
       : "• Tell me a bit more about the tools, projects, and technical problems you handled.";
 
-    await ctx.reply(`I need a bit more to work with. 🤔\n\n${questions}`);
+    await ctx.reply(
+      `I need a bit more to work with. 🤔\n\n${questions}`,
+      { reply_markup: new InlineKeyboard().text("Tell me more", "catchup_more_detail") },
+    );
     return;
   }
 
@@ -1861,12 +1864,23 @@ async function routeCatchupCallback(ctx: BotContext) {
       await ctx.answerCallbackQuery("This flow has expired. Please type /catchup again.");
       return;
     }
+
+    await ctx.answerCallbackQuery();
+
+    // Retire the button but KEEP the message text. It holds the specific
+    // follow-up questions the model asked, which is exactly what the user needs
+    // in front of them while they answer. This used to editMessageText over the
+    // top of them, replacing targeted questions with a generic line.
+    await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+
+    // Already set when the questions were sent; re-asserted so a tap from an
+    // older message still lands the user on the right step.
     state.step = 'awaiting_more_detail';
     ctx.session.catchup = state;
-    await ctx.editMessageText(
+
+    await ctx.reply(
       "Tell me more about what you were doing during the rest of that period. Rough notes are fine."
     );
-    await ctx.answerCallbackQuery();
     return;
   }
 
