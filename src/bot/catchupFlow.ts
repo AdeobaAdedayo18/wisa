@@ -216,6 +216,14 @@ export function isPlausibleWorkplaceRole(text: string): boolean {
   return !CONVERSATIONAL_REPLIES.has(normalized);
 }
 
+/**
+ * Asked at three points: before pricing for deep-link arrivals, after the date
+ * picker, and mid-flow if the role is still missing. Single-sourced so the
+ * wording cannot drift between them.
+ */
+const WORKPLACE_ROLE_QUESTION =
+  "Before I write this, what exactly is your job role and department at your IT placement?";
+
 /** The exact rejection shown at every workplace-role capture point. */
 export const INVALID_ROLE_REPLY =
   "That doesn't look like a job role 😅 Please reply with your actual position so I can write accurate logs for you.";
@@ -471,7 +479,7 @@ async function evaluateCurrentCatchupChunk(ctx: BotContext, rawText: string, opt
       startedAt: ctx.session.catchup?.startedAt ?? Date.now(),
     };
 
-    await ctx.reply("Before we write this, what exactly is your job role and department at your IT placement?");
+    await ctx.reply(WORKPLACE_ROLE_QUESTION);
     return;
   }
 
@@ -1600,7 +1608,7 @@ export async function startCatchupFlow(ctx: BotContext) {
         startedAt: Date.now(),
       };
 
-      await ctx.reply("Before we write this, what exactly is your job role and department at your IT placement?");
+      await ctx.reply(WORKPLACE_ROLE_QUESTION);
       return;
     }
   }
@@ -1920,9 +1928,7 @@ async function routeCatchupCallback(ctx: BotContext) {
         startedAt: state.startedAt ?? Date.now(),
       };
 
-      await ctx.editMessageText(
-        "Before we write this, what exactly is your job role and department at your IT placement?",
-      ).catch(() => {});
+      await ctx.editMessageText(WORKPLACE_ROLE_QUESTION).catch(() => {});
       await ctx.answerCallbackQuery();
       return;
     }
@@ -1936,8 +1942,8 @@ async function routeCatchupCallback(ctx: BotContext) {
     // The row was just updated above, so read the month off the date we wrote.
     const anchorDate = new Date(selectedDate);
     const dumpPrompt = (catchupSession.tierSelected === CatchupTier.QUICK_FIX
-      ? `Perfect. Tell me everything you worked on during this entire ${catchupSession.totalDuration}-week period. Drop the projects, tools, challenges, and lessons. Leave nothing out.`
-      : `Perfect. Tell me everything you worked on during *${getBlockMonthName(anchorDate, catchupSession.currentBlock)}*. Drop the projects, tools, challenges, and lessons. Leave nothing out.`)
+      ? `Perfect. Tell me everything you worked on during this entire ${catchupSession.totalDuration}-week period. Drop the projects, tools, challenges, and lessons. Tell me all the deets 🤭`
+      : `Perfect. Tell me everything you worked on during *${getBlockMonthName(anchorDate, catchupSession.currentBlock)}*. Drop the projects, tools, challenges, and lessons. Tell me all the deets 🤭`)
       + "\n\n(You can type it out, or just send a voice note)";
 
     await ctx.editMessageText(dumpPrompt, { parse_mode: "Markdown" }).catch(() => {});
@@ -2133,13 +2139,13 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
         const courseCatchupSession = await getCatchupSessionForCurrentUser(ctx);
         await ctx.reply(
           courseCatchupSession?.tierSelected === CatchupTier.QUICK_FIX
-            ? `Got it! Now, tell me everything you worked on during this entire ${courseCatchupSession.totalDuration}-week period. Drop the projects, tools, challenges, and lessons. Leave nothing out.` +
+            ? `Got it! Now, tell me everything you worked on during this entire ${courseCatchupSession.totalDuration}-week period. Drop the projects, tools, challenges, and lessons. Tell me all the deets 🤭` +
                 "\n\n(You can type it out, or just send a voice note)"
             : `Got it! Now, tell me everything you worked on during *${
                 courseCatchupSession
                   ? getBlockMonthName(new Date(courseCatchupSession.startDate), courseCatchupSession.currentBlock)
                   : "that month"
-              }*. Drop the projects, tools, challenges, and lessons. Leave nothing out.` +
+              }*. Drop the projects, tools, challenges, and lessons. Tell me all the deets 🤭` +
                 "\n\n(You can type it out, or just send a voice note)",
           { parse_mode: "Markdown" },
         );
