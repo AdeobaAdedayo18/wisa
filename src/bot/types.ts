@@ -145,10 +145,11 @@ export interface SessionData {
       | 'awaiting_payment_email'
       | 'awaiting_payment'
       | 'generating'
+      // Legacy, never set by the current flow. Kept because a session stored by
+      // an older build can still carry them, and the text handler nudges rather
+      // than erroring on them.
       | 'awaiting_start_date'
       | 'awaiting_end_date'
-      | 'awaiting_braindump'
-      | 'interrogation'
       | 'awaiting_course'
       | 'awaiting_more_detail';
     startDate?: string;

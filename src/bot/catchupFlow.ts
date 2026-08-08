@@ -252,10 +252,16 @@ export const INVALID_ROLE_REPLY =
 const ALL_DONE_MESSAGE = "All done, your logs have been generated and stored. View them here.";
 
 /**
+ * Reached from ten places, as a reply and as a callback toast. Single-sourced so
+ * the same failure cannot be described three different ways.
+ */
+const SESSION_NOT_FOUND_MESSAGE = "I couldn't find this catch-up session. Please type /catchup again.";
+
+/**
  * Shown when a paid user messages while their block is still being written.
  * Generation runs for minutes, so this is a routine thing for them to do.
  */
-const STILL_GENERATING_MESSAGE =
+export const STILL_GENERATING_MESSAGE =
   "Still writing your logs, hang tight. I'll send them here the moment they're ready.";
 
 /**
@@ -492,7 +498,7 @@ async function appendCatchupDumpToSession(ctx: BotContext, text: string) {
 async function evaluateCurrentCatchupChunk(ctx: BotContext, rawText: string, opts?: { afterMoreDetail?: boolean }): Promise<void> {
   const catchupSession = await getCatchupSessionForCurrentUser(ctx);
   if (!catchupSession) {
-    await ctx.reply("I couldn't find this catch-up session. Please type /catchup again.");
+    await ctx.reply(SESSION_NOT_FOUND_MESSAGE);
     return;
   }
 
@@ -574,7 +580,7 @@ function formatWeekOneLog(log: { dateOffset: number; content: string }, date: Da
 async function sendWeekOneBait(ctx: BotContext): Promise<void> {
   const catchupSession = await getCatchupSessionForCurrentUser(ctx);
   if (!catchupSession) {
-    await ctx.reply("I couldn't find this catch-up session. Please type /catchup again.");
+    await ctx.reply(SESSION_NOT_FOUND_MESSAGE);
     return;
   }
 
@@ -1778,7 +1784,7 @@ async function routeCatchupCallback(ctx: BotContext) {
 
     const catchupSession = await getCatchupSessionForCurrentUser(ctx);
     if (!catchupSession) {
-      await ctx.answerCallbackQuery("Couldn't find this catch-up session. Please type /catchup again.");
+      await ctx.answerCallbackQuery(SESSION_NOT_FOUND_MESSAGE);
       return;
     }
 
@@ -1818,7 +1824,7 @@ async function routeCatchupCallback(ctx: BotContext) {
   if (data === "catchup_back_duration") {
     const catchupSession = await getCatchupSessionForCurrentUser(ctx);
     if (!catchupSession) {
-      await ctx.answerCallbackQuery("Couldn't find this catch-up session. Please type /catchup again.");
+      await ctx.answerCallbackQuery(SESSION_NOT_FOUND_MESSAGE);
       return;
     }
 
@@ -1864,32 +1870,10 @@ async function routeCatchupCallback(ctx: BotContext) {
     return;
   }
 
-  // The way out of the funnel, from the tier keyboard or the week-1 paywall.
-  // Handled ABOVE the `state.active` guard on purpose: a stale keyboard left in
-  // the chat must still be able to close the flow rather than report an error.
-  if (data === "catchup_exit") {
-    clearActiveFlow(ctx.session);
-    await ctx.answerCallbackQuery();
-    // Retire the keyboard so the paywall cannot be re-tapped from history.
-    await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
-    await sendMainMenuWithMessage(ctx, "No problem! You can always catch up later.");
-    return;
-  }
-
-  if (data === "catchup_skip") {
-    clearActiveFlow(ctx.session);
-    await ctx.editMessageText(
-      "No problem, the logs I generated are already in your logbook.",
-      { reply_markup: new InlineKeyboard().text("View calendar", "nav_calendar").text("Menu", "nav_menu") }
-    );
-    await ctx.answerCallbackQuery();
-    return;
-  }
-
   if (data === "catchup_approve_wk1") {
     const catchupSession = await getCatchupSessionForCurrentUser(ctx);
     if (!catchupSession) {
-      await ctx.answerCallbackQuery("This session could not be found. Please type /catchup again.");
+      await ctx.answerCallbackQuery(SESSION_NOT_FOUND_MESSAGE);
       return;
     }
 
@@ -1935,7 +1919,7 @@ async function routeCatchupCallback(ctx: BotContext) {
     const selectedDate = match[1];
     const catchupSession = await getCatchupSessionForCurrentUser(ctx);
     if (!catchupSession) {
-      await ctx.answerCallbackQuery("Couldn't find this catch-up session. Please type /catchup again.");
+      await ctx.answerCallbackQuery(SESSION_NOT_FOUND_MESSAGE);
       return;
     }
 
@@ -1996,10 +1980,11 @@ async function routeCatchupCallback(ctx: BotContext) {
     return;
   }
 
-  // Handle Date Selection
-  if (data.startsWith("ccal_sel_")) {
-    await ctx.answerCallbackQuery();
-  }
+  // Nothing above claimed this callback. Answer regardless so a tap can never
+  // leave the button spinning — an unrecognised or out-of-step callback should
+  // be a silent no-op, not a frozen keyboard. Also covers `ccal_sel_*` taps that
+  // arrive when the flow is no longer on the date step.
+  await ctx.answerCallbackQuery().catch(() => {});
 }
 
 // ----------------------------------------------------------------------------
@@ -2060,7 +2045,7 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
         // Fetched first, since the valid range depends on the tier they picked.
         const catchupSession = await getCatchupSessionForCurrentUser(ctx);
         if (!catchupSession) {
-          await ctx.reply("I couldn't find this catch-up session. Please type /catchup again.");
+          await ctx.reply(SESSION_NOT_FOUND_MESSAGE);
           return;
         }
 
@@ -2083,7 +2068,7 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
       case 'awaiting_block_dump': {
         const appended = await appendCatchupDumpToSession(ctx, text);
         if (!appended) {
-          await ctx.reply("I couldn't find this catch-up session. Please type /catchup again.");
+          await ctx.reply(SESSION_NOT_FOUND_MESSAGE);
           return;
         }
 
@@ -2110,7 +2095,7 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
 
         const catchupSession = await getCatchupSessionForCurrentUser(ctx);
         if (!catchupSession) {
-          await ctx.reply("I couldn't find this catch-up session. Please type /catchup again.");
+          await ctx.reply(SESSION_NOT_FOUND_MESSAGE);
           return;
         }
 
@@ -2187,7 +2172,7 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
       case 'awaiting_more_detail': {
         const appended = await appendCatchupDumpToSession(ctx, text);
         if (!appended) {
-          await ctx.reply("I couldn't find this catch-up session. Please type /catchup again.");
+          await ctx.reply(SESSION_NOT_FOUND_MESSAGE);
           return;
         }
 

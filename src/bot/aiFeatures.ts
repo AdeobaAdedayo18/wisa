@@ -18,7 +18,7 @@ import {
   sendStorageWall,
 } from "./monetization";
 import { getMainMenuKeyboard } from "./onboarding";
-import { handleCatchupFlowWithText } from "./catchupFlow";
+import { handleCatchupFlowWithText, STILL_GENERATING_MESSAGE } from "./catchupFlow";
 
 // ---------------------------------------------------------------------------
 // 8.2 — "✨ Refine with AI" handler (For text logs)
@@ -355,7 +355,13 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
   // input, and falling through would save a stray daily log mid-flow. Text and
   // callbacks already have isolation guards; this is the matching one for voice.
   if (catchupState?.active === true && !isBrainDumpPhase) {
-    await ctx.reply("Finish your catch-up or send /cancel before recording a voice log.");
+    // While a paid block is being written there is nothing for them to "finish",
+    // so the generic nudge reads as a fault. Mirror what the text handler says.
+    await ctx.reply(
+      catchupState.step === 'generating'
+        ? STILL_GENERATING_MESSAGE
+        : "Finish your catch-up or send /cancel before recording a voice log.",
+    );
     return;
   }
 
@@ -402,11 +408,6 @@ export async function handleVoiceLog(ctx: BotContext): Promise<void> {
     } finally {
       if (localPath && fs.existsSync(localPath)) fs.unlinkSync(localPath);
     }
-    return;
-  }
-
-  if (catchupState?.active === true && catchupState.step === 'awaiting_course') {
-    await ctx.reply("Just type your area of study and we'll continue from there 👇");
     return;
   }
 
