@@ -1256,13 +1256,25 @@
 
         <div id="catchup-footnote" class="card-sub" style="margin-top:-8px; margin-bottom: 24px; color: var(--t3); font-size: 11.5px;"></div>
 
-        <div class="section-row">
+        <div class="section-row" style="grid-template-columns: 1fr;">
+          <div class="section-card">
+            <div class="section-header">
+              <h3>Active Sessions</h3>
+              <span class="count-badge" id="catchup-active-count">–</span>
+            </div>
+            <div class="section-body" id="catchup-active-wrap" style="overflow-x: auto;">
+              <div class="loading-row">Loading…</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="section-row" style="grid-template-columns: 1fr;">
           <div class="section-card">
             <div class="section-header">
               <h3>Tier Breakdown</h3>
               <span class="count-badge" id="catchup-paid-count">–</span>
             </div>
-            <div class="section-body" id="catchup-tier-wrap">
+            <div class="section-body" id="catchup-tier-wrap" style="overflow-x: auto;">
               <div class="loading-row">Loading…</div>
             </div>
           </div>
