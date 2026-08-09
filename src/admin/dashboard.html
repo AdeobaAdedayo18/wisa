@@ -1918,6 +1918,73 @@ function renderCatchup(d) {
          </tbody>
        </table>`
     : `<div class="loading-row">No catch-up sessions yet.</div>`;
+
+  renderCatchupActiveSessions(Array.isArray(d.activeSessions) ? d.activeSessions : []);
+}
+
+/** Colour of the state pill. Stuck is the one that needs someone to look. */
+const CATCHUP_STATE_TAGS = {
+  stuck:  { cls: 'tag-red',    label: 'Stuck'    },
+  active: { cls: 'tag-green',  label: 'Active'   },
+  unpaid: { cls: 'tag-yellow', label: 'In funnel'},
+};
+
+/** "awaiting_block_dump" reads better as "awaiting block dump" on a dashboard. */
+function humanStep(step) {
+  return String(step || '').replace(/_/g, ' ');
+}
+
+function relativeMinutes(mins) {
+  if (mins == null) return '–';
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+function renderCatchupActiveSessions(sessions) {
+  const wrap = document.getElementById('catchup-active-wrap');
+  const badge = document.getElementById('catchup-active-count');
+  if (!wrap) return;
+
+  if (badge) badge.textContent = fmt(sessions.length);
+
+  if (!sessions.length) {
+    wrap.innerHTML = `<div class="loading-row">Nobody is mid catch-up right now.</div>`;
+    return;
+  }
+
+  // Stuck first: those are the ones needing attention, regardless of recency.
+  const ordered = [...sessions].sort((a, b) => (a.state === 'stuck' ? 0 : 1) - (b.state === 'stuck' ? 0 : 1));
+
+  wrap.innerHTML = `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Name</th><th>Telegram ID</th><th>Username</th>
+          <th>Tier</th><th>Current step</th><th>Progress</th><th>State</th><th>Last activity</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${ordered.map(s => {
+          const tag = CATCHUP_STATE_TAGS[s.state] || CATCHUP_STATE_TAGS.active;
+          // firstName and username come straight from Telegram profiles, so they
+          // are attacker-controlled and must never reach innerHTML unescaped.
+          return `
+            <tr>
+              <td style="font-weight:600">${escHtml(s.fullName || 'Unknown')}</td>
+              <td class="small" style="font-family:ui-monospace,monospace">${escHtml(s.telegramId)}</td>
+              <td class="muted">${s.username ? '@' + escHtml(s.username) : '–'}</td>
+              <td class="small">${escHtml(s.tierLabel || s.tier || '')}</td>
+              <td class="small">${escHtml(humanStep(s.step))}</td>
+              <td class="small">${escHtml(s.blockProgress || '')}</td>
+              <td><span class="tag ${tag.cls}">${tag.label}</span></td>
+              <td class="muted small">${relativeMinutes(s.minutesSinceUpdate)}</td>
+            </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
 }
 
 function renderAnalyticsBucketTable(s) {
