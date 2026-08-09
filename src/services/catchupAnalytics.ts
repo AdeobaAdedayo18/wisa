@@ -24,8 +24,8 @@ export type CatchupTierBreakdown = {
   averageDuration: number | null;
 };
 
-/** One row of the live "who is mid-flow right now" table. */
-export type CatchupActiveSession = {
+/** One paying customer, and whether they actually got their logs. */
+export type CatchupPaidSession = {
   sessionId: string;
   /** `User.firstName`. There is no surname column on User. */
   fullName: string;
@@ -35,13 +35,14 @@ export type CatchupActiveSession = {
   tier: CatchupTier;
   tierLabel: string;
   /**
-   * Live position in the conversation, read from the grammY session blob.
-   * `CatchupSession` does not carry it — the step lives only in `Session.value`.
-   * Falls back to "no session state" when that row is missing or unparseable.
+   * What they were ACTUALLY charged, read off the settled PaymentTransaction.
+   * Falls back to the tier's current list price only when no transaction row can
+   * be matched, since list price misreports anything sold before a price change.
    */
-  step: string;
-  state: "stuck" | "active" | "unpaid";
-  paymentStatus: CatchupPaymentStatus;
+  amountNaira: number;
+  /** True when the figure above is the fallback rather than a real charge. */
+  amountIsListPrice: boolean;
+  state: "completed" | "stuck" | "in_progress";
   /** e.g. "2 / 6". Blocks fulfilled out of blocks owed. */
   blockProgress: string;
   updatedAt: string;
@@ -78,8 +79,8 @@ export type CatchupAnalytics = {
     rejectionRatePct: number | null;
     note: string;
   };
-  /** Unfinished sessions, most recently touched first. Capped, see `notes`. */
-  activeSessions: CatchupActiveSession[];
+  /** Paying customers, most recently active first. Capped, see `notes`. */
+  paidSessions: CatchupPaidSession[];
   notes: string[];
 };
 
@@ -119,39 +120,35 @@ const TIER_LABELS: Record<CatchupTier, string> = {
   [CatchupTier.VIP_DEFENSE]: "VIP Defense",
 };
 
-/** How far back to look for unpaid sessions. Paid ones are never time-limited. */
-const UNPAID_SESSION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-
-/** Hard cap on table rows, so one runaway day cannot bloat the response. */
-const ACTIVE_SESSION_LIMIT = 50;
+/** Hard cap on table rows, so a long sales run cannot bloat the response. */
+const PAID_SESSION_LIMIT = 100;
 
 /**
- * Reads each user's live conversation step out of the grammY session store.
+ * Maps each catch-up session to the amount actually settled for it.
  *
- * `CatchupSession` records the commercial state (tier, payment, blocks) but not
- * where the user is in the dialogue — that lives only in `Session.value`, a JSON
- * blob keyed by telegram id as a string. One `IN` query covers the whole page.
+ * Rescue Pass charges carry their session id on the transaction metadata, set
+ * when the invoice is minted. Read back here rather than pricing rows from the
+ * current tier table, which would misreport anything sold before a price change.
  */
-async function readCatchupSteps(telegramIds: bigint[]): Promise<Map<string, string>> {
-  const steps = new Map<string, string>();
-  if (telegramIds.length === 0) return steps;
-
-  const rows = await prisma.session.findMany({
-    where: { key: { in: telegramIds.map((id) => id.toString()) } },
-    select: { key: true, value: true },
+async function readSettledAmounts(): Promise<Map<string, number>> {
+  const rows = await prisma.paymentTransaction.findMany({
+    where: {
+      status: TransactionStatus.SUCCESS,
+      metadata: { path: ["payment_type"], equals: RESCUE_PASS_PAYMENT_TYPE },
+    },
+    select: { amount: true, metadata: true },
   });
 
+  const amounts = new Map<string, number>();
   for (const row of rows) {
-    try {
-      const catchup = (JSON.parse(row.value) as { catchup?: { active?: boolean; step?: string } }).catchup;
-      if (!catchup) continue;
-      steps.set(row.key, catchup.active ? catchup.step ?? "unknown" : `${catchup.step ?? "none"} (inactive)`);
-    } catch {
-      // Unparseable blob: leave unset so the caller shows its fallback.
-    }
+    const sessionId = (row.metadata as { catchup_session_id?: unknown } | null)?.catchup_session_id;
+    if (typeof sessionId !== "string") continue;
+    // Kobo to naira. Keep the largest if a session somehow has two settled
+    // charges, so a double-charge shows up rather than hiding behind the first.
+    amounts.set(sessionId, Math.max(amounts.get(sessionId) ?? 0, Math.round(row.amount / 100)));
   }
 
-  return steps;
+  return amounts;
 }
 
 // ---------------------------------------------------------------------------
@@ -168,8 +165,8 @@ export async function getCatchupAnalytics(): Promise<CatchupAnalytics> {
     paidByTier,
     initiatedByTier,
     collectedAggregate,
-    paidSessions,
-    openSessions,
+    paidSessionRows,
+    settledAmounts,
   ] = await Promise.all([
     // ── 2. Conversion funnel ──────────────────────────────────────────────
     prisma.catchupSession.count(),
@@ -197,35 +194,20 @@ export async function getCatchupAnalytics(): Promise<CatchupAnalytics> {
       },
     }),
 
-    // ── 4. Active / stuck ─────────────────────────────────────────────────
-    // Completion is derived from a JSON ledger, which Postgres cannot aggregate
-    // through Prisma's native helpers, so this is the one metric that needs the
-    // rows themselves. Scoped to PAID sessions (the paying cohort, not every
-    // abandoned tier tap) with a narrow select to keep the payload small.
+    // ── 4. Fulfilment health AND the paid-customer table ──────────────────
+    // One scan serves both. Completion is derived from a JSON ledger, which
+    // Postgres cannot aggregate through Prisma's native helpers, so the rows are
+    // needed anyway. Scoped to PAID: unpaid sessions are funnel drop-off, not
+    // customers, and mixing them in was what made the old table unreadable.
     prisma.catchupSession.findMany({
       where: { paymentStatus: CatchupPaymentStatus.PAID },
-      select: { tierSelected: true, totalDuration: true, contextDump: true, updatedAt: true },
-    }),
-
-    // ── Active sessions table ─────────────────────────────────────────────
-    // Every PAID session, because unfinished paid work is money at risk and must
-    // never age out of view. Unpaid ones are windowed, since an abandoned tier
-    // tap from months ago is noise rather than something to act on.
-    prisma.catchupSession.findMany({
-      where: {
-        OR: [
-          { paymentStatus: CatchupPaymentStatus.PAID },
-          {
-            paymentStatus: CatchupPaymentStatus.PENDING,
-            updatedAt: { gte: new Date(now.getTime() - UNPAID_SESSION_WINDOW_MS) },
-          },
-        ],
-      },
       orderBy: { updatedAt: "desc" },
       include: {
         user: { select: { firstName: true, telegramId: true, username: true } },
       },
     }),
+
+    readSettledAmounts(),
   ]);
 
   // ── Tier breakdown ──────────────────────────────────────────────────────
@@ -253,66 +235,46 @@ export async function getCatchupAnalytics(): Promise<CatchupAnalytics> {
   // PaymentTransaction.amount is stored in kobo.
   const collectedNaira = Math.round((collectedAggregate._sum.amount ?? 0) / 100);
 
-  // ── Fulfilment ──────────────────────────────────────────────────────────
+  // ── Fulfilment health + the paid-customer table, from one pass ──────────
   let completed = 0;
   let stuck = 0;
 
-  for (const session of paidSessions) {
+  const paidSessions: CatchupPaidSession[] = paidSessionRows.map((session) => {
     const totalBlocks = getCatchupTotalBlocks(session.tierSelected, session.totalDuration);
     const fulfilled = readFulfilledBlocks(session.contextDump);
+    const isComplete = fulfilled.some((block) => block >= totalBlocks);
 
-    if (fulfilled.some((block) => block >= totalBlocks)) {
-      completed += 1;
-      continue;
-    }
+    // Unfinished and untouched for longer than a block claim lease — the same
+    // window the abandoned-block sweeper uses to decide a worker died.
+    const isStuck = !isComplete && session.updatedAt < stuckCutoff;
 
-    // Paid, unfinished, and untouched for longer than a block claim lease —
-    // the same window the abandoned-block sweeper uses.
-    if (session.updatedAt < stuckCutoff) stuck += 1;
-  }
+    if (isComplete) completed += 1;
+    else if (isStuck) stuck += 1;
 
-  const inProgress = paidSessions.length - completed;
+    const settled = settledAmounts.get(session.id);
 
-  // ── Active sessions table ───────────────────────────────────────────────
-  // Completion lives in the JSON ledger, so finished sessions are filtered here
-  // rather than in SQL. Ordering is already newest-first from the query.
-  const unfinished = openSessions.filter((session) => {
-    const totalBlocks = getCatchupTotalBlocks(session.tierSelected, session.totalDuration);
-    return !readFulfilledBlocks(session.contextDump).some((block) => block >= totalBlocks);
+    return {
+      sessionId: session.id,
+      fullName: session.user.firstName,
+      telegramId: session.user.telegramId.toString(),
+      username: session.user.username,
+      tier: session.tierSelected,
+      tierLabel: TIER_LABELS[session.tierSelected] ?? session.tierSelected,
+      amountNaira: settled ?? getCatchupTierPrice(session.tierSelected),
+      amountIsListPrice: settled === undefined,
+      state: isComplete ? "completed" : isStuck ? "stuck" : "in_progress",
+      blockProgress: `${fulfilled.filter((b) => b >= 1 && b <= totalBlocks).length} / ${totalBlocks}`,
+      updatedAt: session.updatedAt.toISOString(),
+      minutesSinceUpdate: Math.round((now.getTime() - session.updatedAt.getTime()) / 60000),
+    };
   });
 
-  const steps = await readCatchupSteps(unfinished.slice(0, ACTIVE_SESSION_LIMIT).map((s) => s.user.telegramId));
-
-  const activeSessions: CatchupActiveSession[] = unfinished
-    .slice(0, ACTIVE_SESSION_LIMIT)
-    .map((session) => {
-      const telegramId = session.user.telegramId.toString();
-      const isPaid = session.paymentStatus === CatchupPaymentStatus.PAID;
-      const totalBlocks = getCatchupTotalBlocks(session.tierSelected, session.totalDuration);
-      const fulfilledCount = readFulfilledBlocks(session.contextDump).filter(
-        (block) => block >= 1 && block <= totalBlocks,
-      ).length;
-
-      return {
-        sessionId: session.id,
-        fullName: session.user.firstName,
-        telegramId,
-        username: session.user.username,
-        tier: session.tierSelected,
-        tierLabel: TIER_LABELS[session.tierSelected] ?? session.tierSelected,
-        step: steps.get(telegramId) ?? "no session state",
-        state: !isPaid ? "unpaid" : session.updatedAt < stuckCutoff ? "stuck" : "active",
-        paymentStatus: session.paymentStatus,
-        blockProgress: `${fulfilledCount} / ${totalBlocks}`,
-        updatedAt: session.updatedAt.toISOString(),
-        minutesSinceUpdate: Math.round((now.getTime() - session.updatedAt.getTime()) / 60000),
-      };
-    });
+  const inProgress = paidSessionRows.length - completed;
 
   const notes: string[] = [];
-  if (unfinished.length > ACTIVE_SESSION_LIMIT) {
+  if (paidSessions.length > PAID_SESSION_LIMIT) {
     notes.push(
-      `Showing the ${ACTIVE_SESSION_LIMIT} most recently active of ${unfinished.length} unfinished sessions.`,
+      `Showing the ${PAID_SESSION_LIMIT} most recently active of ${paidSessions.length} paid sessions.`,
     );
   }
   if (expectedNaira !== collectedNaira) {
@@ -334,7 +296,7 @@ export async function getCatchupAnalytics(): Promise<CatchupAnalytics> {
     },
     tiers,
     fulfilment: {
-      paidTotal: paidSessions.length,
+      paidTotal: paidSessionRows.length,
       completed,
       inProgress,
       stuck,
@@ -357,7 +319,7 @@ export async function getCatchupAnalytics(): Promise<CatchupAnalytics> {
       rejectionRatePct: null,
       note: "Not tracked yet — LLM insufficient-data pushbacks are held in session state only, never persisted.",
     },
-    activeSessions,
+    paidSessions: paidSessions.slice(0, PAID_SESSION_LIMIT),
     notes,
   };
 }
