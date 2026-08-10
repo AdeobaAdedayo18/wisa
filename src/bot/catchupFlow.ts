@@ -678,18 +678,28 @@ function catchupRemainingLabel(tier: CatchupTier, totalDuration: number): string
   return parts.join(" and ");
 }
 
-/** The week-1 paywall, priced and sized from the tier the user actually bought. */
-function catchupPaywallPitch(tier: CatchupTier, totalDuration: number): string {
+/**
+ * The week-1 paywall, priced and sized from the tier the user actually bought.
+ *
+ * The remaining-time sentence drops out entirely when the preview already covers
+ * the purchase (QUICK_FIX at one week). Its trailing "get the rest of your logs"
+ * hook goes with it, since there is no rest to sell in that case.
+ *
+ * The reference stays a code span so it stays tappable to copy for support.
+ */
+function catchupPaywallPitch(tier: CatchupTier, totalDuration: number, reference: string): string {
   const remaining = catchupRemainingLabel(tier, totalDuration);
   const price = `₦${getCatchupTierPrice(tier).toLocaleString("en-NG")}`;
 
   return [
     "Week 1 is locked in! 🔒",
-    "",
-    ...(remaining ? [`You still have ${remaining} of empty pages left.`] : []),
-    `Unlock for ${price}, and I will instantly write and format the rest of your logs.`,
-    "You drop the rough notes and I do the heavy lifting.",
-  ].join("\n");
+    ...(remaining
+      ? [`You still have ${remaining} of empty pages left. Get the rest of your logs filled for you, ASAP.`]
+      : []),
+    `Unlock for ${price}. The moment your payment clears, I will instantly write and format your entire log. Done in minutes.`,
+    "You drop the rough notes, and I do the heavy lifting.",
+    `\`Ref: ${reference}\``,
+  ].join("\n\n");
 }
 
 async function sendWeekOneBait(ctx: BotContext): Promise<void> {
@@ -913,8 +923,7 @@ async function sendRescuePassInvoice(
   // is actually asked for, so it is the only message carrying payment actions.
   // The reference stays as a code span so support can be given a tappable id.
   await ctx.reply(
-    `${catchupPaywallPitch(catchupSession.tierSelected, catchupSession.totalDuration)}\n\n` +
-      `\`Ref: ${reference}\``,
+    catchupPaywallPitch(catchupSession.tierSelected, catchupSession.totalDuration, reference),
     {
       parse_mode: "Markdown",
       reply_markup: new InlineKeyboard()
