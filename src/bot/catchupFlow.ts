@@ -1793,12 +1793,37 @@ export async function handleCatchupCallback(ctx: BotContext) {
   }
 }
 
+type CatchupStep = NonNullable<SessionData["catchup"]>["step"];
+
+/**
+ * Rejects a button replayed from an older message.
+ *
+ * Telegram keeps every keyboard ever sent live in the chat history, so a user
+ * scrolling up can tap a button that belonged to a step they finished hours ago.
+ * Without this, "Approve and continue" tapped during `awaiting_block_dump` ran
+ * the approval branch and drove generation for months the user had not written
+ * a single note for yet.
+ *
+ * Read-only buttons (view logs, calendar paging, cancel) deliberately skip this.
+ */
+async function requireCatchupStep(ctx: BotContext, allowed: CatchupStep | CatchupStep[]): Promise<boolean> {
+  const state = ctx.session.catchup;
+  const steps = Array.isArray(allowed) ? allowed : [allowed];
+
+  if (state?.active && steps.includes(state.step)) return true;
+
+  await ctx.answerCallbackQuery("This step is already completed.");
+  return false;
+}
+
 async function routeCatchupCallback(ctx: BotContext) {
   const data = ctx.callbackQuery?.data;
   if (!data) return;
   const state = ctx.session.catchup;
 
   if (data.startsWith("catchup_tier_")) {
+    if (!(await requireCatchupStep(ctx, 'awaiting_tier_selection'))) return;
+
     const tier = data.replace("catchup_tier_", "");
     // Also the backstop for a retired tier: an old keyboard still sitting in a
     // chat can replay `catchup_tier_VIP_DEFENSE`, and it must not open a session.
@@ -1865,10 +1890,7 @@ async function routeCatchupCallback(ctx: BotContext) {
   // Duration is tapped, not typed. The text handler still accepts a number as a
   // fallback for anyone who types anyway.
   if (data.startsWith("cdur_")) {
-    if (!state?.active) {
-      await ctx.answerCallbackQuery("This flow has expired. Please type /catchup again.");
-      return;
-    }
+    if (!(await requireCatchupStep(ctx, 'awaiting_duration'))) return;
 
     const catchupSession = await getCatchupSessionForCurrentUser(ctx);
     if (!catchupSession) {
@@ -1887,12 +1909,14 @@ async function routeCatchupCallback(ctx: BotContext) {
     // Retire this picker before the calendar is sent. Otherwise both keyboards
     // stay live and Back from the calendar leaves two duration pickers on screen.
     await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
-    await applyCatchupDuration(ctx, catchupSession.id, catchupSession.tierSelected, duration, state.startedAt);
+    await applyCatchupDuration(ctx, catchupSession.id, catchupSession.tierSelected, duration, state?.startedAt);
     return;
   }
 
   // Back: duration picker -> tier keyboard.
   if (data === "catchup_back_tier") {
+    if (!(await requireCatchupStep(ctx, 'awaiting_duration'))) return;
+
     await ctx.answerCallbackQuery();
 
     ctx.session.catchup = {
@@ -1910,6 +1934,8 @@ async function routeCatchupCallback(ctx: BotContext) {
 
   // Back: date picker -> duration picker. Needs the tier to rebuild the options.
   if (data === "catchup_back_duration") {
+    if (!(await requireCatchupStep(ctx, 'awaiting_anchor_date'))) return;
+
     const catchupSession = await getCatchupSessionForCurrentUser(ctx);
     if (!catchupSession) {
       await ctx.answerCallbackQuery(SESSION_NOT_FOUND_MESSAGE);
@@ -1957,10 +1983,7 @@ async function routeCatchupCallback(ctx: BotContext) {
   }
 
   if (data === "catchup_more_detail") {
-    if (!state?.active) {
-      await ctx.answerCallbackQuery("This flow has expired. Please type /catchup again.");
-      return;
-    }
+    if (!(await requireCatchupStep(ctx, 'awaiting_more_detail'))) return;
 
     await ctx.answerCallbackQuery();
 
@@ -1970,10 +1993,14 @@ async function routeCatchupCallback(ctx: BotContext) {
     // top of them, replacing targeted questions with a generic line.
     await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
 
-    // Already set when the questions were sent; re-asserted so a tap from an
-    // older message still lands the user on the right step.
-    state.step = 'awaiting_more_detail';
-    ctx.session.catchup = state;
+    // Re-asserted rather than assumed: the guard above proves we are on this
+    // step, this just keeps the write explicit alongside the other branches.
+    ctx.session.catchup = {
+      ...(state ?? {}),
+      active: true,
+      step: 'awaiting_more_detail',
+      startedAt: state?.startedAt ?? Date.now(),
+    };
 
     await ctx.reply(
       "Tell me more about what you were doing during the rest of that period. Rough notes are fine."
@@ -1982,6 +2009,13 @@ async function routeCatchupCallback(ctx: BotContext) {
   }
 
   if (data === "catchup_approve_wk1") {
+    // Only valid on the week-1 preview. Replayed from `awaiting_block_dump` this
+    // reached resumeCatchupGeneration and claimed blocks the user had written no
+    // notes for, "completing" months from the previous month's text.
+    // A paid session that genuinely needs resuming is recovered by /catchup,
+    // which routes through resumePaidCatchupSession.
+    if (!(await requireCatchupStep(ctx, 'ready_for_week_1_generation'))) return;
+
     const catchupSession = await getCatchupSessionForCurrentUser(ctx);
     if (!catchupSession) {
       await ctx.answerCallbackQuery(SESSION_NOT_FOUND_MESSAGE);
@@ -2001,6 +2035,8 @@ async function routeCatchupCallback(ctx: BotContext) {
   }
 
   if (data === "catchup_tweak_wk1") {
+    if (!(await requireCatchupStep(ctx, 'ready_for_week_1_generation'))) return;
+
     // Without this the step stays 'ready_for_week_1_generation', so the tweak text
     // is discarded and week 1 is simply regenerated from the unchanged dump.
     ctx.session.catchup = {
