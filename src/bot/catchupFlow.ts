@@ -17,6 +17,7 @@ import {
   CATCHUP_BLOCK_CLAIM_LEASE_MS,
 } from "../services/catchupTiers";
 import { buildTimeKeyboard, createInitialReminderJobs, getMainMenuKeyboard } from "./onboarding";
+import { showViewCalendar } from "./calendar";
 import { hasActiveStorage } from "./monetization";
 // NOTE: `bot` is only ever touched inside function bodies — the import cycle with
 // ./index resolves lazily under CommonJS, so it is safe.
@@ -1290,6 +1291,7 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
       });
 
       const monthStart = new Date(catchupSession.startDate);
+      const viewLogsKeyboard = new InlineKeyboard().text("📖 View logs so far", "catchup_view_logs");
       const blockSummary = nothingNewSaved
         ? ZERO_NEW_LOGS_MESSAGE
         : `*${getBlockMonthName(monthStart, blockIndex)}* is complete!\n\n` +
@@ -1301,7 +1303,7 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
         `${blockSummary}\n\n` +
           `Now, let's keep the momentum going. Tell me what you did for *${getBlockMonthName(monthStart, nextBlock)}*...\n\n` +
           `(Feel free to use a voice note)`,
-        { parse_mode: "Markdown" },
+        { parse_mode: "Markdown", reply_markup: viewLogsKeyboard },
       );
       return;
     }
@@ -1925,6 +1927,18 @@ async function routeCatchupCallback(ctx: BotContext) {
     await ctx.editMessageText(catchupDurationPrompt(catchupSession.tierSelected), {
       reply_markup: generateCatchupDurationKeyboard(catchupSession.tierSelected),
     }).catch(() => {});
+    return;
+  }
+
+  // Read-only peek at the log calendar, offered on the between-months message.
+  //
+  // Sent as a NEW message rather than the callback default, which edits in
+  // place — that would replace the "tell me about {next month}" prompt this
+  // button is attached to. Deliberately touches nothing on ctx.session.catchup,
+  // so the user stays parked on awaiting_block_dump and can carry on afterwards.
+  // Handled above the active-state guard so it still works from an old message.
+  if (data === "catchup_view_logs") {
+    await showViewCalendar(ctx, undefined, undefined, { mode: "reply" });
     return;
   }
 
