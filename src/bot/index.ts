@@ -71,6 +71,7 @@ import {
   handleCatchupFlow,
   handleCatchupCallback,
   handleFastTrackReminderCallback,
+  abortCatchupGeneration,
   isPlausibleWorkplaceRole,
   FAST_TRACK_REMINDER_PATTERN,
   INVALID_ROLE_REPLY,
@@ -261,9 +262,14 @@ bot.command("start", handleStart);
 // ✅ FIX #9: Allow /cancel to exit catch-up cleanly
 bot.command("cancel", async (ctx) => {
   if (ctx.session.catchup?.active) {
+    // Kill any in-flight generation FIRST. Clearing the session alone left the
+    // OpenAI call running and its writer still bumping catchupRev, so the user
+    // was told "cancelled" and then handed logs minutes later.
+    abortCatchupGeneration(BigInt(ctx.from!.id));
+
     clearActiveFlow(ctx.session);
-    await ctx.reply("Catch-up cancelled. Let me know when you're ready! 🏠", {
-      reply_markup: new InlineKeyboard().text("🏠 Menu", "nav_menu")
+    await ctx.reply("Catch-up cancelled. Let me know when you're ready.", {
+      reply_markup: new InlineKeyboard().text("Menu", "nav_menu")
     });
     return;
   }
@@ -649,6 +655,21 @@ bot.callbackQuery("nav_menu", async (ctx) => {
 
 // ── Voice message handler (8.3) ──────────────────────────────────────────
 bot.on("message:voice", handleVoiceLog);
+
+// ── Unsupported media during catch-up ────────────────────────────────────
+// Only text and voice have handlers, so a sticker, photo, GIF or document
+// matched nothing and the bot simply went silent. Photographing handwritten
+// notes is an obvious thing to try at the "drop your rough notes" step, and
+// silence there reads as a dead bot.
+//
+// Registered after the specific handlers, and still type-guarded: the text
+// handler calls next() on some paths, so text can reach here too.
+bot.on("message", async (ctx) => {
+  if (!ctx.session.catchup?.active) return;
+  if (ctx.message.text || ctx.message.voice) return;
+
+  await ctx.reply("I can only read text or voice notes. Please type it out or send a voice note.");
+});
 
 // ── Global error boundary ─────────────────────────────────────────────────
 bot.catch((err) => {

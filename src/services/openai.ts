@@ -1,7 +1,14 @@
 import OpenAI from "openai";
 import { CatchupTier } from "../prisma/enums";
 
-export const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// The SDK defaults are a 10 minute timeout and 2 retries, so a single hung
+// request could keep a paying user staring at a loading message for half an
+// hour. 90s x 2 attempts caps the worst case at three minutes.
+export const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  timeout: 90_000,
+  maxRetries: 1,
+});
 
 /**
  * Refines a raw SIWES logbook entry into a professional, well-structured
@@ -245,6 +252,8 @@ export async function generateCatchupLogs(
   days: number,
   workplaceRole: string = "IT",
   maxDays: number = days,
+  /** Lets the caller kill an in-flight generation when the user cancels. */
+  signal?: AbortSignal,
 ): Promise<GeneratedCatchup> {
   console.log(`[generateCatchupLogs] Generating up to ${maxDays} logs for ${days} requested days...`);
   const start = Date.now();
@@ -353,7 +362,7 @@ Aim for exactly ${maxDays} objects. Return fewer only if you cannot fill the rem
         { role: "user", content: rawText },
       ],
       temperature: 0.4,
-    });
+    }, { signal });
 
     const parsed = JSON.parse(completion.choices[0].message.content || '{"logs": []}');
     const rawEntries = Array.isArray(parsed.logs)

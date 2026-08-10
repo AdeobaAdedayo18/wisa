@@ -30,6 +30,33 @@ import { bot } from "./index";
 // an absolute time cap so a missed stopper cannot spin forever.
 // ----------------------------------------------------------------------------
 
+// ----------------------------------------------------------------------------
+// CANCELLATION
+// Generation runs for minutes behind a loading message. Without a way to reach
+// the in-flight request, /cancel only cleared the session: OpenAI was still
+// billed, and the fulfilment writer — which bumps catchupRev and therefore wins
+// the write-back race — went on to save logs and announce them to a user who
+// had just been told the catch-up was cancelled.
+// ----------------------------------------------------------------------------
+
+/** Controllers for generations currently in flight, keyed by telegramId. */
+const inFlightGenerations = new Map<string, AbortController>();
+
+/**
+ * Kills the caller's in-flight generation, if any. Returns whether one was
+ * running, so a cancel handler can tell "stopped work" from "nothing to stop".
+ */
+export function abortCatchupGeneration(telegramId: bigint): boolean {
+  const key = telegramId.toString();
+  const controller = inFlightGenerations.get(key);
+  if (!controller) return false;
+
+  controller.abort();
+  inFlightGenerations.delete(key);
+  console.log(`[catchup] Generation aborted by user ${key}`);
+  return true;
+}
+
 const LOADING_STEPS = [
   "Warming up...",
   "Analyzing... ",
@@ -420,6 +447,13 @@ function buildContextDump(payload: NormalizedContextPayload): Prisma.InputJsonVa
 // totalDuration is the block count.
 // ----------------------------------------------------------------------------
 
+/**
+ * Hard ceiling on the accumulated brain dump for one block.
+ * Roughly 4-5 full Telegram messages of prose, comfortably more than the
+ * generator needs, and far below anything that would strain the context window.
+ */
+const MAX_BLOCK_DUMP_CHARS = 18_000;
+
 const WORKING_DAYS_PER_WEEK = 5;
 const WORKING_DAYS_PER_MONTH = 20;
 
@@ -503,6 +537,18 @@ async function appendCatchupDumpToSession(ctx: BotContext, text: string) {
   const currentBlockIndex = Math.max(1, catchupSession.currentBlock);
   const currentBlock = blocks.find((block) => block.block === currentBlockIndex);
 
+  // Every append re-sends the WHOLE block to the evaluator, and again to the
+  // generator, so unbounded entries make token cost grow with the square of the
+  // message count. Telegram caps one message at 4096 chars, so this can only be
+  // reached by someone pasting repeatedly.
+  //
+  // The `entries.length > 0` guard matters: a first entry always lands, even a
+  // long voice transcript, so the block can never end up empty.
+  const existingEntries = currentBlock?.entries ?? [];
+  if (existingEntries.length > 0 && existingEntries.join("\n\n").length + text.length > MAX_BLOCK_DUMP_CHARS) {
+    return { catchupSession, blocks, currentBlockIndex, currentEntries: existingEntries, capped: true };
+  }
+
   if (currentBlock) {
     currentBlock.entries.push(text);
   } else {
@@ -524,7 +570,7 @@ async function appendCatchupDumpToSession(ctx: BotContext, text: string) {
   // against text the user wrote for a previous one.
   const currentEntries = blocks.find((block) => block.block === currentBlockIndex)?.entries ?? [];
 
-  return { catchupSession, blocks, currentBlockIndex, currentEntries };
+  return { catchupSession, blocks, currentBlockIndex, currentEntries, capped: false };
 }
 
 async function evaluateCurrentCatchupChunk(ctx: BotContext, rawText: string, opts?: { afterMoreDetail?: boolean }): Promise<void> {
@@ -742,6 +788,12 @@ async function sendWeekOneBait(ctx: BotContext): Promise<void> {
   const loadingMsg = await ctx.reply(LOADING_STEPS[0]);
   const stopLoading = startLoadingCycler(ctx.api, ctx.chat!.id, loadingMsg.message_id);
 
+  // The preview is free, but it is still a paid-for API call, so /cancel has to
+  // reach it too.
+  const previewKey = BigInt(ctx.from!.id).toString();
+  const abortController = new AbortController();
+  inFlightGenerations.set(previewKey, abortController);
+
   let generated: Awaited<ReturnType<typeof generateCatchupLogs>>;
   try {
     generated = await generateCatchupLogs(
@@ -749,8 +801,15 @@ async function sendWeekOneBait(ctx: BotContext): Promise<void> {
       catchupSession.totalDuration,
       workplaceRole,
       5,
+      abortController.signal,
     );
+  } catch (err) {
+    // Cancelled deliberately: the cancel handler already replied, so stay quiet
+    // rather than surfacing this as a failure.
+    if (abortController.signal.aborted) return;
+    throw err;
   } finally {
+    inFlightGenerations.delete(previewKey);
     stopLoading();
     await ctx.api.deleteMessage(ctx.chat!.id, loadingMsg.message_id).catch(() => {});
   }
@@ -1155,6 +1214,10 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
   /** Set once this call owns the block, so the claim can be released on failure. */
   let claimedBlock: number | null = null;
 
+  /** Lets /cancel kill the OpenAI call and stop anything being written after it. */
+  const abortController = new AbortController();
+  let generationKey: string | null = null;
+
   /** Keeps the stored session and the live ctx session in sync. */
   const syncCatchupState = async (
     tid: bigint,
@@ -1277,6 +1340,9 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
       }
     }
 
+    generationKey = telegramId.toString();
+    inFlightGenerations.set(generationKey, abortController);
+
     const loadingMsg = await notifyCatchupUser(telegramId, LOADING_STEPS[0]);
     const stopLoading = loadingMsg
       ? startLoadingCycler(bot.api, Number(telegramId), loadingMsg.message_id)
@@ -1295,7 +1361,7 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
 
     try {
       const generated = daysToGenerate > 0
-        ? (await generateCatchupLogs(rawDump, daysToGenerate, workplaceRole, daysToGenerate)).logs.slice(0, daysToGenerate)
+        ? (await generateCatchupLogs(rawDump, daysToGenerate, workplaceRole, daysToGenerate, abortController.signal)).logs.slice(0, daysToGenerate)
         : [];
 
       // Map every log in this block onto a calendar date. Blocks are laid out
@@ -1347,6 +1413,12 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
             logDate: log.logDate,
           });
         }
+      }
+
+      // Abort can land between the model returning and this write. Bail before
+      // the transaction so a cancelled session never receives logs.
+      if (abortController.signal.aborted) {
+        throw new Error("Catch-up generation cancelled by user");
       }
 
       isFinalBlock = blockIndex >= totalBlocks;
@@ -1506,6 +1578,24 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
       // TODO: Generate Final Report
     }
   } catch (err) {
+    // Deliberate cancellation, not a failure. Release the block so it can be
+    // retried, and stay silent — the cancel handler already replied.
+    if (abortController.signal.aborted) {
+      console.log(`[catchup] Generation for session ${sessionId} cancelled by user.`);
+
+      if (claimedBlock !== null) {
+        await prisma.catchupSession
+          .updateMany({
+            where: { id: sessionId, currentBlock: claimedBlock + 1 },
+            data: { currentBlock: claimedBlock },
+          })
+          .catch((releaseErr) => {
+            console.error(`[catchup] Failed to release block claim after cancel (${sessionId}):`, releaseErr);
+          });
+      }
+      return;
+    }
+
     console.error(`[catchup] Fulfilment failed for session ${sessionId}:`, err);
 
     // Release the claim so the block can be retried. Guarded on the value we set,
@@ -1543,6 +1633,10 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
     } catch {
       // best-effort notification only
     }
+  } finally {
+    // Never leave a dead controller behind; a stale entry would make the next
+    // /cancel think work was running and swallow itself.
+    if (generationKey) inFlightGenerations.delete(generationKey);
   }
 }
 
@@ -1941,6 +2035,62 @@ export async function handleCatchupCallback(ctx: BotContext) {
   }
 }
 
+/**
+ * Serialises session opening per user, so mashing the tier keyboard cannot
+ * insert two PENDING rows.
+ *
+ * `findFirst` then `create` is a read-then-write with no unique constraint
+ * behind it: two taps landing together both saw no open session and both
+ * inserted, leaving an orphan that inflated the analytics funnel. Followers now
+ * await the leader and receive the same row.
+ *
+ * In-process, matching the invoice guard above — correct for this single-process
+ * deployment; a second instance would need a DB-level partial unique index.
+ */
+const inFlightSessionOpens = new Map<string, Promise<CatchupSessionRow>>();
+
+type CatchupSessionRow = Awaited<ReturnType<typeof prisma.catchupSession.create>>;
+
+async function openCatchupSession(userId: number, tierSelected: CatchupTier): Promise<CatchupSessionRow> {
+  const key = String(userId);
+  const pending = inFlightSessionOpens.get(key);
+  if (pending) {
+    console.log(`[catchup] Joining in-flight session open for user ${key}`);
+    return pending;
+  }
+
+  const work = (async (): Promise<CatchupSessionRow> => {
+    const existingSession = await prisma.catchupSession.findFirst({
+      where: { userId, paymentStatus: CatchupPaymentStatus.PENDING },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const freshSessionState = {
+      tierSelected,
+      totalDuration: 0,
+      currentBlock: 1,
+      startDate: new Date(),
+      paymentStatus: CatchupPaymentStatus.PENDING,
+    };
+
+    return existingSession
+      ? prisma.catchupSession.update({
+          where: { id: existingSession.id },
+          // Everything resets: the user is starting over, so a stale brain dump
+          // from the abandoned attempt must not leak into the new one.
+          data: { ...freshSessionState, contextDump: Prisma.DbNull },
+        })
+      : prisma.catchupSession.create({ data: { userId, ...freshSessionState } });
+  })();
+
+  inFlightSessionOpens.set(key, work);
+  try {
+    return await work;
+  } finally {
+    inFlightSessionOpens.delete(key);
+  }
+}
+
 type CatchupStep = NonNullable<SessionData["catchup"]>["step"];
 
 /**
@@ -1997,29 +2147,7 @@ async function routeCatchupCallback(ctx: BotContext) {
     // the tier keyboard used to leave a trail of half-built PENDING rows, and
     // getCatchupSessionForCurrentUser falls back to "most recent", so an
     // abandoned one could later be picked up mid-flow.
-    const existingSession = await prisma.catchupSession.findFirst({
-      where: { userId: dbUser.id, paymentStatus: CatchupPaymentStatus.PENDING },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    const freshSessionState = {
-      tierSelected,
-      totalDuration: 0,
-      currentBlock: 1,
-      startDate: new Date(),
-      paymentStatus: CatchupPaymentStatus.PENDING,
-    };
-
-    const catchupSession = existingSession
-      ? await prisma.catchupSession.update({
-          where: { id: existingSession.id },
-          // Everything resets: the user is starting over, so a stale brain dump
-          // from the abandoned attempt must not leak into the new one.
-          data: { ...freshSessionState, contextDump: Prisma.DbNull },
-        })
-      : await prisma.catchupSession.create({
-          data: { userId: dbUser.id, ...freshSessionState },
-        });
+    const catchupSession = await openCatchupSession(dbUser.id, tierSelected);
 
     ctx.session.catchupSessionId = catchupSession.id;
     ctx.session.catchup = {
@@ -2029,8 +2157,11 @@ async function routeCatchupCallback(ctx: BotContext) {
     };
 
     await ctx.editMessageText(
-      catchupDurationPrompt(tierSelected),
-      { reply_markup: generateCatchupDurationKeyboard(tierSelected) },
+      // Read back from the row, not the local variable: if this tap joined an
+      // in-flight open, the stored tier is authoritative and the duration
+      // keyboard must match what `cdur_` will validate against.
+      catchupDurationPrompt(catchupSession.tierSelected),
+      { reply_markup: generateCatchupDurationKeyboard(catchupSession.tierSelected) },
     ).catch(() => {});
     return;
   }
@@ -2368,6 +2499,8 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
   }
 
   if (text.toLowerCase() === 'cancel' || text === '/cancel') {
+    // Same as the /cancel command: stop the work before clearing the state.
+    abortCatchupGeneration(BigInt(ctx.from!.id));
     clearActiveFlow(ctx.session);
     await ctx.reply("Catch-up cancelled. Let me know when you're ready.", {
       reply_markup: new InlineKeyboard().text("Menu", "nav_menu")
@@ -2414,6 +2547,10 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
         if (!appended) {
           await ctx.reply(SESSION_NOT_FOUND_MESSAGE);
           return;
+        }
+
+        if (appended.capped) {
+          await ctx.reply("That is plenty of detail for this block! Let's work with what we have.");
         }
 
         await evaluateCurrentCatchupChunk(ctx, appended.currentEntries.join("\n\n"));
@@ -2518,6 +2655,10 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
         if (!appended) {
           await ctx.reply(SESSION_NOT_FOUND_MESSAGE);
           return;
+        }
+
+        if (appended.capped) {
+          await ctx.reply("That is plenty of detail for this block! Let's work with what we have.");
         }
 
         await evaluateCurrentCatchupChunk(ctx, appended.currentEntries.join("\n\n"), { afterMoreDetail: true });
