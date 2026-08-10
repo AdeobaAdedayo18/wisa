@@ -629,10 +629,13 @@ function isFreeCatchupWeek(tier: CatchupTier, totalDuration: number): boolean {
   return tier === CatchupTier.QUICK_FIX && totalDuration === 1;
 }
 
-/** Shown instead of the paywall when the one-week rescue is on the house. */
+/**
+ * The one and only message a free one-week rescue gets. Sent as the sign-off
+ * once the logs are actually written, not at approval time — it claims the work
+ * is done, so it has to run after it is.
+ */
 const CATCHUP_FREE_WEEK_MESSAGE =
   "Week 1 is locked in! 🔒\n\n" +
-  "Since you only needed one week to catch up, this rescue is completely on the house! 🎁\n\n" +
   "Your logs have been successfully generated and saved. You can view them anytime.";
 
 /** Shown instead of the paywall when Pro already covers the pass. */
@@ -1484,13 +1487,19 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
       await notifyCatchupUser(telegramId, ZERO_NEW_LOGS_MESSAGE, { reply_markup: signOffMarkup });
     }
 
+    // The free one-week rescue gets its own celebratory sign-off in place of the
+    // standard one, so that tier ends on exactly one message.
+    const signOffMessage = isFreeCatchupWeek(catchupSession.tierSelected, catchupSession.totalDuration)
+      ? CATCHUP_FREE_WEEK_MESSAGE
+      : ALL_DONE_MESSAGE;
+
     // Otherwise the reminder bridge replaces the standard sign-off rather than
     // following it: that message carries its own "caught up" line, and its
     // button would compete with the time picker.
     if (willPromptReminder) {
       await promptFastTrackReminderSetup(telegramId);
     } else if (!nothingNewSaved) {
-      await notifyCatchupUser(telegramId, ALL_DONE_MESSAGE, { reply_markup: signOffMarkup });
+      await notifyCatchupUser(telegramId, signOffMessage, { reply_markup: signOffMarkup });
     }
 
     if (catchupSession.tierSelected === CatchupTier.VIP_DEFENSE) {
@@ -2184,7 +2193,9 @@ async function routeCatchupCallback(ctx: BotContext) {
 
       console.log(`[catchup] Session ${catchupSession.id} comped as the free one-week rescue.`);
 
-      await ctx.reply(CATCHUP_FREE_WEEK_MESSAGE);
+      // No message here on purpose. Fulfilment sends the single celebratory
+      // sign-off once the logs exist, so this tier gets exactly one message
+      // rather than a promise followed by a near-identical confirmation.
       await resumeCatchupGeneration(catchupSession.id, ctx);
       return;
     }
