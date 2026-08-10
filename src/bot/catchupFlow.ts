@@ -619,6 +619,50 @@ function formatWeekOneLog(log: { dateOffset: number; content: string }, date: Da
   return `*Day ${dayNumber}* • ${dateLabel}\n\n${log.content}`;
 }
 
+/** The paywall pitch counts a month as four weeks when describing the remainder. */
+const WEEKS_PER_MONTH = 4;
+
+/**
+ * How much of the backlog is still unwritten once the free week-1 preview is
+ * taken off, phrased in whole months and weeks.
+ *
+ * Six months minus the previewed week reads "5 months and 3 weeks"; four weeks
+ * reads "3 weeks". Returns null when the preview already covers the entire
+ * purchase — QUICK_FIX at one week, where there is no remainder to describe and
+ * the pitch drops that line rather than claiming "0 weeks".
+ */
+function catchupRemainingLabel(tier: CatchupTier, totalDuration: number): string | null {
+  const totalWeeks = getCatchupTierUnit(tier) === "weeks"
+    ? totalDuration
+    : totalDuration * WEEKS_PER_MONTH;
+
+  const remainingWeeks = totalWeeks - 1;
+  if (remainingWeeks <= 0) return null;
+
+  const months = Math.floor(remainingWeeks / WEEKS_PER_MONTH);
+  const weeks = remainingWeeks % WEEKS_PER_MONTH;
+
+  const parts: string[] = [];
+  if (months > 0) parts.push(`${months} ${months === 1 ? "month" : "months"}`);
+  if (weeks > 0) parts.push(`${weeks} ${weeks === 1 ? "week" : "weeks"}`);
+
+  return parts.join(" and ");
+}
+
+/** The week-1 paywall, priced and sized from the tier the user actually bought. */
+function catchupPaywallPitch(tier: CatchupTier, totalDuration: number): string {
+  const remaining = catchupRemainingLabel(tier, totalDuration);
+  const price = `₦${getCatchupTierPrice(tier).toLocaleString("en-NG")}`;
+
+  return [
+    "Week 1 is locked in! 🔒",
+    "",
+    ...(remaining ? [`You still have ${remaining} of empty pages left.`] : []),
+    `Unlock for ${price}, and I will instantly write and format the rest of your logs.`,
+    "You drop the rough notes and I do the heavy lifting.",
+  ].join("\n");
+}
+
 async function sendWeekOneBait(ctx: BotContext): Promise<void> {
   const catchupSession = await getCatchupSessionForCurrentUser(ctx);
   if (!catchupSession) {
@@ -655,17 +699,20 @@ async function sendWeekOneBait(ctx: BotContext): Promise<void> {
   const startDate = new Date(catchupSession.startDate);
   const logs = generated.logs.slice(0, 5);
 
-  for (let index = 0; index < logs.length; index++) {
-    const log = logs[index];
-    const date = nthWorkingDayFrom(startDate, log.dateOffset);
-    const formattedLog = formatWeekOneLog(log, date, index + 1);
+  // One message rather than five. Five separate sends read as spam and pushed
+  // the paywall far enough down that the preview and the offer never shared a
+  // screen. Five 40-45 word entries land around 1.6k characters, well inside
+  // Telegram's 4096 limit.
+  const previewText = logs
+    .map((log, index) => formatWeekOneLog(log, nthWorkingDayFrom(startDate, log.dateOffset), index + 1))
+    .join("\n\n");
+  const previewMessage = `Done! ✨ Here is a preview of your first week.\n\n${previewText}`;
 
-    // The entry is now printed raw, so an underscore or asterisk in the model's
-    // prose (snake_case, a * in a formula) makes Telegram reject the whole
-    // message as unparseable Markdown. Falling back to plain text keeps the
-    // paywall preview intact instead of failing the flow right before checkout.
-    await ctx.reply(formattedLog, { parse_mode: "Markdown" }).catch(() => ctx.reply(formattedLog));
-  }
+  // The entries are printed raw, so an underscore or asterisk in the model's
+  // prose (snake_case, a * in a formula) makes Telegram reject the whole
+  // message as unparseable Markdown. Falling back to plain text keeps the
+  // preview intact instead of failing the flow right before checkout.
+  await ctx.reply(previewMessage, { parse_mode: "Markdown" }).catch(() => ctx.reply(previewMessage));
 
   await prisma.catchupSession.update({
     where: { id: catchupSession.id },
@@ -678,7 +725,7 @@ async function sendWeekOneBait(ctx: BotContext): Promise<void> {
   });
 
   await ctx.reply(
-    "Week 1 is locked in and perfectly formatted.",
+    catchupPaywallPitch(catchupSession.tierSelected, catchupSession.totalDuration),
     {
       reply_markup: new InlineKeyboard()
         .text("Approve and continue", "catchup_approve_wk1")
@@ -2078,7 +2125,7 @@ async function routeCatchupCallback(ctx: BotContext) {
     };
 
     await ctx.answerCallbackQuery();
-    await ctx.reply("Send the missing details for Week 1, and I’ll tighten it up before you approve the rest.");
+    await ctx.reply("No problem! What should we change? Just tell me what you need, and I'll rewrite it instantly!");
     return;
   }
 
