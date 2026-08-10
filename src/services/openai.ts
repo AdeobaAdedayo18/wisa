@@ -131,7 +131,6 @@ export interface CatchupEvaluation {
 
 export interface GeneratedCatchup {
   logs: Array<{
-    dateOffset: number; // 0 for start date, 1 for the next working day, etc.
     /**
      * The raw logbook entry, and nothing else — no headings, labels, or bullets.
      * This string is written straight to `Log.content` for the student to copy
@@ -300,11 +299,13 @@ MULTIPLE TASKS:
   • NEVER introduce a task the student did not mention to fill remaining days
 
 STRUCTURE REQUIRED FOR EACH ENTRY:
-Return each log as a JSON object with exactly these two keys:
+Return each log as a JSON object with exactly this one key:
 {
-  "dateOffset": number,
   "content": "the raw log entry text for that day"
 }
+
+Order matters: the first object is the first working day, the second is the
+next working day, and so on. Do NOT number the days or include any date field.
 
 Do not exceed ${maxDays} entries.
 
@@ -338,12 +339,12 @@ The evaluation step already capped the count to match this input. Trust that cap
 ════════════════════════════════════════
 
 Return ONLY a valid JSON object with exactly this structure — no extra text, no markdown fences.
-Each entry maps a day to one raw string. No other keys are permitted:
+Each entry is one raw string, in day order. No other keys are permitted:
 {
   "logs": [
-    { "dateOffset": 0, "content": "..." },
-    { "dateOffset": 1, "content": "..." },
-    ...continue until dateOffset ${days - 1}
+    { "content": "..." },
+    { "content": "..." },
+    ...one object per working day, in order, up to ${days} of them
   ]
 }
 
@@ -359,7 +360,6 @@ Aim for exactly ${maxDays} objects. Return fewer only if you cannot fill the rem
       ? parsed.logs
           .filter((entry: unknown) => entry && typeof entry === "object")
           .map((entry: any) => ({
-            dateOffset: Number(entry.dateOffset ?? 0),
             content: stripEntryLabels(typeof entry.content === "string" ? entry.content : ""),
           }))
       : [];

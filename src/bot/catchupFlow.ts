@@ -347,7 +347,6 @@ type CatchupContextDump = {
   // Legacy rows may also carry `task` / `weeklySummary`; both are ignored now
   // that entries are a single raw string.
   week1Preview?: Array<{
-    dateOffset: number;
     content: string;
   }>;
   fulfilledBlocks?: number[];
@@ -614,7 +613,7 @@ async function evaluateCurrentCatchupChunk(ctx: BotContext, rawText: string, opt
  * the samples apart — the entry itself is printed raw, exactly as it will be
  * saved, so what they see is what they copy.
  */
-function formatWeekOneLog(log: { dateOffset: number; content: string }, date: Date, dayNumber: number): string {
+function formatWeekOneLog(log: { content: string }, date: Date, dayNumber: number): string {
   const dateLabel = format(date, "EEE, d MMM yyyy");
   return `*Day ${dayNumber}* • ${dateLabel}\n\n${log.content}`;
 }
@@ -704,7 +703,7 @@ async function sendWeekOneBait(ctx: BotContext): Promise<void> {
   // screen. Five 40-45 word entries land around 1.6k characters, well inside
   // Telegram's 4096 limit.
   const previewText = logs
-    .map((log, index) => formatWeekOneLog(log, nthWorkingDayFrom(startDate, log.dateOffset), index + 1))
+    .map((log, index) => formatWeekOneLog(log, nthWorkingDayFrom(startDate, index), index + 1))
     .join("\n\n");
   const previewMessage = `Done! ✨ Here is a preview of your first week.\n\n${previewText}`;
 
@@ -1241,9 +1240,10 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
       const blockOffset = (blockIndex - 1) * blockWorkingDays;
 
       const blockLogs = [
-        ...previewLogs.map((log) => ({
+        // Position in the array is the day, NOT any field the model returned.
+        ...previewLogs.map((log, index) => ({
           content: log.content,
-          logDate: nthWorkingDayFrom(startDate, blockOffset + log.dateOffset),
+          logDate: nthWorkingDayFrom(startDate, blockOffset + index),
         })),
         ...generated.map((log, index) => ({
           content: log.content,
