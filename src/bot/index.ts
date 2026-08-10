@@ -421,7 +421,7 @@ bot.on("message:text", async (ctx, next) => {
           .text("👑 Go Pro - ₦1,000", "go_pro")
           .row()
           .text("📅 View calendar", "nav_calendar")
-          .text("🏠 Menu", "nav_menu");
+          .text("Menu", "nav_menu");
 
         await ctx.reply(
           `✅ **Original log saved!** 📝\n\n` +

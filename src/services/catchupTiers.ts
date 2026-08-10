@@ -59,11 +59,14 @@ export function getCatchupTotalBlocks(tier: CatchupTier, totalDuration: number):
  * Shared with the analytics endpoint so "stuck" means the same thing there as
  * it does to the sweeper that reclaims those blocks.
  *
- * MUST stay above the worst-case OpenAI call. The client runs on SDK defaults
- * (10 minute timeout, 2 retries), so a single generation can legitimately run
- * ~30 minutes. At the old 15 minutes the sweeper reclaimed blocks that were
- * still generating, paying OpenAI twice and sending the completion message
- * twice. Generation performs no DB writes, so `updatedAt` cannot refresh the
- * lease mid-flight — the margin has to come from this constant.
+ * MUST stay above the worst-case OpenAI call, because generation performs no DB
+ * writes and so cannot refresh `updatedAt` mid-flight — all the margin comes
+ * from this constant. Reclaiming a block that is still generating pays OpenAI
+ * twice and sends the completion message twice.
+ *
+ * The client is pinned to a 90s timeout with 1 retry, so the worst case is
+ * about 3 minutes. 10 minutes leaves roughly 3x headroom while keeping crash
+ * recovery fast: this is also how long a paid user waits before the boot sweep
+ * will pick their orphaned block back up.
  */
-export const CATCHUP_BLOCK_CLAIM_LEASE_MS = 35 * 60 * 1000;
+export const CATCHUP_BLOCK_CLAIM_LEASE_MS = 10 * 60 * 1000;
