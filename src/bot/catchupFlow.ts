@@ -741,7 +741,15 @@ async function sendWeekOneBait(ctx: BotContext): Promise<void> {
   // prose (snake_case, a * in a formula) makes Telegram reject the whole
   // message as unparseable Markdown. Falling back to plain text keeps the
   // preview intact instead of failing the flow right before checkout.
-  await ctx.reply(previewMessage, { parse_mode: "Markdown" }).catch(() => ctx.reply(previewMessage));
+  // The decision keyboard lives on the preview itself. Nothing about payment
+  // appears yet — that arrives only once they approve.
+  const decisionKeyboard = new InlineKeyboard()
+    .text("Approve and continue", "catchup_approve_wk1")
+    .text("Tweak Week 1", "catchup_tweak_wk1");
+
+  await ctx
+    .reply(previewMessage, { parse_mode: "Markdown", reply_markup: decisionKeyboard })
+    .catch(() => ctx.reply(previewMessage, { reply_markup: decisionKeyboard }));
 
   await prisma.catchupSession.update({
     where: { id: catchupSession.id },
@@ -752,17 +760,6 @@ async function sendWeekOneBait(ctx: BotContext): Promise<void> {
       }),
     },
   });
-
-  await ctx.reply(
-    (await isCatchupCoveredByPro(catchupSession.userId, catchupSession.tierSelected))
-      ? CATCHUP_PRO_COVERED_MESSAGE
-      : catchupPaywallPitch(catchupSession.tierSelected, catchupSession.totalDuration),
-    {
-      reply_markup: new InlineKeyboard()
-        .text("Approve and continue", "catchup_approve_wk1")
-        .text("Tweak Week 1", "catchup_tweak_wk1"),
-    },
-  );
 }
 
 // ----------------------------------------------------------------------------
@@ -888,8 +885,6 @@ async function sendRescuePassInvoice(
   catchupSession: CatchupSessionLike,
   email: string,
 ): Promise<void> {
-  const priceNaira = getCatchupTierPrice(catchupSession.tierSelected);
-
   const { authorization_url, reference, deduped } = await getOrCreateRescuePassInvoice(
     catchupSession,
     email,
@@ -914,18 +909,11 @@ async function sendRescuePassInvoice(
     startedAt: ctx.session.catchup?.startedAt ?? Date.now(),
   };
 
-  const unit = getCatchupTierUnit(catchupSession.tierSelected);
-  const unitLabel = catchupSession.totalDuration === 1 ? unit.slice(0, -1) : unit;
-  // "3 months" for the body, "3 Months" for the headline.
-  const coverage = `${catchupSession.totalDuration} ${unitLabel}`;
-  const coverageTitle = `${catchupSession.totalDuration} ${unitLabel.charAt(0).toUpperCase()}${unitLabel.slice(1)}`;
-
+  // The paywall pitch lands here, not on the preview. This is the moment money
+  // is actually asked for, so it is the only message carrying payment actions.
+  // The reference stays as a code span so support can be given a tappable id.
   await ctx.reply(
-    `Get ${coverageTitle} of Logs, Filled For You, asap\n\n` +
-      `${coverage} of logs. Done in minutes.\n\n` +
-      `₦${priceNaira.toLocaleString("en-NG")}\n\n` +
-      `Pay securely with Paystack below.\n` +
-      `The moment it clears, your logs are ready to copy straight into your logbook.\n\n` +
+    `${catchupPaywallPitch(catchupSession.tierSelected, catchupSession.totalDuration)}\n\n` +
       `\`Ref: ${reference}\``,
     {
       parse_mode: "Markdown",
@@ -2134,6 +2122,11 @@ async function routeCatchupCallback(ctx: BotContext) {
 
     await ctx.answerCallbackQuery();
 
+    // Retire the preview's keyboard before anything slow happens. Checkout hits
+    // Paystack, and without this the user can re-tap Approve while that is in
+    // flight. The step guard above catches the replay, but only after the tap.
+    await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+
     if (catchupSession.paymentStatus === CatchupPaymentStatus.PAID) {
       await ctx.reply("You've already paid for this rescue, picking up right where we left off.");
       await resumeCatchupGeneration(catchupSession.id, ctx);
@@ -2153,6 +2146,11 @@ async function routeCatchupCallback(ctx: BotContext) {
       });
 
       console.log(`[catchup] Session ${catchupSession.id} comped by active Pro subscription (QUICK_FIX).`);
+
+      // Takes the paywall's slot: same moment in the flow, but confirming the
+      // pass is covered instead of asking for money. No keyboard, since there
+      // is nothing to pay and generation starts immediately.
+      await ctx.reply(CATCHUP_PRO_COVERED_MESSAGE);
       await resumeCatchupGeneration(catchupSession.id, ctx);
       return;
     }
@@ -2174,6 +2172,11 @@ async function routeCatchupCallback(ctx: BotContext) {
     };
 
     await ctx.answerCallbackQuery();
+
+    // Same nuke as Approve. A tweak regenerates the preview, so leaving this
+    // keyboard live would strand an approve button against a stale week 1.
+    await ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => {});
+
     await ctx.reply("No problem! What should we change? Just tell me what you need below, and I'll rewrite it instantly!");
     return;
   }
