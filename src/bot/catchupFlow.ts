@@ -618,6 +618,23 @@ function formatWeekOneLog(log: { content: string }, date: Date, dayNumber: numbe
   return `*Day ${dayNumber}* • ${dateLabel}\n\n${log.content}`;
 }
 
+/**
+ * A single week is the marketing hook: free for everyone, no Paystack link.
+ *
+ * Checked on tier as well as duration so it can only ever mean "one week" —
+ * `totalDuration === 1` on a month tier is one MONTH, which is very much not
+ * free.
+ */
+function isFreeCatchupWeek(tier: CatchupTier, totalDuration: number): boolean {
+  return tier === CatchupTier.QUICK_FIX && totalDuration === 1;
+}
+
+/** Shown instead of the paywall when the one-week rescue is on the house. */
+const CATCHUP_FREE_WEEK_MESSAGE =
+  "Week 1 is locked in! 🔒\n\n" +
+  "Since you only needed one week to catch up, this rescue is completely on the house! 🎁\n\n" +
+  "Your logs have been successfully generated and saved. You can view them anytime.";
+
 /** Shown instead of the paywall when Pro already covers the pass. */
 const CATCHUP_PRO_COVERED_MESSAGE =
   "Week 1 is locked in! 🔒\n\n" +
@@ -1238,8 +1255,23 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
     // Block 1 is the one that follows the charge. This is the user's receipt:
     // sent standalone and deliberately NOT captured as `loadingMsg`, so the
     // cleanup in `finally` never touches it and it stays in their history.
+    //
+    // Gated on a real settled charge. Comped sessions — the free one-week
+    // rescue and Pro-covered passes — flip to PAID without ever creating a
+    // PaymentTransaction, and telling those users "Payment successful!" when
+    // they were never charged is both wrong and alarming.
     if (blockIndex === 1) {
-      await notifyCatchupUser(telegramId, "Payment successful!");
+      const settledCharge = await prisma.paymentTransaction.findFirst({
+        where: {
+          status: TransactionStatus.SUCCESS,
+          metadata: { path: ["catchup_session_id"], equals: sessionId },
+        },
+        select: { id: true },
+      });
+
+      if (settledCharge) {
+        await notifyCatchupUser(telegramId, "Payment successful!");
+      }
     }
 
     const loadingMsg = await notifyCatchupUser(telegramId, LOADING_STEPS[0]);
@@ -2138,6 +2170,21 @@ async function routeCatchupCallback(ctx: BotContext) {
 
     if (catchupSession.paymentStatus === CatchupPaymentStatus.PAID) {
       await ctx.reply("You've already paid for this rescue, picking up right where we left off.");
+      await resumeCatchupGeneration(catchupSession.id, ctx);
+      return;
+    }
+
+    // The one-week rescue is free for everyone, Pro or not. Checked before the
+    // Pro branch so a free user on this tier never reaches Paystack at all.
+    if (isFreeCatchupWeek(catchupSession.tierSelected, catchupSession.totalDuration)) {
+      await prisma.catchupSession.update({
+        where: { id: catchupSession.id },
+        data: { paymentStatus: CatchupPaymentStatus.PAID },
+      });
+
+      console.log(`[catchup] Session ${catchupSession.id} comped as the free one-week rescue.`);
+
+      await ctx.reply(CATCHUP_FREE_WEEK_MESSAGE);
       await resumeCatchupGeneration(catchupSession.id, ctx);
       return;
     }
