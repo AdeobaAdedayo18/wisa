@@ -618,6 +618,36 @@ function formatWeekOneLog(log: { content: string }, date: Date, dayNumber: numbe
   return `*Day ${dayNumber}* • ${dateLabel}\n\n${log.content}`;
 }
 
+/** Shown instead of the paywall when Pro already covers the pass. */
+const CATCHUP_PRO_COVERED_MESSAGE =
+  "Week 1 is locked in! 🔒\n\n" +
+  "Since you're a Pro user, your short catch-up pass is fully covered. Let's keep going...";
+
+/**
+ * Whether an active Pro subscription covers this catch-up outright.
+ *
+ * Deliberately limited to QUICK_FIX. A multi-month backlog is the expensive
+ * product, and letting a monthly subscription unlock six months of generation
+ * for free is the obvious abuse route, so FULL_BACKLOG always goes to checkout
+ * no matter who is asking.
+ *
+ * Requires `hasActiveStorage` as well as the `isPro` flag. `isPro` is only
+ * cleared by the expiry sweep in the scheduler, so between a lapsed renewal and
+ * the next sweep it still reads true for someone who has stopped paying. The
+ * date check closes that window.
+ */
+async function isCatchupCoveredByPro(userId: number, tier: CatchupTier): Promise<boolean> {
+  if (tier !== CatchupTier.QUICK_FIX) return false;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, firstName: true, isPro: true, storageUnlocked: true, logCount: true, nextRenewalDate: true },
+  });
+
+  if (!user?.isPro) return false;
+  return hasActiveStorage(user);
+}
+
 /** The paywall pitch counts a month as four weeks when describing the remainder. */
 const WEEKS_PER_MONTH = 4;
 
@@ -724,7 +754,9 @@ async function sendWeekOneBait(ctx: BotContext): Promise<void> {
   });
 
   await ctx.reply(
-    catchupPaywallPitch(catchupSession.tierSelected, catchupSession.totalDuration),
+    (await isCatchupCoveredByPro(catchupSession.userId, catchupSession.tierSelected))
+      ? CATCHUP_PRO_COVERED_MESSAGE
+      : catchupPaywallPitch(catchupSession.tierSelected, catchupSession.totalDuration),
     {
       reply_markup: new InlineKeyboard()
         .text("Approve and continue", "catchup_approve_wk1")
@@ -2108,6 +2140,23 @@ async function routeCatchupCallback(ctx: BotContext) {
       return;
     }
 
+    // Re-checked here rather than trusted from the message: the keyboard could
+    // have been sent before a subscription lapsed, and this is the tap that
+    // actually spends the entitlement.
+    if (await isCatchupCoveredByPro(catchupSession.userId, catchupSession.tierSelected)) {
+      // Comped, so no PaymentTransaction is written — only the session flips.
+      // Everything downstream (block claim, fulfilment ledger, notifications) is
+      // the same path a paid session takes.
+      await prisma.catchupSession.update({
+        where: { id: catchupSession.id },
+        data: { paymentStatus: CatchupPaymentStatus.PAID },
+      });
+
+      console.log(`[catchup] Session ${catchupSession.id} comped by active Pro subscription (QUICK_FIX).`);
+      await resumeCatchupGeneration(catchupSession.id, ctx);
+      return;
+    }
+
     await startRescuePassCheckout(ctx, catchupSession);
     return;
   }
@@ -2125,7 +2174,7 @@ async function routeCatchupCallback(ctx: BotContext) {
     };
 
     await ctx.answerCallbackQuery();
-    await ctx.reply("No problem! What should we change? Just tell me what you need, and I'll rewrite it instantly!");
+    await ctx.reply("No problem! What should we change? Just tell me what you need below, and I'll rewrite it instantly!");
     return;
   }
 
