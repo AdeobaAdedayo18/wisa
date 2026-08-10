@@ -46,6 +46,28 @@ const LOADING_STEPS = [
 const LOADING_CYCLER_MAX_MS = 40 * 60 * 1000;
 
 /**
+ * Sends a notice that exists only to cover a wait, runs the work behind it, and
+ * removes the notice once that work has produced its own output.
+ *
+ * These stack up badly otherwise: "Writing these up now" is followed within a
+ * second by the cycling loader, which is followed by the logs themselves, so the
+ * chat keeps three messages describing one action. Deleted in `finally`, since a
+ * failed attempt leaves the notice just as stale as a successful one.
+ */
+async function withTransientNotice<T>(
+  ctx: BotContext,
+  text: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  const notice = await ctx.reply(text);
+  try {
+    return await work();
+  } finally {
+    await ctx.api.deleteMessage(ctx.chat!.id, notice.message_id).catch(() => {});
+  }
+}
+
+/**
  * `fromStep` is the index of the NEXT frame; the caller has already sent
  * LOADING_STEPS[fromStep - 1] as the message being cycled.
  *
@@ -566,8 +588,11 @@ async function evaluateCurrentCatchupChunk(ctx: BotContext, rawText: string, opt
       startedAt: ctx.session.catchup?.startedAt ?? Date.now(),
     };
 
-    await ctx.reply("Perfect, that's solid detail. Writing these up now, give me a moment.");
-    await resumeCatchupGeneration(catchupSession.id, ctx);
+    await withTransientNotice(
+      ctx,
+      "Perfect, that's solid detail. Writing these up now, give me a moment.",
+      () => resumeCatchupGeneration(catchupSession.id, ctx),
+    );
     return;
   }
 
@@ -577,8 +602,11 @@ async function evaluateCurrentCatchupChunk(ctx: BotContext, rawText: string, opt
     startedAt: ctx.session.catchup?.startedAt ?? Date.now(),
   };
 
-  await ctx.reply("Perfect, that's solid detail. Generating your first week now to show you how this looks...");
-  await sendWeekOneBait(ctx);
+  await withTransientNotice(
+    ctx,
+    "Perfect, that's solid detail. Generating your first week now to show you how this looks...",
+    () => sendWeekOneBait(ctx),
+  );
 }
 
 /**
@@ -849,10 +877,13 @@ async function startRescuePassCheckout(ctx: BotContext, catchupSession: CatchupS
     return;
   }
 
-  await ctx.reply("Generating your secure payment link, one sec...");
+  // Captured out of `user` because the guard above does not narrow inside a closure.
+  const paymentEmail = user.paymentEmail;
 
   try {
-    await sendRescuePassInvoice(ctx, catchupSession, user.paymentEmail);
+    await withTransientNotice(ctx, "Generating your secure payment link, one sec...", () =>
+      sendRescuePassInvoice(ctx, catchupSession, paymentEmail),
+    );
   } catch (err) {
     console.error("[catchup] initializeCatchupPassTransaction failed:", err);
     await ctx.reply("I couldn't generate a payment link right now. Please try again in a moment.");
@@ -2246,10 +2277,10 @@ export async function handleCatchupFlowWithText(ctx: BotContext, text: string): 
           return;
         }
 
-        await ctx.reply(`Saved! Generating your secure payment link, one sec...`);
-
         try {
-          await sendRescuePassInvoice(ctx, catchupSession, email);
+          await withTransientNotice(ctx, "Saved! Generating your secure payment link, one sec...", () =>
+            sendRescuePassInvoice(ctx, catchupSession, email),
+          );
         } catch (err) {
           console.error("[catchup] initializeCatchupPassTransaction after email capture failed:", err);
           await ctx.reply("I couldn't generate a payment link right now. Please try again in a moment.");
