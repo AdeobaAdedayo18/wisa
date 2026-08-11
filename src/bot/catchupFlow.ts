@@ -847,6 +847,23 @@ async function sendWeekOneBait(ctx: BotContext): Promise<void> {
     .flatMap((block) => block.entries)
     .join("\n\n");
 
+  // Nothing to build a preview from. Checked BEFORE the loading message on
+  // purpose: the fulfilment path already guards this way, and anything that
+  // aborts after "Warming up..." is posted leaves that message stranded in the
+  // chat. Silence plus a prompt is the correct response to having no notes.
+  if (!rawDump.trim()) {
+    console.warn(`[catchup] Week-1 preview for session ${catchupSession.id} has no source text — skipping generation.`);
+
+    ctx.session.catchup = {
+      active: true,
+      step: 'awaiting_block_dump',
+      startedAt: ctx.session.catchup?.startedAt ?? Date.now(),
+    };
+
+    await ctx.reply("I don't have any notes to work from yet. Drop your rough notes below and I'll get started.");
+    return;
+  }
+
   const loadingMsg = await ctx.reply(LOADING_STEPS[0]);
   const stopLoading = startLoadingCycler(ctx.api, ctx.chat!.id, loadingMsg.message_id);
 
