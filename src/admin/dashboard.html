@@ -1856,7 +1856,7 @@ function renderCatchup(d) {
   const cards = [
     {
       label: 'Total Revenue (Collected)', value: fmtNaira(revenue.collectedNaira),
-      sub: `${fmt(funnel.sessionsPaid || 0)} paid session${funnel.sessionsPaid === 1 ? '' : 's'}`,
+      sub: `${fmt(revenue.chargedSessions || 0)} charged · ${fmt(revenue.freeSessions || 0)} free`,
       icon: '💰', cls: 'card-green',
     },
     {
@@ -1894,29 +1894,30 @@ function renderCatchup(d) {
     badge.classList.toggle('hidden', !active.stuck);
   }
 
-  // Footnote: expected (list-price) revenue, plus any caveat the API attached.
-  const note = (d.notes && d.notes.length)
-    ? ' · ' + d.notes.join(' ')
-    : ' · Priced at current list rates.';
+  // Receipt-based only: every figure above comes from settled PaymentTransaction
+  // rows, so there is no inferred total to caveat here.
   document.getElementById('catchup-footnote').textContent =
-    `Expected revenue at list price: ${fmtNaira(revenue.expectedNaira)}${note}`;
+    (d.notes && d.notes.length)
+      ? d.notes.join(' ')
+      : 'Revenue counts settled charges only. Comped sessions show as Free.';
 
   document.getElementById('catchup-paid-count').textContent = fmt(funnel.sessionsPaid || 0);
 
-  const rows = tiers.filter(t => t.initiatedCount || t.paidCount);
+  const rows = tiers.filter(t => t.initiatedCount || t.fulfilledCount);
   document.getElementById('catchup-tier-wrap').innerHTML = rows.length
     ? `<table class="data-table">
          <thead>
-           <tr><th>Tier</th><th>Paid</th><th>Started</th><th>Avg size</th><th>Revenue</th></tr>
+           <tr><th>Tier</th><th>Charged</th><th>Free</th><th>Started</th><th>Avg size</th><th>Collected</th></tr>
          </thead>
          <tbody>
            ${rows.map(t => `
              <tr>
-               <td>${t.tier}</td>
-               <td>${fmt(t.paidCount)}</td>
+               <td>${escHtml(t.tierLabel || t.tier)}</td>
+               <td>${fmt(t.chargedCount)}</td>
+               <td class="muted">${fmt(t.freeCount)}</td>
                <td class="muted">${fmt(t.initiatedCount)}</td>
                <td class="small">${t.averageDuration == null ? '–' : `${t.averageDuration} ${t.durationUnit}`}</td>
-               <td>${fmtNaira(t.expectedRevenueNaira)}</td>
+               <td style="font-weight:600">${fmtNaira(t.collectedNaira)}</td>
              </tr>`).join('')}
          </tbody>
        </table>`
@@ -1926,10 +1927,12 @@ function renderCatchup(d) {
 }
 
 /** Did this paying customer actually get their logs? Red is the one to chase. */
+// Fulfilment only. Whether money changed hands is the Paid column's job — a
+// comped session is genuinely "Completed", never "Paid & Completed".
 const CATCHUP_STATE_TAGS = {
-  completed:   { cls: 'tag-green',  label: 'Paid &amp; Completed' },
-  stuck:       { cls: 'tag-red',    label: 'Paid &amp; Stuck'     },
-  in_progress: { cls: 'tag-yellow', label: 'Paid &amp; In progress' },
+  completed:   { cls: 'tag-green',  label: 'Completed'   },
+  stuck:       { cls: 'tag-red',    label: 'Stuck'       },
+  in_progress: { cls: 'tag-yellow', label: 'In progress' },
 };
 
 function relativeMinutes(mins) {
@@ -1974,7 +1977,9 @@ function renderCatchupPaidSessions(sessions) {
               <td class="muted">${s.username ? '@' + escHtml(s.username) : '–'}</td>
               <td class="small" style="font-family:ui-monospace,monospace">${escHtml(s.telegramId)}</td>
               <td class="small">${escHtml(s.tierLabel || s.tier || '')}</td>
-              <td style="font-weight:600">${fmtNaira(s.amountNaira)}${s.amountIsListPrice ? '<span class="muted small" title="No settled transaction matched; showing current list price."> *</span>' : ''}</td>
+              <td>${s.isFree
+                ? '<span class="tag tag-gray" title="No PaymentTransaction settled for this session.">Free</span>'
+                : `<span style="font-weight:600">${fmtNaira(s.amountNaira)}</span>`}</td>
               <td class="small">${escHtml(s.blockProgress || '')}</td>
               <td><span class="tag ${tag.cls}">${tag.label}</span></td>
               <td class="muted small">${relativeMinutes(s.minutesSinceUpdate)}</td>

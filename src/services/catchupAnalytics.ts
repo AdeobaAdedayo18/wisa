@@ -3,7 +3,6 @@ import { CatchupPaymentStatus, CatchupTier, TransactionStatus } from "../prisma/
 import { RESCUE_PASS_PAYMENT_TYPE } from "./paystack";
 import {
   CATCHUP_BLOCK_CLAIM_LEASE_MS,
-  getCatchupTierPrice,
   getCatchupTierUnit,
   getCatchupTotalBlocks,
 } from "./catchupTiers";
@@ -14,12 +13,18 @@ import {
 
 export type CatchupTierBreakdown = {
   tier: CatchupTier;
-  unitPriceNaira: number;
+  tierLabel: string;
   durationUnit: "weeks" | "months";
   /** Sessions opened at this tier, regardless of whether they were paid for. */
   initiatedCount: number;
-  paidCount: number;
-  expectedRevenueNaira: number;
+  /** Sessions marked PAID, which includes comped ones. */
+  fulfilledCount: number;
+  /** Of those, how many settled a real charge. */
+  chargedCount: number;
+  /** Of those, how many were comped (free week, Pro cover). */
+  freeCount: number;
+  /** Sum of settled charges only. Never derived from list prices. */
+  collectedNaira: number;
   /** Mean `totalDuration` across PAID sessions — weeks or months, per the tier. */
   averageDuration: number | null;
 };
@@ -36,12 +41,12 @@ export type CatchupPaidSession = {
   tierLabel: string;
   /**
    * What they were ACTUALLY charged, read off the settled PaymentTransaction.
-   * Falls back to the tier's current list price only when no transaction row can
-   * be matched, since list price misreports anything sold before a price change.
+   * Zero when no transaction exists — list price is never substituted, because
+   * a comped session genuinely collected nothing and guessing hid that.
    */
   amountNaira: number;
-  /** True when the figure above is the fallback rather than a real charge. */
-  amountIsListPrice: boolean;
+  /** No settled charge: the free one-week rescue, or Pro cover. */
+  isFree: boolean;
   state: "completed" | "stuck" | "in_progress";
   /** e.g. "2 / 6". Blocks fulfilled out of blocks owed. */
   blockProgress: string;
@@ -53,10 +58,16 @@ export type CatchupAnalytics = {
   generatedAt: string;
   currency: "NGN";
   revenue: {
-    /** Sum of list prices for PAID sessions. See the caveat in `notes`. */
-    expectedNaira: number;
-    /** Actually settled Rescue Pass charges, from PaymentTransaction. */
+    /**
+     * Sum of settled Rescue Pass charges, straight from PaymentTransaction.
+     * This is the only revenue figure the API reports: nothing here is inferred
+     * from a tier or a list price.
+     */
     collectedNaira: number;
+    /** PAID sessions backed by a settled charge. */
+    chargedSessions: number;
+    /** PAID sessions that were comped and collected nothing. */
+    freeSessions: number;
   };
   funnel: {
     sessionsInitiated: number;
@@ -210,34 +221,17 @@ export async function getCatchupAnalytics(): Promise<CatchupAnalytics> {
     readSettledAmounts(),
   ]);
 
-  // ── Tier breakdown ──────────────────────────────────────────────────────
-  const paidByTierMap = new Map(paidByTier.map((row) => [row.tierSelected, row]));
-  const initiatedByTierMap = new Map(initiatedByTier.map((row) => [row.tierSelected, row]));
-
-  const tiers: CatchupTierBreakdown[] = ALL_TIERS.map((tier) => {
-    const paidRow = paidByTierMap.get(tier);
-    const paidCount = paidRow?._count._all ?? 0;
-    const unitPriceNaira = getCatchupTierPrice(tier);
-    const averageDuration = paidRow?._avg.totalDuration ?? null;
-
-    return {
-      tier,
-      unitPriceNaira,
-      durationUnit: getCatchupTierUnit(tier),
-      initiatedCount: initiatedByTierMap.get(tier)?._count._all ?? 0,
-      paidCount,
-      expectedRevenueNaira: paidCount * unitPriceNaira,
-      averageDuration: averageDuration === null ? null : Math.round(averageDuration * 10) / 10,
-    };
-  });
-
-  const expectedNaira = tiers.reduce((sum, tier) => sum + tier.expectedRevenueNaira, 0);
-  // PaymentTransaction.amount is stored in kobo.
-  const collectedNaira = Math.round((collectedAggregate._sum.amount ?? 0) / 100);
-
   // ── Fulfilment health + the paid-customer table, from one pass ──────────
+  // Runs BEFORE the tier breakdown, because per-tier revenue is now summed from
+  // these settled receipts rather than multiplied out of a list price.
   let completed = 0;
   let stuck = 0;
+  let chargedSessions = 0;
+  let freeSessions = 0;
+
+  const collectedByTier = new Map<CatchupTier, number>();
+  const chargedByTier = new Map<CatchupTier, number>();
+  const freeByTier = new Map<CatchupTier, number>();
 
   const paidSessions: CatchupPaidSession[] = paidSessionRows.map((session) => {
     const totalBlocks = getCatchupTotalBlocks(session.tierSelected, session.totalDuration);
@@ -251,7 +245,20 @@ export async function getCatchupAnalytics(): Promise<CatchupAnalytics> {
     if (isComplete) completed += 1;
     else if (isStuck) stuck += 1;
 
-    const settled = settledAmounts.get(session.id);
+    // No receipt means no money changed hands. The session was comped by the
+    // free one-week rule or by Pro cover, both of which flip paymentStatus to
+    // PAID without ever writing a PaymentTransaction.
+    const settled = settledAmounts.get(session.id) ?? 0;
+    const isFree = settled === 0;
+
+    if (isFree) {
+      freeSessions += 1;
+      freeByTier.set(session.tierSelected, (freeByTier.get(session.tierSelected) ?? 0) + 1);
+    } else {
+      chargedSessions += 1;
+      chargedByTier.set(session.tierSelected, (chargedByTier.get(session.tierSelected) ?? 0) + 1);
+      collectedByTier.set(session.tierSelected, (collectedByTier.get(session.tierSelected) ?? 0) + settled);
+    }
 
     return {
       sessionId: session.id,
@@ -260,8 +267,8 @@ export async function getCatchupAnalytics(): Promise<CatchupAnalytics> {
       username: session.user.username,
       tier: session.tierSelected,
       tierLabel: TIER_LABELS[session.tierSelected] ?? session.tierSelected,
-      amountNaira: settled ?? getCatchupTierPrice(session.tierSelected),
-      amountIsListPrice: settled === undefined,
+      amountNaira: settled,
+      isFree,
       state: isComplete ? "completed" : isStuck ? "stuck" : "in_progress",
       blockProgress: `${fulfilled.filter((b) => b >= 1 && b <= totalBlocks).length} / ${totalBlocks}`,
       updatedAt: session.updatedAt.toISOString(),
@@ -271,24 +278,49 @@ export async function getCatchupAnalytics(): Promise<CatchupAnalytics> {
 
   const inProgress = paidSessionRows.length - completed;
 
+  // ── Tier breakdown ──────────────────────────────────────────────────────
+  const paidByTierMap = new Map(paidByTier.map((row) => [row.tierSelected, row]));
+  const initiatedByTierMap = new Map(initiatedByTier.map((row) => [row.tierSelected, row]));
+
+  const tiers: CatchupTierBreakdown[] = ALL_TIERS.map((tier) => {
+    const paidRow = paidByTierMap.get(tier);
+    const averageDuration = paidRow?._avg.totalDuration ?? null;
+
+    return {
+      tier,
+      tierLabel: TIER_LABELS[tier] ?? tier,
+      durationUnit: getCatchupTierUnit(tier),
+      initiatedCount: initiatedByTierMap.get(tier)?._count._all ?? 0,
+      fulfilledCount: paidRow?._count._all ?? 0,
+      chargedCount: chargedByTier.get(tier) ?? 0,
+      freeCount: freeByTier.get(tier) ?? 0,
+      collectedNaira: collectedByTier.get(tier) ?? 0,
+      averageDuration: averageDuration === null ? null : Math.round(averageDuration * 10) / 10,
+    };
+  });
+
+  // PaymentTransaction.amount is stored in kobo. This aggregate is the
+  // authoritative total: it covers every settled Rescue Pass charge, including
+  // any whose session row has since been removed.
+  const collectedNaira = Math.round((collectedAggregate._sum.amount ?? 0) / 100);
+
   const notes: string[] = [];
   if (paidSessions.length > PAID_SESSION_LIMIT) {
     notes.push(
       `Showing the ${PAID_SESSION_LIMIT} most recently active of ${paidSessions.length} paid sessions.`,
     );
   }
-  if (expectedNaira !== collectedNaira) {
+  if (freeSessions > 0) {
     notes.push(
-      "`revenue.expectedNaira` prices every paid session at today's list price, so it diverges from " +
-        "`collectedNaira` for sessions sold before a price change (QUICK_FIX was ₦1,000 before it moved to ₦1,500). " +
-        "Treat `collectedNaira` as the accounting figure.",
+      `${freeSessions} of ${paidSessionRows.length} fulfilled session(s) were comped and collected nothing ` +
+        "(the free one-week rescue, or Pro cover). Revenue counts settled charges only.",
     );
   }
 
   return {
     generatedAt: now.toISOString(),
     currency: "NGN",
-    revenue: { expectedNaira, collectedNaira },
+    revenue: { collectedNaira, chargedSessions, freeSessions },
     funnel: {
       sessionsInitiated,
       sessionsPaid,
