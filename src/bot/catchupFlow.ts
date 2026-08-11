@@ -1385,7 +1385,13 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
     const daysToGenerate = Math.max(0, blockWorkingDays - previewLogs.length);
 
     const blockEntries = payload.blocks.find((block) => block.block === blockIndex)?.entries
-      ?? payload.blocks.flatMap((block) => block.entries);
+      // Fallback ONLY for block 1, where everything in the dump genuinely is
+      // block 1's material — legacy rows stored entries without a matching block
+      // key. For any later block, a missing entry list means the user has not
+      // written that month yet. Flattening the earlier months here regenerated
+      // month N from month N-1's notes and marked it fulfilled, which the boot
+      // sweeper triggered on every restart for anyone mid-backlog.
+      ?? (blockIndex === 1 ? payload.blocks.flatMap((block) => block.entries) : []);
     const rawDump = blockEntries.join("\n\n");
     const workplaceRole = catchupSession.user.workplaceRole?.trim() || "IT";
 
