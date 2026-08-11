@@ -294,6 +294,13 @@ function buildCatchupDumpPrompt(lead: string, period: string): string {
   );
 }
 
+/**
+ * Hard guardrail for anything addressed to the bot rather than describing work.
+ * Deliberately fixed text: the whole point is to stop generating a conversation.
+ */
+const CATCHUP_CHATTER_REPLY =
+  "I am an automated logbook writer, not a conversational bot. 🤖 Please drop your actual work notes below, or type /cancel if you want to exit.";
+
 /** The exact rejection shown at every workplace-role capture point. */
 export const INVALID_ROLE_REPLY =
   "That doesn't look like a job role 😅 Please reply with your actual position so I can write accurate logs for you.";
@@ -582,6 +589,39 @@ async function appendCatchupDumpToSession(ctx: BotContext, text: string) {
   return { catchupSession, blocks, currentBlockIndex, currentEntries, capped: false };
 }
 
+/**
+ * Removes the entry that was just appended, once it turns out to be chatter.
+ *
+ * The caller appends before evaluating, so by the time we know the message was a
+ * question it is already sitting in the block's notes. Left there it would be
+ * fed to the generator as source material for the month.
+ *
+ * Best effort: it pops the last entry of the current block, which is the one we
+ * just added unless two messages interleaved.
+ */
+async function dropLastCatchupEntry(sessionId: string, currentBlock: number): Promise<void> {
+  try {
+    const session = await prisma.catchupSession.findUnique({
+      where: { id: sessionId },
+      select: { contextDump: true },
+    });
+    if (!session) return;
+
+    const payload = readContextPayload(session.contextDump);
+    const block = payload.blocks.find((entry) => entry.block === Math.max(1, currentBlock));
+    if (!block || block.entries.length === 0) return;
+
+    block.entries.pop();
+
+    await prisma.catchupSession.update({
+      where: { id: sessionId },
+      data: { contextDump: buildContextDump(payload) },
+    });
+  } catch (err) {
+    console.error(`[catchup] Failed to drop chatter entry for session ${sessionId}:`, err);
+  }
+}
+
 async function evaluateCurrentCatchupChunk(ctx: BotContext, rawText: string, opts?: { afterMoreDetail?: boolean }): Promise<void> {
   const catchupSession = await getCatchupSessionForCurrentUser(ctx);
   if (!catchupSession) {
@@ -612,6 +652,19 @@ async function evaluateCurrentCatchupChunk(ctx: BotContext, rawText: string, opt
     catchupSession.totalDuration,
     workplaceRole,
   );
+
+  // Checked BEFORE depth. A question or greeting is not thin work notes, and
+  // answering it with generated follow-up questions turns a utility bot into a
+  // conversational one. The step is left untouched, so they can simply type
+  // their real notes next.
+  if (evaluation.isChatter) {
+    // The text was already appended by the caller. Take it back out, or it
+    // becomes source material and the generator writes a day about the question
+    // they asked.
+    await dropLastCatchupEntry(catchupSession.id, catchupSession.currentBlock);
+    await ctx.reply(CATCHUP_CHATTER_REPLY);
+    return;
+  }
 
   if (!evaluation.sufficientForCurrentChunk) {
     // NOTE: paymentStatus is NOT touched here — it now tracks the real Paystack

@@ -126,6 +126,8 @@ export async function transcribeVoice(filePath: string): Promise<string | null> 
 // ============================================================================
 
 export interface CatchupDumpEvaluation {
+  /** The message was addressed to the bot (question/greeting), not work notes. */
+  isChatter: boolean;
   sufficientForCurrentChunk: boolean;
   followUpQuestions: string[];
 }
@@ -195,8 +197,24 @@ The user's specific role and department at their workplace is: ${workplaceRole}.
 
 When asking follow-up questions, strictly tailor them to that role and the work it actually involves (e.g., a lab analyst, an accounts clerk, a site engineer). DO NOT default to asking about "programming languages" or "software tools" unless the role is explicitly an IT/software one.
 
+CLASSIFY BEFORE YOU JUDGE (STRICT):
+Decide what the message actually IS before deciding whether it is deep enough.
+
+Set "isChatter": true when the text is addressed to the bot rather than a
+description of work. That covers questions ("Do you have my logs for May?",
+"how does this work?", "can you check something"), greetings, thanks, small
+talk, and requests or instructions of any kind.
+
+Set "isChatter": false whenever the text describes work the student actually
+did, no matter how short, vague or badly written it is. A thin work note is NOT
+chatter — it is thin, and sufficientForCurrentChunk already covers that.
+
+When "isChatter" is true, set sufficientForCurrentChunk to false and return an
+EMPTY followUpQuestions array. Do not ask anything. The caller handles it.
+
 Return ONLY valid JSON:
 {
+  "isChatter": boolean,
   "sufficientForCurrentChunk": boolean,
   "followUpQuestions": string[]
 }`,
@@ -207,15 +225,18 @@ Return ONLY valid JSON:
     });
 
     const result = JSON.parse(completion.choices[0].message.content || '{"sufficientForCurrentChunk": false, "followUpQuestions": ["Can you tell me more about the specific tools, tasks, or challenges you handled?"]}');
-    console.log(`[evaluateCatchupDump] Result: sufficientForCurrentChunk=${result.sufficientForCurrentChunk} in ${Date.now() - start}ms`);
+    console.log(`[evaluateCatchupDump] Result: isChatter=${Boolean(result.isChatter)} sufficientForCurrentChunk=${result.sufficientForCurrentChunk} in ${Date.now() - start}ms`);
 
     return {
+      isChatter: Boolean(result.isChatter),
       sufficientForCurrentChunk: Boolean(result.sufficientForCurrentChunk),
       followUpQuestions: Array.isArray(result.followUpQuestions) ? result.followUpQuestions.filter((item: unknown) => typeof item === 'string') : [],
     };
   } catch (error) {
     console.error("[evaluateCatchupDump] Error calling OpenAI:", error);
-    return { sufficientForCurrentChunk: false, followUpQuestions: ["I missed some of that. Could you tell me more about the tools, tasks, or challenges you handled?"] };
+    // isChatter false on purpose: an API blip must never stonewall a genuine
+    // brain dump with the "I am not a conversational bot" guardrail.
+    return { isChatter: false, sufficientForCurrentChunk: false, followUpQuestions: ["I missed some of that. Could you tell me more about the tools, tasks, or challenges you handled?"] };
   }
 }
 
