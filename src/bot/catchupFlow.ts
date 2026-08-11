@@ -377,6 +377,8 @@ type CatchupContextDump = {
     content: string;
   }>;
   fulfilledBlocks?: number[];
+  /** Blocks we have already nudged the user about. One nudge per block. */
+  remindedBlocks?: number[];
 };
 
 function normalizeContextDump(contextDump: unknown): CatchupBlockDump[] {
@@ -413,6 +415,7 @@ type NormalizedContextPayload = {
   blocks: CatchupBlockDump[];
   week1Preview: CatchupPreviewLog[];
   fulfilledBlocks: number[];
+  remindedBlocks: number[];
 };
 
 /** Reads the whole contextDump payload (blocks + week-1 preview + fulfilment ledger). */
@@ -428,6 +431,9 @@ function readContextPayload(contextDump: unknown): NormalizedContextPayload {
     fulfilledBlocks: Array.isArray(payload?.fulfilledBlocks)
       ? payload!.fulfilledBlocks.filter((block): block is number => Number.isFinite(block))
       : [],
+    remindedBlocks: Array.isArray(payload?.remindedBlocks)
+      ? payload!.remindedBlocks.filter((block): block is number => Number.isFinite(block))
+      : [],
   };
 }
 
@@ -437,6 +443,9 @@ function buildContextDump(payload: NormalizedContextPayload): Prisma.InputJsonVa
     fulfilledBlocks: payload.fulfilledBlocks,
   };
   if (payload.week1Preview.length > 0) dump.week1Preview = payload.week1Preview;
+  // Carried through every write. Omitting it here would silently reset the
+  // spam guard each time a block was fulfilled.
+  if (payload.remindedBlocks.length > 0) dump.remindedBlocks = payload.remindedBlocks;
   return dump as Prisma.InputJsonValue;
 }
 
@@ -1165,6 +1174,81 @@ async function reclaimAbandonedBlock(session: {
 
   console.warn(`[catchup] Reclaimed abandoned block ${claimed} of session ${session.id}`);
   return claimed;
+}
+
+/** How long a paid, mid-backlog session may sit idle before we nudge. */
+const MID_SESSION_IDLE_MS = 30 * 60 * 1000;
+
+/**
+ * Nudges paid multi-block users who wandered off between months.
+ *
+ * They typically leave to read the logs they just got and forget to come back,
+ * so the session sits waiting for a brain dump that never arrives.
+ *
+ * "Waiting for input" is derived, not stored: the claim advances `currentBlock`
+ * BEFORE the OpenAI call and the ledger records the block only once it lands, so
+ * `fulfilledBlocks.includes(currentBlock - 1)` is true exactly when the previous
+ * block finished and nothing is currently generating. That distinction is what
+ * keeps this from interrupting a live generation.
+ */
+export async function nudgeIdleCatchupSessions(): Promise<void> {
+  try {
+    const candidates = await prisma.catchupSession.findMany({
+      where: {
+        paymentStatus: CatchupPaymentStatus.PAID,
+        // At least one block done, so there is a "next month" to ask for.
+        currentBlock: { gt: 1 },
+        updatedAt: { lt: new Date(Date.now() - MID_SESSION_IDLE_MS) },
+      },
+      include: { user: { select: { telegramId: true, botBlocked: true } } },
+    });
+
+    for (const session of candidates) {
+      if (session.user.botBlocked) continue;
+
+      const totalBlocks = getCatchupTotalBlocks(session.tierSelected, session.totalDuration);
+      const payload = readContextPayload(session.contextDump);
+      const nextBlock = session.currentBlock;
+
+      // Finished, or no such block — nothing outstanding to chase.
+      if (payload.fulfilledBlocks.some((block) => block >= totalBlocks)) continue;
+      if (nextBlock > totalBlocks) continue;
+
+      // Mid-generation rather than idle. Leave it to the reclaim path.
+      if (!payload.fulfilledBlocks.includes(nextBlock - 1)) continue;
+
+      // One nudge per block, ever.
+      if (payload.remindedBlocks.includes(nextBlock)) continue;
+
+      const remainingBlocks = Math.max(1, totalBlocks - payload.fulfilledBlocks.length);
+      const unit = getCatchupTierUnit(session.tierSelected) === "weeks" ? "week" : "month";
+      const remainingLabel = `${remainingBlocks} ${remainingBlocks === 1 ? unit : `${unit}s`}`;
+
+      // Marked BEFORE sending on purpose. If the send fails the user loses one
+      // nudge; if the write failed after a successful send they would be nudged
+      // again on every tick, which is the failure this guard exists to prevent.
+      await prisma.catchupSession.update({
+        where: { id: session.id },
+        data: {
+          contextDump: buildContextDump({
+            ...payload,
+            remindedBlocks: [...payload.remindedBlocks, nextBlock],
+          }),
+        },
+      });
+
+      await notifyCatchupUser(
+        session.user.telegramId,
+        `Hey! 👀 I noticed you took a break. You still have ${remainingLabel} left to generate.\n\n` +
+          `👇 *Still waiting for Month ${nextBlock} data o. Drop your rough notes below whenever you are ready to continue!*`,
+        { parse_mode: "Markdown" },
+      );
+
+      console.log(`[catchup] Nudged idle session ${session.id} for block ${nextBlock}/${totalBlocks}`);
+    }
+  } catch (err) {
+    console.error("[catchup] Idle-session nudge failed:", err);
+  }
 }
 
 /**

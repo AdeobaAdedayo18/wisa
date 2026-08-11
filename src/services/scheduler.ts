@@ -16,6 +16,7 @@ import { getLocalDayOfWeek, localTimeToUtc } from "../utils/dateHelpers";
 import type { BotContext, SessionData } from "../bot/types";
 import { parseISO, differenceInDays } from "date-fns";
 import { canCreateLog, FREE_LOG_LIMIT, getStorageLimitReachedAfterSaveText, getStorageWallText, hasActiveStorage } from "../bot/monetization";
+import { nudgeIdleCatchupSessions } from "../bot/catchupFlow";
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 const BROADCAST_TIMEZONE = "Africa/Lagos";
@@ -284,6 +285,7 @@ export function startScheduler(bot: Bot<BotContext>): void {
   let renewalCronRunning = false;
   let morningGreetingCronRunning = false;
   let afternoonGreetingCronRunning = false;
+  let catchupNudgeCronRunning = false;
 
   // ── Morning Greeting ──
   cron.schedule("0 8 * * *", async () => {
@@ -1183,6 +1185,22 @@ export function startScheduler(bot: Bot<BotContext>): void {
       console.error("[scheduler] Weekly recap cron error:", err);
     } finally {
       weeklyRecapCronRunning = false;
+    }
+  });
+
+  // ── Idle catch-up nudge ──
+  // Every five minutes, but the work is gated on a 30-minute idle window and a
+  // once-per-block ledger, so the tick rate only affects how promptly the nudge
+  // lands, never how many a user can receive.
+  cron.schedule("*/5 * * * *", async () => {
+    if (catchupNudgeCronRunning) return;
+    catchupNudgeCronRunning = true;
+    try {
+      await nudgeIdleCatchupSessions();
+    } catch (err) {
+      console.error("[scheduler] Catch-up nudge cron error:", err);
+    } finally {
+      catchupNudgeCronRunning = false;
     }
   });
 
