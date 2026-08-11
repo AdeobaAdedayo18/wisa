@@ -1240,7 +1240,8 @@ export async function nudgeIdleCatchupSessions(): Promise<void> {
       await notifyCatchupUser(
         session.user.telegramId,
         `Hey! 👀 I noticed you took a break. You still have ${remainingLabel} left to generate.\n\n` +
-          `👇 *Still waiting for Month ${nextBlock} data o. Drop your rough notes below whenever you are ready to continue!*`,
+          `👇 *Still waiting for ${getBlockMonthName(new Date(session.startDate), nextBlock)} data o. ` +
+          `Drop your rough notes below whenever you are ready to continue!*`,
         { parse_mode: "Markdown" },
       );
 
