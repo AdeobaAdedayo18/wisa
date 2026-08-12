@@ -2954,7 +2954,7 @@ function renderReplayEvents() {
   let filtered = rvEvents;
   if (rvFilter === 'messages') {
     filtered = rvEvents.filter(e =>
-      ['user_message', 'user_voice', 'bot_message', 'bot_photo', 'bot_edit'].includes(e.eventType)
+      ['user_message', 'user_photo', 'user_voice', 'bot_message', 'bot_photo', 'bot_edit'].includes(e.eventType)
     );
   } else if (rvFilter === 'errors') {
     filtered = rvEvents.filter(e => e.eventType === 'error');
@@ -2988,6 +2988,7 @@ function renderReplayEvents() {
     let el;
     switch (event.eventType) {
       case 'user_message':  el = createBubble('user', p.text, timeStr); break;
+      case 'user_photo':    el = createUserPhotoBubble(p.caption, timeStr); break;
       case 'user_voice':    el = createVoiceBubble(p.duration, timeStr); break;
       case 'user_callback': el = createActionPill(p.buttonLabel || p.data, timeStr); break;
       case 'bot_message':   el = createBotBubble(p.text, timeStr, p.replyMarkup); break;
@@ -3045,6 +3046,17 @@ function createPhotoBubble(caption, time) {
     <div class="photo-caption">${formatMd(caption)}</div>
     <div class="msg-time">${time}</div>
   `;
+  return el;
+}
+
+// Wisa cannot read images, so the replay shows what was sent rather than
+// pretending to render it. Any caption is user-controlled and goes through
+// formatMd, which escapes before it formats.
+function createUserPhotoBubble(caption, time) {
+  const el = document.createElement('div');
+  el.className = 'replay-msg user';
+  const captionHtml = caption ? `<div>${formatMd(caption)}</div>` : '';
+  el.innerHTML = `<div>[📷 User sent a photo]</div>${captionHtml}<div class="msg-time">${time}</div>`;
   return el;
 }
 

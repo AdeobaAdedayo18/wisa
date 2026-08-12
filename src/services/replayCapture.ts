@@ -120,6 +120,22 @@ export function replayMiddleware() {
       });
     }
 
+    // ── Capture incoming photo ─────────────────────────────────────────
+    // Without this a photo produced no event at all, leaving a hole in the
+    // replay exactly where the user had sent something. Only the largest size
+    // is recorded; the bytes are never fetched, just the reference.
+    if (ctx.message?.photo?.length) {
+      const largest = ctx.message.photo[ctx.message.photo.length - 1];
+      logReplayEvent(telegramId, "user_photo", "incoming", {
+        messageId: ctx.message.message_id,
+        caption: ctx.message.caption ?? "",
+        fileId: largest?.file_id ?? null,
+        chatId,
+        firstName,
+        username,
+      });
+    }
+
     // ── Capture callback query (button press) ──────────────────────────
     if (ctx.callbackQuery?.data) {
       // Try to resolve the button label from the originating message

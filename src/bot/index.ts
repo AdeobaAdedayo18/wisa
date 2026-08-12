@@ -656,6 +656,17 @@ bot.callbackQuery("nav_menu", async (ctx) => {
 // ── Voice message handler (8.3) ──────────────────────────────────────────
 bot.on("message:voice", handleVoiceLog);
 
+// ── Photos ────────────────────────────────────────────────────────────────
+// Photographing handwritten notes is the single most likely thing a student
+// tries, so this answers everywhere rather than only mid catch-up. Registered
+// BEFORE the generic media fallback below, which would otherwise swallow it
+// with a vaguer message.
+bot.on("message:photo", async (ctx) => {
+  await ctx.reply(
+    "I can't read pictures of your logbook just yet! 🙈 Please type out your rough notes or send me a voice note instead.",
+  );
+});
+
 // ── Unsupported media during catch-up ────────────────────────────────────
 // Only text and voice have handlers, so a sticker, photo, GIF or document
 // matched nothing and the bot simply went silent. Photographing handwritten
