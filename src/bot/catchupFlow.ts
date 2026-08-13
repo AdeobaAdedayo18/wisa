@@ -1722,9 +1722,19 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
 
     // The free one-week rescue gets its own celebratory sign-off in place of the
     // standard one, so that tier ends on exactly one message.
-    const signOffMessage = isFreeCatchupWeek(catchupSession.tierSelected, catchupSession.totalDuration)
-      ? CATCHUP_FREE_WEEK_MESSAGE
-      : ALL_DONE_MESSAGE;
+    const isFreeWeek = isFreeCatchupWeek(catchupSession.tierSelected, catchupSession.totalDuration);
+    const signOffMessage = isFreeWeek ? CATCHUP_FREE_WEEK_MESSAGE : ALL_DONE_MESSAGE;
+
+    // That message is the end of the road for this tier: no paywall behind it and
+    // no reminder bridge after it, so it has to name both next steps itself.
+    //
+    // View routes through catchup_view_logs rather than nav_logs because nav_logs
+    // edits in place when driven by a callback, which would overwrite the very
+    // message these buttons are attached to. catchup_view_logs replies instead.
+    const freeWeekMarkup = new InlineKeyboard()
+      .text("📖 View logs so far", "catchup_view_logs")
+      .row()
+      .text("🏠 Main Menu", "nav_menu");
 
     // Otherwise the reminder bridge replaces the standard sign-off rather than
     // following it: that message carries its own "caught up" line, and its
@@ -1732,7 +1742,9 @@ export async function resumeCatchupGeneration(sessionId: string, ctx?: BotContex
     if (willPromptReminder) {
       await promptFastTrackReminderSetup(telegramId);
     } else if (!nothingNewSaved) {
-      await notifyCatchupUser(telegramId, signOffMessage, { reply_markup: signOffMarkup });
+      await notifyCatchupUser(telegramId, signOffMessage, {
+        reply_markup: isFreeWeek ? freeWeekMarkup : signOffMarkup,
+      });
     }
 
     if (catchupSession.tierSelected === CatchupTier.VIP_DEFENSE) {
